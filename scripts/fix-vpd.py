@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import json
 import math
 import sys
@@ -13,9 +15,9 @@ HUMIDITY_CONTROL_PIN_DOWN = 16
 VENTILATION_CONTROL_PIN = 7
 
 
-EARLY_VEG_VPD_RANGE = (0.4, 0.8)
+EARLY_VEG_VPD_RANGE = (0.6, 1.0)
 LATE_VEG_VPD_RANGE = (0.8, 1.2)
-FLOWERING_VPD_RANGE = (1.2, 1.6)
+FLOWERING_VPD_RANGE = (1.2, 1.5)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 dhtDevice_in = adafruit_dht.DHT22(board.D10)
@@ -35,42 +37,47 @@ def setup_gpio():
         humidity_control_down = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_DOWN, active_high=True, initial_value=False)
         ventilation_control = gpiozero.OutputDevice(VENTILATION_CONTROL_PIN, active_high=True, initial_value=False)
     except Exception as e:
-        print(f"Error setting up GPIO: {str(e)}")
-        raise
+        raise e
 
 def humidity_up_on():
     try:
         humidity_control_up.on()
+        redis_client.set('humidity_control_up', 'true')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
 def humidity_up_off():
     try:
         humidity_control_up.off()
+        redis_client.set('humidity_control_up', 'false')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
 def humidity_down_on():
     try:
         humidity_control_down.on()
+        redis_client.set('humidity_control_down', 'true')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
 def humidity_down_off():
     try:
         humidity_control_down.off()
+        redis_client.set('humidity_control_down', 'false')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
 def ventilation_on():
     try:
         ventilation_control.on()
+        redis_client.set('ventilation_control', 'true')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
 def ventilation_off():
     try:
         ventilation_control.off()
+        redis_client.set('ventilation_control', 'false')
     except Exception as e:
         print(f"Error controlling GPIO: {str(e)}")
 
@@ -163,19 +170,12 @@ def read_sensors():
         json_data['outside_temperature'] = outside_temperature_c
         json_data['outside_humidity'] = outside_humidity
         json_data['vpd'] = calculate_vpd(temperature_c, humidity)
-        print(
-            "Temp: {:.1f} C    Humidity: {}%    VPD: {:.2f} kPa    Outside Temp: {:.1f} C    Outside Humidity: {}%".format(
-                temperature_c, humidity, json_data['vpd'], outside_temperature_c, outside_humidity
-            )
-        )
-        redis_client.set('sensors', json.dumps(json_data))
     except RuntimeError as error:
-        print(error.args[0])
         return None
     except Exception as error:
         dhtDevice_in.exit()
         dhtDevice_out.exit()
-        raise error
+        return None
     return json_data
 
 def main(stage):
@@ -183,27 +183,24 @@ def main(stage):
     STAGE = stage if stage in ["early_veg", "late_veg", "flowering"] else "early_veg"
     while True:
         sensors_data = read_sensors()
-        print("\n")
-        print(f"--------------------------------")
         if sensors_data is None:
-            print("Error reading sensors")
             continue
         temperature = float(sensors_data['temperature'])
         humidity = float(sensors_data['humidity'])
-        vpd = float(sensors_data['vpd'])
-        outside_temperature = float(sensors_data['outside_temperature'])
         outside_humidity = float(sensors_data['outside_humidity'])
-        if vpd_is_in_range(vpd, STAGE):
-            print(f"VPD is in range: {vpd}")
+        leaf_temperature = round(temperature - 1.5, 1)
+        leaf_vpd = calculate_vpd(leaf_temperature, humidity)
+        if vpd_is_in_range(leaf_vpd, STAGE):
             sleep(3)
             continue
         target_humidity = calculate_target_humidity(STAGE, temperature)
-        print(f"Target humidity: {target_humidity}")
+        sensors_data['target_humidity'] = target_humidity
+        sensors_data['leaf_temperature'] = leaf_temperature
+        sensors_data['leaf_vpd'] = leaf_vpd
+        redis_client.set('sensors', json.dumps(sensors_data))
         if target_humidity is None:
-            print("Error calculating target humidity")
             continue
         if humidity < target_humidity:
-            print("Humidity is less than target humidity")
             humidity_up_on()
             humidity_down_off()
             if outside_humidity > target_humidity:
@@ -211,7 +208,6 @@ def main(stage):
             else:
                 ventilation_off()
         elif humidity > target_humidity:
-            print("Humidity is greater than target humidity")
             humidity_up_off()
             humidity_down_on()
             if outside_humidity < target_humidity:
@@ -219,11 +215,9 @@ def main(stage):
             else:
                 ventilation_off()
         elif humidity == target_humidity:
-            print("Humidity is equal to target humidity")
             humidity_up_off()
             humidity_down_off()
             ventilation_off()
-        print(f"--------------------------------")
         sleep(3)
 
 
