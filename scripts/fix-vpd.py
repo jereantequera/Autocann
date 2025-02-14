@@ -217,6 +217,9 @@ def main(stage):
             leaf_temperature = round(temperature - 1.5, 1)
             leaf_vpd = calculate_vpd(leaf_temperature, humidity)
             if vpd_is_in_range(leaf_vpd, STAGE):
+                sensors_data['leaf_temperature'] = leaf_temperature
+                sensors_data['leaf_vpd'] = leaf_vpd
+                redis_client.set('sensors', json.dumps(sensors_data))
                 sleep(3)
                 continue
             target_humidity = calculate_target_humidity(STAGE, temperature)
