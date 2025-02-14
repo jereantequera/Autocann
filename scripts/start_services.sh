@@ -7,5 +7,5 @@ FECHA=$(date +'%Y-%m-%d')
 
 cd /home/autocann/Autocann/scripts
 
-# Ejecutar Python desde el entorno virtual sin necesidad de "source"
-./venv/bin/python fix-vpd.py early_veg 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
+source venv/bin/activate
+python fix-vpd.py early_veg 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
