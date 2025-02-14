@@ -3,7 +3,7 @@
 FECHA=$(date +'%Y-%m-%d')
 
 # Iniciar el contenedor de Redis (usando la ruta completa a docker y evitando error en caso de fallo)
-/usr/bin/docker start redis-stack || true
+/usr/bin/docker start redis-stack-server || true
 
 cd /home/autocann/Autocann/scripts
 
