@@ -186,12 +186,12 @@ def read_sensors(max_retries=3, retry_delay=2):
             return json_data
             
         except RuntimeError as error:
-            print(f"Error reading sensor (attempt {attempt + 1}/{max_retries}): {error}")
+            print("Error reading sensor (attempt {}/{}: {}".format(attempt + 1, max_retries, error))
             if attempt < max_retries - 1:
                 sleep(retry_delay)
             continue
         except Exception as error:
-            print(f"Unexpected error: {error}")
+            print("Unexpected error: {}".format(error))
             dhtDevice_in.exit()
             dhtDevice_out.exit()
             return None
@@ -250,7 +250,7 @@ def main(stage):
             sleep(3)
             
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            print("Error in main loop: {}".format(e))
             sleep(3)
 
 
