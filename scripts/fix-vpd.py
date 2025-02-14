@@ -44,7 +44,7 @@ def humidity_up_on():
         humidity_control_up.on()
         redis_client.set('humidity_control_up', 'true')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def humidity_up_off():
     try:
