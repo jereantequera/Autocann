@@ -51,35 +51,35 @@ def humidity_up_off():
         humidity_control_up.off()
         redis_client.set('humidity_control_up', 'false')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def humidity_down_on():
     try:
         humidity_control_down.on()
         redis_client.set('humidity_control_down', 'true')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def humidity_down_off():
     try:
         humidity_control_down.off()
         redis_client.set('humidity_control_down', 'false')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def ventilation_on():
     try:
         ventilation_control.on()
         redis_client.set('ventilation_control', 'true')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def ventilation_off():
     try:
         ventilation_control.off()
         redis_client.set('ventilation_control', 'false')
     except Exception as e:
-        print(f"Error controlling GPIO: {str(e)}")
+        print(e)
 
 def calculate_humidity_for_vpd(temperature, target_vpd):
     """
