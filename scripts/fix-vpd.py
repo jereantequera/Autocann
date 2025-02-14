@@ -158,67 +158,97 @@ def vpd_is_in_range(vpd, stage):
             return False
     return True
 
-def read_sensors():
-    json_data = {}
-    try:
-        temperature_c = dhtDevice_in.temperature
-        humidity = dhtDevice_in.humidity
-        outside_temperature_c = dhtDevice_out.temperature   
-        outside_humidity = dhtDevice_out.humidity
-        json_data['temperature'] = temperature_c
-        json_data['humidity'] = humidity
-        json_data['outside_temperature'] = outside_temperature_c
-        json_data['outside_humidity'] = outside_humidity
-        json_data['vpd'] = calculate_vpd(temperature_c, humidity)
-    except RuntimeError as error:
-        return None
-    except Exception as error:
-        dhtDevice_in.exit()
-        dhtDevice_out.exit()
-        return None
-    return json_data
+def read_sensors(max_retries=3, retry_delay=2):
+    """
+    Read sensors with retry logic
+    
+    Parameters:
+    - max_retries: Maximum number of retry attempts
+    - retry_delay: Delay between retries in seconds
+    """
+    for attempt in range(max_retries):
+        json_data = {}
+        try:
+            temperature_c = dhtDevice_in.temperature
+            humidity = dhtDevice_in.humidity
+            outside_temperature_c = dhtDevice_out.temperature   
+            outside_humidity = dhtDevice_out.humidity
+            
+            # Validate readings
+            if any(reading is None for reading in [temperature_c, humidity, outside_temperature_c, outside_humidity]):
+                raise RuntimeError("Invalid sensor reading")
+                
+            json_data['temperature'] = temperature_c
+            json_data['humidity'] = humidity
+            json_data['outside_temperature'] = outside_temperature_c
+            json_data['outside_humidity'] = outside_humidity
+            json_data['vpd'] = calculate_vpd(temperature_c, humidity)
+            return json_data
+            
+        except RuntimeError as error:
+            print(f"Error reading sensor (attempt {attempt + 1}/{max_retries}): {error}")
+            if attempt < max_retries - 1:
+                sleep(retry_delay)
+            continue
+        except Exception as error:
+            print(f"Unexpected error: {error}")
+            dhtDevice_in.exit()
+            dhtDevice_out.exit()
+            return None
+    
+    print("Failed to read sensors after maximum retries")
+    return None
 
 def main(stage):
     setup_gpio()
     STAGE = stage if stage in ["early_veg", "late_veg", "flowering"] else "early_veg"
+    
     while True:
-        sensors_data = read_sensors()
-        if sensors_data is None:
-            continue
-        temperature = float(sensors_data['temperature'])
-        humidity = float(sensors_data['humidity'])
-        outside_humidity = float(sensors_data['outside_humidity'])
-        leaf_temperature = round(temperature - 1.5, 1)
-        leaf_vpd = calculate_vpd(leaf_temperature, humidity)
-        if vpd_is_in_range(leaf_vpd, STAGE):
+        try:
+            sensors_data = read_sensors()
+            if sensors_data is None:
+                print("No valid sensor data, retrying in 3 seconds...")
+                sleep(3)
+                continue
+                
+            temperature = float(sensors_data['temperature'])
+            humidity = float(sensors_data['humidity'])
+            outside_humidity = float(sensors_data['outside_humidity'])
+            leaf_temperature = round(temperature - 1.5, 1)
+            leaf_vpd = calculate_vpd(leaf_temperature, humidity)
+            if vpd_is_in_range(leaf_vpd, STAGE):
+                sleep(3)
+                continue
+            target_humidity = calculate_target_humidity(STAGE, temperature)
+            sensors_data['target_humidity'] = target_humidity
+            sensors_data['leaf_temperature'] = leaf_temperature
+            sensors_data['leaf_vpd'] = leaf_vpd
+            redis_client.set('sensors', json.dumps(sensors_data))
+            if target_humidity is None:
+                continue
+            if humidity < target_humidity:
+                humidity_up_on()
+                humidity_down_off()
+                if outside_humidity > target_humidity:
+                    ventilation_on()
+                else:
+                    ventilation_off()
+            elif humidity > target_humidity:
+                humidity_up_off()
+                humidity_down_on()
+                if outside_humidity < target_humidity:
+                    ventilation_on()
+                else:
+                    ventilation_off()
+            elif humidity == target_humidity:
+                humidity_up_off()
+                humidity_down_off()
+                ventilation_off()
             sleep(3)
-            continue
-        target_humidity = calculate_target_humidity(STAGE, temperature)
-        sensors_data['target_humidity'] = target_humidity
-        sensors_data['leaf_temperature'] = leaf_temperature
-        sensors_data['leaf_vpd'] = leaf_vpd
-        redis_client.set('sensors', json.dumps(sensors_data))
-        if target_humidity is None:
-            continue
-        if humidity < target_humidity:
-            humidity_up_on()
-            humidity_down_off()
-            if outside_humidity > target_humidity:
-                ventilation_on()
-            else:
-                ventilation_off()
-        elif humidity > target_humidity:
-            humidity_up_off()
-            humidity_down_on()
-            if outside_humidity < target_humidity:
-                ventilation_on()
-            else:
-                ventilation_off()
-        elif humidity == target_humidity:
-            humidity_up_off()
-            humidity_down_off()
-            ventilation_off()
-        sleep(3)
+            
+        except Exception as e:
+            print(f"Error in main loop: {e}")
+            sleep(3)
 
 
 if __name__ == "__main__":
