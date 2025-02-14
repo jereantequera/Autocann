@@ -7,5 +7,4 @@ FECHA=$(date +'%Y-%m-%d')
 
 cd /home/autocann/Autocann/scripts
 
-source venv/bin/activate
-python fix-vpd.py early_veg 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
+/home/autocann/Autocann/scripts/venv/bin/python fix-vpd.py early_veg 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
