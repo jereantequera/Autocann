@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autocann Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .current-data {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .data-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .data-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #2c3e50;
+        }
+        .data-label {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        .charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .chart-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            margin: 0 0 20px 0;
+            color: #2c3e50;
+        }
+        .last-update {
+            text-align: center;
+            color: #7f8c8d;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="current-data">
+        <div class="data-card">
+            <div class="data-label">Temperatura</div>
+            <div class="data-value" id="current-temp">--</div>
+            <div class="data-label">°C</div>
+        </div>
+        <div class="data-card">
+            <div class="data-label">Humedad</div>
+            <div class="data-value" id="current-humidity">--</div>
+            <div class="data-label">%</div>
+        </div>
+        <div class="data-card">
+            <div class="data-label">VPD</div>
+            <div class="data-value" id="current-vpd">--</div>
+            <div class="data-label">kPa</div>
+        </div>
+        <div class="data-card">
+            <div class="data-label">Temperatura Hoja</div>
+            <div class="data-value" id="current-leaf-temp">--</div>
+            <div class="data-label">°C</div>
+        </div>
+    </div>
+
+    <div class="charts-container">
+        <div class="chart-card">
+            <h3 class="chart-title">Últimas 6 horas</h3>
+            <canvas id="chart-6h"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3 class="chart-title">Últimas 12 horas</h3>
+            <canvas id="chart-12h"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3 class="chart-title">Últimas 24 horas</h3>
+            <canvas id="chart-24h"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3 class="chart-title">Última semana</h3>
+            <canvas id="chart-1w"></canvas>
+        </div>
+    </div>
+
+    <div class="last-update" id="last-update"></div>
+
+    <script>
+        const charts = {};
+        const timeWindows = ['6h', '12h', '24h', '1w'];
+        
+        // Inicializar gráficos
+        timeWindows.forEach(window => {
+            const ctx = document.getElementById(`chart-${window}`).getContext('2d');
+            charts[window] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperatura',
+                            data: [],
+                            borderColor: 'rgb(255, 99, 132)',
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Humedad',
+                            data: [],
+                            borderColor: 'rgb(54, 162, 235)',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        });
+
+        function updateCurrentData(data) {
+            document.getElementById('current-temp').textContent = data.temperature.toFixed(1);
+            document.getElementById('current-humidity').textContent = data.humidity.toFixed(1);
+            document.getElementById('current-vpd').textContent = data.vpd.toFixed(2);
+            document.getElementById('current-leaf-temp').textContent = data.leaf_temperature.toFixed(1);
+            document.getElementById('last-update').textContent = `Última actualización: ${new Date().toLocaleString()}`;
+        }
+
+        function updateHistoricalData(data) {
+            timeWindows.forEach(window => {
+                const windowData = data[window];
+                if (windowData && windowData.length > 0) {
+                    const labels = windowData.map(point => point.datetime);
+                    const temperatures = windowData.map(point => point.temperature);
+                    const humidities = windowData.map(point => point.humidity);
+
+                    charts[window].data.labels = labels;
+                    charts[window].data.datasets[0].data = temperatures;
+                    charts[window].data.datasets[1].data = humidities;
+                    charts[window].update();
+                }
+            });
+        }
+
+        function fetchData() {
+            // Obtener datos actuales
+            fetch('/api/current-data')
+                .then(response => response.json())
+                .then(data => updateCurrentData(data))
+                .catch(error => console.error('Error fetching current data:', error));
+
+            // Obtener datos históricos
+            fetch('/api/historical-data')
+                .then(response => response.json())
+                .then(data => updateHistoricalData(data))
+                .catch(error => console.error('Error fetching historical data:', error));
+        }
+
+        // Actualizar datos cada 30 segundos
+        fetchData();
+        setInterval(fetchData, 30000);
+    </script>
+</body>
+</html> 

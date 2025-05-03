@@ -3,11 +3,14 @@
 import json
 import math
 import sys
+import time
+from datetime import datetime, timedelta
 from time import sleep
 
 import adafruit_dht
 import board
 import gpiozero
+import pytz
 import redis
 
 HUMIDITY_CONTROL_PIN_UP = 25
@@ -199,9 +202,91 @@ def read_sensors(max_retries=3, retry_delay=2):
     print("Failed to read sensors after maximum retries")
     return None
 
+def store_historical_data(sensors_data):
+    """
+    Store historical temperature and humidity data in Redis with different time windows.
+    Each data point includes timestamp, temperature and humidity.
+    Data is stored at different intervals:
+    - 6h: every hour
+    - 12h: every 6 hours (average)
+    - 24h: every 12 hours (average)
+    - 1w: every 24 hours (average)
+    """
+    # Get current time in Argentina timezone
+    argentina_tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    current_time = datetime.now(argentina_tz)
+    current_timestamp = int(current_time.timestamp())
+    
+    data_point = {
+        'timestamp': current_timestamp,
+        'datetime': current_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'temperature': sensors_data['temperature'],
+        'humidity': sensors_data['humidity']
+    }
+    
+    # Define time windows and their intervals
+    time_windows = {
+        '6h': {'duration': 6 * 3600, 'interval': 3600},  # 6 hours, store every hour
+        '12h': {'duration': 12 * 3600, 'interval': 6 * 3600},  # 12 hours, store every 6 hours
+        '24h': {'duration': 24 * 3600, 'interval': 12 * 3600},  # 24 hours, store every 12 hours
+        '1w': {'duration': 7 * 24 * 3600, 'interval': 24 * 3600}  # 1 week, store every 24 hours
+    }
+    
+    # Store data for each time window
+    for window, config in time_windows.items():
+        key = f'historical_data_{window}'
+        buffer_key = f'historical_buffer_{window}'
+        
+        # Get existing data
+        existing_data = redis_client.get(key)
+        if existing_data:
+            data_list = json.loads(existing_data)
+        else:
+            data_list = []
+            
+        # Get or create buffer for averaging
+        buffer_data = redis_client.get(buffer_key)
+        if buffer_data:
+            buffer_list = json.loads(buffer_data)
+        else:
+            buffer_list = []
+            
+        # Add new data point to buffer
+        buffer_list.append(data_point)
+        
+        # Check if we need to create a new average point
+        if buffer_list and (len(buffer_list) == 1 or 
+            current_timestamp - buffer_list[0]['timestamp'] >= config['interval']):
+            
+            # Calculate average
+            avg_temperature = sum(point['temperature'] for point in buffer_list) / len(buffer_list)
+            avg_humidity = sum(point['humidity'] for point in buffer_list) / len(buffer_list)
+            
+            # Create new average point
+            avg_point = {
+                'timestamp': current_timestamp,
+                'datetime': current_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'temperature': round(avg_temperature, 2),
+                'humidity': round(avg_humidity, 2)
+            }
+            
+            # Add to data list
+            data_list.append(avg_point)
+            
+            # Clear buffer
+            buffer_list = []
+        
+        # Remove old data points
+        cutoff_time = current_timestamp - config['duration']
+        data_list = [point for point in data_list if point['timestamp'] > cutoff_time]
+        
+        # Store updated data and buffer
+        redis_client.set(key, json.dumps(data_list))
+        redis_client.set(buffer_key, json.dumps(buffer_list))
+
 def main(stage):
     setup_gpio()
-    STAGE = stage if stage in ["early_veg", "late_veg", "flowering"] else "early_veg"
+    STAGE = stage if stage in ["early_veg", "late_veg", "flowering", "dry"] else "early_veg"
     
     while True:
         try:
@@ -210,22 +295,36 @@ def main(stage):
                 print("No valid sensor data, retrying in 3 seconds...")
                 sleep(3)
                 continue
-                
+            
             temperature = float(sensors_data['temperature'])
             humidity = float(sensors_data['humidity'])
             outside_humidity = float(sensors_data['outside_humidity'])
             leaf_temperature = round(temperature - 1.5, 1)
             leaf_vpd = calculate_vpd(leaf_temperature, humidity)
-            if vpd_is_in_range(leaf_vpd, STAGE):
+            # Store historical data
+            store_historical_data(sensors_data)            
+            if stage != "dry":
+                if vpd_is_in_range(leaf_vpd, STAGE):
+                    sensors_data['leaf_temperature'] = leaf_temperature
+                    sensors_data['leaf_vpd'] = leaf_vpd
+                    redis_client.set('sensors', json.dumps(sensors_data))
+                    sleep(3)
+                    continue
+                target_humidity = calculate_target_humidity(STAGE, temperature)
+                sensors_data['target_humidity'] = target_humidity
                 sensors_data['leaf_temperature'] = leaf_temperature
                 sensors_data['leaf_vpd'] = leaf_vpd
-                redis_client.set('sensors', json.dumps(sensors_data))
-                sleep(3)
-                continue
-            target_humidity = calculate_target_humidity(STAGE, temperature)
+            else:
+                if humidity <= 60:
+                    target_humidity = 65
+                elif humidity >= 65:
+                    target_humidity = 60
+                elif humidity >= 60 and humidity <= 65:
+                    target_humidity = None
             sensors_data['target_humidity'] = target_humidity
             sensors_data['leaf_temperature'] = leaf_temperature
             sensors_data['leaf_vpd'] = leaf_vpd
+            
             redis_client.set('sensors', json.dumps(sensors_data))
             if target_humidity is None:
                 continue
