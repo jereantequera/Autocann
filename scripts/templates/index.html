@@ -37,23 +37,40 @@
         }
         .charts-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            grid-template-columns: repeat(2, 1fr);
             gap: 20px;
+            max-width: 1800px;
+            margin: 0 auto;
         }
         .chart-card {
             background: white;
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            height: 800px;
+            display: flex;
+            flex-direction: column;
         }
         .chart-title {
             margin: 0 0 20px 0;
             color: #2c3e50;
+            text-align: center;
+        }
+        .chart-container {
+            flex: 1;
+            position: relative;
+            width: 100%;
+            height: 100%;
         }
         .last-update {
             text-align: center;
             color: #7f8c8d;
             margin-top: 20px;
+        }
+        @media (max-width: 1800px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -84,19 +101,27 @@
     <div class="charts-container">
         <div class="chart-card">
             <h3 class="chart-title">Últimas 6 horas</h3>
-            <canvas id="chart-6h"></canvas>
+            <div class="chart-container">
+                <canvas id="chart-6h"></canvas>
+            </div>
         </div>
         <div class="chart-card">
             <h3 class="chart-title">Últimas 12 horas</h3>
-            <canvas id="chart-12h"></canvas>
+            <div class="chart-container">
+                <canvas id="chart-12h"></canvas>
+            </div>
         </div>
         <div class="chart-card">
             <h3 class="chart-title">Últimas 24 horas</h3>
-            <canvas id="chart-24h"></canvas>
+            <div class="chart-container">
+                <canvas id="chart-24h"></canvas>
+            </div>
         </div>
         <div class="chart-card">
             <h3 class="chart-title">Última semana</h3>
-            <canvas id="chart-1w"></canvas>
+            <div class="chart-container">
+                <canvas id="chart-1w"></canvas>
+            </div>
         </div>
     </div>
 
@@ -118,22 +143,46 @@
                             label: 'Temperatura',
                             data: [],
                             borderColor: 'rgb(255, 99, 132)',
-                            tension: 0.1
+                            tension: 0.1,
+                            yAxisID: 'y'
                         },
                         {
                             label: 'Humedad',
                             data: [],
                             borderColor: 'rgb(54, 162, 235)',
-                            tension: 0.1
+                            tension: 0.1,
+                            yAxisID: 'y1'
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     scales: {
                         y: {
-                            beginAtZero: false
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Temperatura (°C)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Humedad (%)'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
                         }
                     }
                 }
@@ -178,9 +227,9 @@
                 .catch(error => console.error('Error fetching historical data:', error));
         }
 
-        // Actualizar datos cada 30 segundos
+        // Actualizar datos cada 3 segundos
         fetchData();
-        setInterval(fetchData, 30000);
+        setInterval(fetchData, 3000);
     </script>
 </body>
 </html> 
