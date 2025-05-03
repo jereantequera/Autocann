@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autocann Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -35,32 +34,48 @@
             color: #7f8c8d;
             font-size: 1.1em;
         }
-        .charts-container {
+        .averages-container {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 20px;
             max-width: 1800px;
             margin: 0 auto;
         }
-        .chart-card {
+        .average-card {
             background: white;
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            height: 800px;
             display: flex;
             flex-direction: column;
         }
-        .chart-title {
+        .average-title {
             margin: 0 0 20px 0;
             color: #2c3e50;
             text-align: center;
+            font-size: 1.5em;
         }
-        .chart-container {
+        .average-values {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
             flex: 1;
-            position: relative;
-            width: 100%;
-            height: 100%;
+        }
+        .average-value {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .average-value-label {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+        .average-value-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
         }
         .last-update {
             text-align: center;
@@ -68,7 +83,7 @@
             margin-top: 20px;
         }
         @media (max-width: 1800px) {
-            .charts-container {
+            .averages-container {
                 grid-template-columns: 1fr;
             }
         }
@@ -98,29 +113,65 @@
         </div>
     </div>
 
-    <div class="charts-container">
-        <div class="chart-card">
-            <h3 class="chart-title">Últimas 6 horas</h3>
-            <div class="chart-container">
-                <canvas id="chart-6h"></canvas>
+    <div class="averages-container">
+        <div class="average-card">
+            <h3 class="average-title">Últimas 6 horas</h3>
+            <div class="average-values">
+                <div class="average-value">
+                    <div class="average-value-label">Temperatura Promedio</div>
+                    <div class="average-value-number" id="avg-temp-6h">--</div>
+                    <div class="average-value-label">°C</div>
+                </div>
+                <div class="average-value">
+                    <div class="average-value-label">Humedad Promedio</div>
+                    <div class="average-value-number" id="avg-humidity-6h">--</div>
+                    <div class="average-value-label">%</div>
+                </div>
             </div>
         </div>
-        <div class="chart-card">
-            <h3 class="chart-title">Últimas 12 horas</h3>
-            <div class="chart-container">
-                <canvas id="chart-12h"></canvas>
+        <div class="average-card">
+            <h3 class="average-title">Últimas 12 horas</h3>
+            <div class="average-values">
+                <div class="average-value">
+                    <div class="average-value-label">Temperatura Promedio</div>
+                    <div class="average-value-number" id="avg-temp-12h">--</div>
+                    <div class="average-value-label">°C</div>
+                </div>
+                <div class="average-value">
+                    <div class="average-value-label">Humedad Promedio</div>
+                    <div class="average-value-number" id="avg-humidity-12h">--</div>
+                    <div class="average-value-label">%</div>
+                </div>
             </div>
         </div>
-        <div class="chart-card">
-            <h3 class="chart-title">Últimas 24 horas</h3>
-            <div class="chart-container">
-                <canvas id="chart-24h"></canvas>
+        <div class="average-card">
+            <h3 class="average-title">Últimas 24 horas</h3>
+            <div class="average-values">
+                <div class="average-value">
+                    <div class="average-value-label">Temperatura Promedio</div>
+                    <div class="average-value-number" id="avg-temp-24h">--</div>
+                    <div class="average-value-label">°C</div>
+                </div>
+                <div class="average-value">
+                    <div class="average-value-label">Humedad Promedio</div>
+                    <div class="average-value-number" id="avg-humidity-24h">--</div>
+                    <div class="average-value-label">%</div>
+                </div>
             </div>
         </div>
-        <div class="chart-card">
-            <h3 class="chart-title">Última semana</h3>
-            <div class="chart-container">
-                <canvas id="chart-1w"></canvas>
+        <div class="average-card">
+            <h3 class="average-title">Última semana</h3>
+            <div class="average-values">
+                <div class="average-value">
+                    <div class="average-value-label">Temperatura Promedio</div>
+                    <div class="average-value-number" id="avg-temp-1w">--</div>
+                    <div class="average-value-label">°C</div>
+                </div>
+                <div class="average-value">
+                    <div class="average-value-label">Humedad Promedio</div>
+                    <div class="average-value-number" id="avg-humidity-1w">--</div>
+                    <div class="average-value-label">%</div>
+                </div>
             </div>
         </div>
     </div>
@@ -128,66 +179,7 @@
     <div class="last-update" id="last-update"></div>
 
     <script>
-        const charts = {};
         const timeWindows = ['6h', '12h', '24h', '1w'];
-        
-        // Inicializar gráficos
-        timeWindows.forEach(window => {
-            const ctx = document.getElementById(`chart-${window}`).getContext('2d');
-            charts[window] = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'Temperatura',
-                            data: [],
-                            borderColor: 'rgb(255, 99, 132)',
-                            tension: 0.1,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Humedad',
-                            data: [],
-                            borderColor: 'rgb(54, 162, 235)',
-                            tension: 0.1,
-                            yAxisID: 'y1'
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    scales: {
-                        y: {
-                            type: 'linear',
-                            display: true,
-                            position: 'left',
-                            title: {
-                                display: true,
-                                text: 'Temperatura (°C)'
-                            }
-                        },
-                        y1: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            title: {
-                                display: true,
-                                text: 'Humedad (%)'
-                            },
-                            grid: {
-                                drawOnChartArea: false
-                            }
-                        }
-                    }
-                }
-            });
-        });
 
         function updateCurrentData(data) {
             document.getElementById('current-temp').textContent = data.temperature.toFixed(1);
@@ -201,14 +193,14 @@
             timeWindows.forEach(window => {
                 const windowData = data[window];
                 if (windowData && windowData.length > 0) {
-                    const labels = windowData.map(point => point.datetime);
                     const temperatures = windowData.map(point => point.temperature);
                     const humidities = windowData.map(point => point.humidity);
 
-                    charts[window].data.labels = labels;
-                    charts[window].data.datasets[0].data = temperatures;
-                    charts[window].data.datasets[1].data = humidities;
-                    charts[window].update();
+                    const avgTemp = temperatures.reduce((a, b) => a + b, 0) / temperatures.length;
+                    const avgHumidity = humidities.reduce((a, b) => a + b, 0) / humidities.length;
+
+                    document.getElementById(`avg-temp-${window}`).textContent = avgTemp.toFixed(1);
+                    document.getElementById(`avg-humidity-${window}`).textContent = avgHumidity.toFixed(1);
                 }
             });
         }
