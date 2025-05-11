@@ -301,6 +301,7 @@ def main(stage):
             outside_humidity = float(sensors_data['outside_humidity'])
             leaf_temperature = round(temperature - 1.5, 1)
             leaf_vpd = calculate_vpd(leaf_temperature, humidity)
+            humidity_is_in_range = False
             # Store historical data
             store_historical_data(sensors_data)            
             if stage != "dry":
@@ -315,17 +316,21 @@ def main(stage):
                 sensors_data['leaf_temperature'] = leaf_temperature
                 sensors_data['leaf_vpd'] = leaf_vpd
             else:
-                if humidity <= 60:
-                    target_humidity = 65
+                if humidity >= 60 and humidity <= 65:
+                    target_humidity = humidity
+                    humidity_is_in_range = True
                 elif humidity >= 65:
                     target_humidity = 60
-                elif humidity >= 60 and humidity <= 65:
-                    target_humidity = humidity
+                elif humidity <= 60:
+                    target_humidity = 65
             sensors_data['target_humidity'] = target_humidity
             sensors_data['leaf_temperature'] = leaf_temperature
             sensors_data['leaf_vpd'] = leaf_vpd
             
             redis_client.set('sensors', json.dumps(sensors_data))
+            if humidity_is_in_range:
+                sleep(3)
+                continue
             if target_humidity is None:
                 continue
             if humidity < target_humidity:
