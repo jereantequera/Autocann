@@ -137,6 +137,11 @@
             <div class="data-label">%</div>
         </div>
         <div class="data-card">
+            <div class="data-label">Humedad Objetivo</div>
+            <div class="data-value" id="current-target-humidity">--</div>
+            <div class="data-label">%</div>
+        </div>
+        <div class="data-card">
             <div class="data-label">VPD</div>
             <div class="data-value" id="current-vpd">--</div>
             <div class="data-label">kPa</div>
@@ -237,6 +242,7 @@
             // Datos interiores
             document.getElementById('current-temp').textContent = data.temperature.toFixed(1);
             document.getElementById('current-humidity').textContent = data.humidity.toFixed(1);
+            document.getElementById('current-target-humidity').textContent = data.target_humidity ? data.target_humidity.toFixed(1) : '--';
             document.getElementById('current-vpd').textContent = data.vpd.toFixed(2);
             document.getElementById('current-leaf-temp').textContent = data.leaf_temperature.toFixed(1);
             
