@@ -17,4 +17,4 @@ else
 fi
 
 # Iniciar el script de VPD
-/home/autocann/Autocann/venv/bin/python fix-vpd.py early_veg 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
+/home/autocann/Autocann/venv/bin/python fix-vpd.py dry 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
