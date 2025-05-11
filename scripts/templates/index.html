@@ -46,11 +46,6 @@
             border-radius: 10px;
             margin-bottom: 30px;
         }
-        .outdoor-title {
-            color: #2980b9;
-            margin: 0 0 20px 0;
-            font-size: 1.2em;
-        }
         .outdoor-values {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -155,17 +150,16 @@
 
     <h2 class="section-title">Datos Exteriores</h2>
     <div class="outdoor-data">
-        <h3 class="outdoor-title">Condiciones Ambientales</h3>
         <div class="outdoor-values">
             <div class="outdoor-card">
-                <div class="outdoor-label">Temperatura Exterior</div>
-                <div class="outdoor-value" id="current-outdoor-temp">--</div>
-                <div class="outdoor-label">°C</div>
+                <div class="data-label">Temperatura Exterior</div>
+                <div class="data-value" id="current-outdoor-temp">--</div>
+                <div class="data-label">°C</div>
             </div>
             <div class="outdoor-card">
-                <div class="outdoor-label">Humedad Exterior</div>
-                <div class="outdoor-value" id="current-outdoor-humidity">--</div>
-                <div class="outdoor-label">%</div>
+                <div class="data-label">Humedad Exterior</div>
+                <div class="data-value" id="current-outdoor-humidity">--</div>
+                <div class="data-label">%</div>
             </div>
         </div>
     </div>
