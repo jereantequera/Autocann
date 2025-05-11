@@ -320,7 +320,7 @@ def main(stage):
                 elif humidity >= 65:
                     target_humidity = 60
                 elif humidity >= 60 and humidity <= 65:
-                    target_humidity = None
+                    target_humidity = humidity
             sensors_data['target_humidity'] = target_humidity
             sensors_data['leaf_temperature'] = leaf_temperature
             sensors_data['leaf_vpd'] = leaf_vpd
