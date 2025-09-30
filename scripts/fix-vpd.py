@@ -3,12 +3,12 @@
 import json
 import math
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from time import sleep
 
-import adafruit_dht
+import adafruit_bme280.advanced as adafruit_bme280
 import board
+import busio
 import gpiozero
 import pytz
 import redis
@@ -23,8 +23,15 @@ LATE_VEG_VPD_RANGE = (0.8, 1.2)
 FLOWERING_VPD_RANGE = (1.2, 1.5)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
-dhtDevice_in = adafruit_dht.DHT22(board.D10)
-dhtDevice_out = adafruit_dht.DHT22(board.D11)
+
+# Initialize I2C bus
+i2c = busio.I2C(board.SCL, board.SDA)
+
+# Initialize BME280 sensors with different addresses
+# Indoor sensor: address 0x76 (SD0 connected to GND)
+bme280_in = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=0x76)
+# Outdoor sensor: address 0x77 (SD0 connected to VCC)
+bme280_out = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=0x77)
 
 humidity_control_up = None
 humidity_control_down = None
@@ -172,19 +179,20 @@ def read_sensors(max_retries=3, retry_delay=2):
     for attempt in range(max_retries):
         json_data = {}
         try:
-            temperature_c = dhtDevice_in.temperature
-            humidity = dhtDevice_in.humidity
-            outside_temperature_c = dhtDevice_out.temperature   
-            outside_humidity = dhtDevice_out.humidity
+            # Read from BME280 sensors
+            temperature_c = bme280_in.temperature
+            humidity = bme280_in.relative_humidity
+            outside_temperature_c = bme280_out.temperature   
+            outside_humidity = bme280_out.relative_humidity
             
             # Validate readings
             if any(reading is None for reading in [temperature_c, humidity, outside_temperature_c, outside_humidity]):
                 raise RuntimeError("Invalid sensor reading")
                 
-            json_data['temperature'] = temperature_c
-            json_data['humidity'] = humidity
-            json_data['outside_temperature'] = outside_temperature_c
-            json_data['outside_humidity'] = outside_humidity
+            json_data['temperature'] = round(temperature_c, 2)
+            json_data['humidity'] = round(humidity, 2)
+            json_data['outside_temperature'] = round(outside_temperature_c, 2)
+            json_data['outside_humidity'] = round(outside_humidity, 2)
             json_data['vpd'] = calculate_vpd(temperature_c, humidity)
             return json_data
             
@@ -195,8 +203,6 @@ def read_sensors(max_retries=3, retry_delay=2):
             continue
         except Exception as error:
             print("Unexpected error: {}".format(error))
-            dhtDevice_in.exit()
-            dhtDevice_out.exit()
             return None
     
     print("Failed to read sensors after maximum retries")

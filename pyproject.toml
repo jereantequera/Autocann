@@ -1,0 +1,28 @@
+[project]
+name = "autocann"
+version = "0.1.0"
+description = "Cannabis cultivation automation system with VPD control"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=3.0.0",
+    "pytz>=2024.1",
+    "redis>=5.0.0",
+]
+
+[project.optional-dependencies]
+# Raspberry Pi specific dependencies (only install on Raspberry Pi)
+rpi = [
+    "adafruit-circuitpython-bme280>=2.6.0",
+    "adafruit-blinka>=8.0.0",
+    "gpiozero>=2.0.0",
+    "RPi.GPIO>=0.7.1",
+]
+dev = [
+    "ruff>=0.1.0",
+]
+
+[tool.uv]
+dev-dependencies = []
+package = false
+
