@@ -306,6 +306,10 @@ def main(stage_override=None):
     stage_check_counter = 0
     STAGE_CHECK_INTERVAL = 20  # Check for stage changes every 20 iterations (~60 seconds)
     
+    # Control for SQLite storage (every 5 minutes minimum)
+    last_db_save_time = 0
+    DB_SAVE_INTERVAL = 300  # 5 minutes in seconds
+    
     while True:
         try:
             # Check for stage changes periodically
@@ -381,8 +385,12 @@ def main(stage_override=None):
             # Store in Redis for real-time access
             redis_client.set('sensors', json.dumps(sensors_data))
             
-            # Store in SQLite for historical persistence
-            store_sensor_sample(sensors_data)
+            # Store in SQLite for historical persistence (every 5 minutes minimum)
+            current_time = datetime.now().timestamp()
+            if current_time - last_db_save_time >= DB_SAVE_INTERVAL:
+                store_sensor_sample(sensors_data)
+                last_db_save_time = current_time
+                print(f"💾 Sample saved to database (next save in 5 minutes)")
             
             if humidity_is_in_range:
                 sleep(3)
