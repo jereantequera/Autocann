@@ -32,4 +32,4 @@ else
 fi
 
 # Iniciar el script de VPD usando uv
-uv run fix-vpd.py dry 2>> "/home/autocann/Autocann/logs/errors_vpd_$FECHA.log"
+uv run fix-vpd.py dry >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1

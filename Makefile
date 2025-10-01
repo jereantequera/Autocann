@@ -89,8 +89,8 @@ logs:
 	@echo "=== Backend logs (últimas 50 líneas) ==="
 	@tail -n 50 logs/backend_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de backend hoy"
 	@echo ""
-	@echo "=== VPD errors (últimas 50 líneas) ==="
-	@tail -n 50 logs/errors_vpd_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de errores de VPD hoy"
+	@echo "=== VPD logs (últimas 50 líneas) ==="
+	@tail -n 50 logs/vpd_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de VPD hoy"
 
 # Comandos SSH para administración remota
 ssh:
