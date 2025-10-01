@@ -589,6 +589,11 @@
             <div class="chart-header">
                 <div class="chart-title">Temperatura y Humedad</div>
                 <div class="time-selector">
+                    <button class="time-btn" data-hours="0.5" data-interval="raw">30 min</button>
+                    <button class="time-btn" data-hours="1" data-interval="raw">1 Hora</button>
+                    <button class="time-btn" data-hours="3" data-interval="raw">3 Horas</button>
+                    <button class="time-btn" data-hours="6" data-interval="raw">6 Horas</button>
+                    <button class="time-btn" data-hours="12" data-interval="raw">12 Horas</button>
                     <button class="time-btn active" data-period="1" data-interval="hourly">1 Día</button>
                     <button class="time-btn" data-period="7" data-interval="hourly">7 Días</button>
                     <button class="time-btn" data-period="30" data-interval="6hourly">30 Días</button>
@@ -737,6 +742,7 @@
         let tempHumidityChart, vpdChart, comparisonChart;
         let currentPeriod = 1;
         let currentInterval = 'hourly';
+        let currentHours = null;  // For sub-day periods
 
         function initCharts() {
             // Temperature & Humidity Chart
@@ -937,7 +943,10 @@
             const hours = date.getHours().toString().padStart(2, '0');
             const minutes = date.getMinutes().toString().padStart(2, '0');
             
-            if (currentInterval === 'daily') {
+            // For sub-day periods, show hours:minutes only
+            if (currentHours !== null && currentHours < 24) {
+                return `${hours}:${minutes}`;
+            } else if (currentInterval === 'daily') {
                 return `${day}/${month}`;
             } else {
                 return `${day}/${month} ${hours}:${minutes}`;
@@ -1049,10 +1058,34 @@
                 .catch(error => console.error('Error fetching database stats:', error));
         }
 
-        function fetchHistoricalData(days, interval) {
-            fetch(`/api/history/aggregated?days=${days}&interval=${interval}`)
+        function fetchHistoricalData(days, interval, hours = null) {
+            let url;
+            
+            if (hours !== null) {
+                // For sub-day periods, use sensor-history endpoint (raw data)
+                const now = Math.floor(Date.now() / 1000);
+                const start = now - (hours * 3600);
+                url = `/api/sensor-history?start=${start}&end=${now}&limit=1000`;
+            } else {
+                // For multi-day periods, use aggregated endpoint
+                url = `/api/history/aggregated?days=${days}&interval=${interval}`;
+            }
+            
+            fetch(url)
                 .then(response => response.json())
-                .then(data => updateHistoricalCharts(data))
+                .then(data => {
+                    // Adapt response format if using sensor-history
+                    if (hours !== null) {
+                        const adaptedData = {
+                            data: data.data || [],
+                            count: data.count || 0,
+                            aggregated: false
+                        };
+                        updateHistoricalCharts(adaptedData);
+                    } else {
+                        updateHistoricalCharts(data);
+                    }
+                })
                 .catch(error => console.error('Error fetching historical data:', error));
         }
 
@@ -1115,7 +1148,7 @@
                     closeModal('newGrowModal');
                     fetchActiveGrow();
                     fetchDatabaseStats();
-                    fetchHistoricalData(currentPeriod, currentInterval);
+                    fetchHistoricalData(currentPeriod, currentInterval, currentHours);
                 } else {
                     alert(`❌ Error: ${result.error}`);
                 }
@@ -1171,7 +1204,7 @@
                     closeModal('growsModal');
                     fetchActiveGrow();
                     fetchDatabaseStats();
-                    fetchHistoricalData(currentPeriod, currentInterval);
+                    fetchHistoricalData(currentPeriod, currentInterval, currentHours);
                 } else {
                     alert(`❌ Error: ${result.error}`);
                 }
@@ -1257,10 +1290,18 @@
                 document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
                 
-                currentPeriod = parseInt(this.dataset.period);
-                currentInterval = this.dataset.interval;
-                
-                fetchHistoricalData(currentPeriod, currentInterval);
+                // Check if it's an hourly period (sub-day)
+                if (this.dataset.hours) {
+                    currentHours = parseFloat(this.dataset.hours);
+                    currentPeriod = null;
+                    currentInterval = this.dataset.interval;
+                    fetchHistoricalData(null, null, currentHours);
+                } else {
+                    currentHours = null;
+                    currentPeriod = parseInt(this.dataset.period);
+                    currentInterval = this.dataset.interval;
+                    fetchHistoricalData(currentPeriod, currentInterval);
+                }
             });
         });
 
@@ -1270,14 +1311,14 @@
             fetchCurrentData();
             fetchDatabaseStats();
             fetchActiveGrow();
-            fetchHistoricalData(currentPeriod, currentInterval);
+            fetchHistoricalData(currentPeriod, currentInterval, currentHours);
             
             // Update current data every 3 seconds
             setInterval(fetchCurrentData, 3000);
             
             // Update historical data every 30 seconds
             setInterval(() => {
-                fetchHistoricalData(currentPeriod, currentInterval);
+                fetchHistoricalData(currentPeriod, currentInterval, currentHours);
             }, 30000);
             
             // Update database stats every 60 seconds
