@@ -2,6 +2,9 @@
 
 FECHA=$(date +'%Y-%m-%d')
 
+# Add uv to PATH (installed in user's .cargo/bin or .local/bin)
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+
 # Iniciar el contenedor de Redis (usando la ruta completa a docker y evitando error en caso de fallo)
 /usr/bin/docker start redis-stack-server || true
 

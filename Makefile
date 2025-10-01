@@ -108,16 +108,16 @@ ssh-status:
 
 ssh-restart:
 	@echo "Reiniciando servicios en la Raspberry Pi..."
-	ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true; cd $(RPI_PATH) && nohup ./scripts/start_services.sh > /dev/null 2>&1 &"
+	ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true; cd $(RPI_PATH) && bash -c 'nohup ./scripts/start_services.sh > /dev/null 2>&1 &' && exit 0"
 
 deploy:
 	@echo "Desplegando cambios en la Raspberry Pi..."
 	@echo "1. Haciendo push al repositorio..."
 	git push
 	@echo "2. Actualizando código en la Raspberry Pi..."
-	ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && git pull && uv sync --extra rpi"
+	ssh $(RPI_USER)@$(RPI_HOST) 'export PATH="$$HOME/.cargo/bin:$$HOME/.local/bin:$$PATH" && cd $(RPI_PATH) && git pull && uv sync --extra rpi'
 	@echo "3. Reiniciando servicios..."
-	ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true; cd $(RPI_PATH) && nohup ./scripts/start_services.sh > /dev/null 2>&1 &"
+	ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true; cd $(RPI_PATH) && bash -c 'nohup ./scripts/start_services.sh > /dev/null 2>&1 &' && exit 0"
 	@echo "✅ Despliegue completado"
 
 ssh-setup:
