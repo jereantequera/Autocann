@@ -300,22 +300,46 @@ def store_historical_data(sensors_data):
 def main(stage_override=None):
     setup_gpio()
     
+    # Keep track of current stage to detect changes
+    current_stage = None
+    current_grow_id = None
+    stage_check_counter = 0
+    STAGE_CHECK_INTERVAL = 20  # Check for stage changes every 20 iterations (~60 seconds)
+    
     while True:
         try:
-            # Get active grow to determine current stage
-            active_grow = get_active_grow()
-            if not active_grow:
-                print("No active grow found. Please create a grow first.")
-                sleep(10)
-                continue
+            # Check for stage changes periodically
+            if stage_check_counter == 0:
+                active_grow = get_active_grow()
+                if not active_grow:
+                    print("No active grow found. Please create a grow first.")
+                    sleep(10)
+                    continue
+                
+                # Use stage from active grow, or override from command line
+                if stage_override and stage_override in ["early_veg", "late_veg", "flowering", "dry"]:
+                    new_stage = stage_override
+                    stage_source = "override"
+                else:
+                    new_stage = active_grow['stage']
+                    stage_source = f"grow '{active_grow['name']}'"
+                
+                # Detect stage or grow changes
+                if new_stage != current_stage or active_grow['id'] != current_grow_id:
+                    if current_stage is not None:
+                        print(f"\n🔄 Stage changed: {current_stage} → {new_stage}")
+                        print(f"   Source: {stage_source}")
+                    else:
+                        print(f"\n✅ Starting with stage: {new_stage}")
+                        print(f"   Source: {stage_source}")
+                    
+                    current_stage = new_stage
+                    current_grow_id = active_grow['id']
+                
+                STAGE = current_stage
             
-            # Use stage from active grow, or override from command line
-            if stage_override and stage_override in ["early_veg", "late_veg", "flowering", "dry"]:
-                STAGE = stage_override
-                print(f"Using override stage: {STAGE}")
-            else:
-                STAGE = active_grow['stage']
-                print(f"Using stage from active grow '{active_grow['name']}': {STAGE}")
+            # Increment counter and reset when reaching interval
+            stage_check_counter = (stage_check_counter + 1) % STAGE_CHECK_INTERVAL
             
             sensors_data = read_sensors()
             if sensors_data is None:
