@@ -32,4 +32,5 @@ else
 fi
 
 # Iniciar el script de VPD usando uv (con output unbuffered para logs en tiempo real)
-uv run python -u fix-vpd.py dry >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
+# No pasamos argumento para que use el stage del cultivo activo en la base de datos
+uv run python -u fix-vpd.py >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
