@@ -26,6 +26,11 @@ uv.lock
 logs/
 *.log
 
+# SQLite database files
+*.db
+*.db-journal
+data/
+
 # OS
 .DS_Store
 Thumbs.db

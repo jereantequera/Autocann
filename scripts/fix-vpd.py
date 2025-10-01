@@ -12,6 +12,7 @@ import busio
 import gpiozero
 import pytz
 import redis
+from database import store_control_event, store_sensor_sample
 
 HUMIDITY_CONTROL_PIN_UP = 25
 HUMIDITY_CONTROL_PIN_DOWN = 16
@@ -53,6 +54,7 @@ def humidity_up_on():
     try:
         humidity_control_up.on()
         redis_client.set('humidity_control_up', 'true')
+        store_control_event('humidity_up', 'on')
     except Exception as e:
         print(e)
 
@@ -60,6 +62,7 @@ def humidity_up_off():
     try:
         humidity_control_up.off()
         redis_client.set('humidity_control_up', 'false')
+        store_control_event('humidity_up', 'off')
     except Exception as e:
         print(e)
 
@@ -67,6 +70,7 @@ def humidity_down_on():
     try:
         humidity_control_down.on()
         redis_client.set('humidity_control_down', 'true')
+        store_control_event('humidity_down', 'on')
     except Exception as e:
         print(e)
 
@@ -74,6 +78,7 @@ def humidity_down_off():
     try:
         humidity_control_down.off()
         redis_client.set('humidity_control_down', 'false')
+        store_control_event('humidity_down', 'off')
     except Exception as e:
         print(e)
 
@@ -81,6 +86,7 @@ def ventilation_on():
     try:
         ventilation_control.on()
         redis_client.set('ventilation_control', 'true')
+        store_control_event('ventilation', 'on')
     except Exception as e:
         print(e)
 
@@ -88,6 +94,7 @@ def ventilation_off():
     try:
         ventilation_control.off()
         redis_client.set('ventilation_control', 'false')
+        store_control_event('ventilation', 'off')
     except Exception as e:
         print(e)
 
@@ -308,7 +315,7 @@ def main(stage):
             leaf_temperature = round(temperature - 1.5, 1)
             leaf_vpd = calculate_vpd(leaf_temperature, humidity)
             humidity_is_in_range = False
-            # Store historical data
+            # Store historical data in Redis
             store_historical_data(sensors_data)            
             if stage != "dry":
                 if vpd_is_in_range(leaf_vpd, STAGE):
@@ -333,7 +340,12 @@ def main(stage):
             sensors_data['leaf_temperature'] = leaf_temperature
             sensors_data['leaf_vpd'] = leaf_vpd
             
+            # Store in Redis for real-time access
             redis_client.set('sensors', json.dumps(sensors_data))
+            
+            # Store in SQLite for historical persistence
+            store_sensor_sample(sensors_data)
+            
             if humidity_is_in_range:
                 sleep(3)
                 continue

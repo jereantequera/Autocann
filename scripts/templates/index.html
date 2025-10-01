@@ -4,288 +4,753 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autocann Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
+        * {
             margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
-            background-color: #f5f5f5;
         }
-        .section-title {
-            color: #2c3e50;
-            margin: 20px 0;
-            padding-left: 10px;
-            border-left: 4px solid #3498db;
-        }
-        .current-data {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .data-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .data-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            margin: 10px 0;
-            color: #2c3e50;
-        }
-        .data-label {
-            color: #7f8c8d;
-            font-size: 1.1em;
-        }
-        .outdoor-data {
-            background: #e8f4f8;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-        }
-        .outdoor-values {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        .outdoor-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .outdoor-value {
-            font-size: 2em;
-            font-weight: bold;
-            margin: 10px 0;
-            color: #2980b9;
-        }
-        .outdoor-label {
-            color: #7f8c8d;
-            font-size: 1.1em;
-        }
-        .averages-container {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
+        
+        .container {
             max-width: 1800px;
             margin: 0 auto;
         }
-        .average-card {
+        
+        .header {
             background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
         }
-        .average-title {
-            margin: 0 0 20px 0;
+        
+        .header h1 {
             color: #2c3e50;
-            text-align: center;
-            font-size: 1.5em;
-        }
-        .average-values {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            flex: 1;
-        }
-        .average-value {
-            text-align: center;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        .average-value-label {
-            color: #7f8c8d;
-            font-size: 1.1em;
+            font-size: 2.5em;
             margin-bottom: 10px;
         }
-        .average-value-number {
+        
+        .header-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .last-update {
+            color: #7f8c8d;
+            font-size: 0.95em;
+        }
+        
+        .db-stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .db-stat {
+            background: #f8f9fa;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+        
+        .db-stat-label {
+            color: #7f8c8d;
+            font-size: 0.85em;
+        }
+        
+        .db-stat-value {
+            color: #2c3e50;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        
+        .section-title {
+            color: white;
+            margin: 30px 0 20px 0;
+            padding-left: 15px;
+            border-left: 5px solid rgba(255,255,255,0.5);
+            font-size: 1.8em;
+        }
+        
+        .current-data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0,0,0,0.15);
+        }
+        
+        .metric-label {
+            color: #7f8c8d;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .metric-value {
+            font-size: 3em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin: 10px 0;
+        }
+        
+        .metric-unit {
+            color: #95a5a6;
+            font-size: 1.2em;
+        }
+        
+        .metric-card.outdoor {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .metric-card.outdoor .metric-label,
+        .metric-card.outdoor .metric-unit {
+            color: rgba(255,255,255,0.8);
+        }
+        
+        .metric-card.outdoor .metric-value {
+            color: white;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .chart-title {
+            font-size: 1.5em;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        
+        .time-selector {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .time-btn {
+            padding: 10px 20px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            font-size: 0.95em;
+        }
+        
+        .time-btn:hover {
+            background: #f8f9fa;
+        }
+        
+        .time-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        .stat-title {
+            color: #7f8c8d;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-value {
             font-size: 2em;
             font-weight: bold;
             color: #2c3e50;
         }
-        .last-update {
-            text-align: center;
-            color: #7f8c8d;
-            margin-top: 20px;
-        }
-        @media (max-width: 1800px) {
-            .averages-container {
-                grid-template-columns: 1fr;
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .chart-wrapper {
+                height: 300px;
+            }
+            
+            .metric-value {
+                font-size: 2em;
             }
         }
     </style>
 </head>
 <body>
-    <h2 class="section-title">Datos Interiores</h2>
-    <div class="current-data">
-        <div class="data-card">
-            <div class="data-label">Temperatura</div>
-            <div class="data-value" id="current-temp">--</div>
-            <div class="data-label">°C</div>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🌿 Autocann Dashboard</h1>
+            <div class="header-info">
+                <div class="last-update" id="last-update">Cargando...</div>
+                <div class="db-stats" id="db-stats">
+                    <div class="db-stat">
+                        <div class="db-stat-label">Registros</div>
+                        <div class="db-stat-value" id="stat-records">--</div>
+                    </div>
+                    <div class="db-stat">
+                        <div class="db-stat-label">Base de Datos</div>
+                        <div class="db-stat-value" id="stat-db-size">--</div>
+                    </div>
+                    <div class="db-stat">
+                        <div class="db-stat-label">Desde</div>
+                        <div class="db-stat-value" id="stat-oldest">--</div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="data-card">
-            <div class="data-label">Humedad</div>
-            <div class="data-value" id="current-humidity">--</div>
-            <div class="data-label">%</div>
-        </div>
-        <div class="data-card">
-            <div class="data-label">Humedad Objetivo</div>
-            <div class="data-value" id="current-target-humidity">--</div>
-            <div class="data-label">%</div>
-        </div>
-        <div class="data-card">
-            <div class="data-label">VPD</div>
-            <div class="data-value" id="current-vpd">--</div>
-            <div class="data-label">kPa</div>
-        </div>
-        <div class="data-card">
-            <div class="data-label">Temperatura Hoja</div>
-            <div class="data-value" id="current-leaf-temp">--</div>
-            <div class="data-label">°C</div>
-        </div>
-    </div>
 
-    <h2 class="section-title">Datos Exteriores</h2>
-    <div class="outdoor-data">
-        <div class="outdoor-values">
-            <div class="outdoor-card">
-                <div class="data-label">Temperatura Exterior</div>
-                <div class="data-value" id="current-outdoor-temp">--</div>
-                <div class="data-label">°C</div>
+        <!-- Current Indoor Data -->
+        <h2 class="section-title">📊 Datos Actuales - Interior</h2>
+        <div class="current-data-grid">
+            <div class="metric-card">
+                <div class="metric-label">Temperatura</div>
+                <div class="metric-value" id="current-temp">--</div>
+                <div class="metric-unit">°C</div>
             </div>
-            <div class="outdoor-card">
-                <div class="data-label">Humedad Exterior</div>
-                <div class="data-value" id="current-outdoor-humidity">--</div>
-                <div class="data-label">%</div>
+            <div class="metric-card">
+                <div class="metric-label">Humedad</div>
+                <div class="metric-value" id="current-humidity">--</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Humedad Objetivo</div>
+                <div class="metric-value" id="current-target-humidity">--</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">VPD</div>
+                <div class="metric-value" id="current-vpd">--</div>
+                <div class="metric-unit">kPa</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Temp. Hoja</div>
+                <div class="metric-value" id="current-leaf-temp">--</div>
+                <div class="metric-unit">°C</div>
             </div>
         </div>
-    </div>
 
-    <h2 class="section-title">Promedios Históricos</h2>
-    <div class="averages-container">
-        <div class="average-card">
-            <h3 class="average-title">Últimas 6 horas</h3>
-            <div class="average-values">
-                <div class="average-value">
-                    <div class="average-value-label">Temperatura Promedio</div>
-                    <div class="average-value-number" id="avg-temp-6h">--</div>
-                    <div class="average-value-label">°C</div>
-                </div>
-                <div class="average-value">
-                    <div class="average-value-label">Humedad Promedio</div>
-                    <div class="average-value-number" id="avg-humidity-6h">--</div>
-                    <div class="average-value-label">%</div>
-                </div>
+        <!-- Current Outdoor Data -->
+        <h2 class="section-title">🌤️ Datos Actuales - Exterior</h2>
+        <div class="current-data-grid">
+            <div class="metric-card outdoor">
+                <div class="metric-label">Temperatura Exterior</div>
+                <div class="metric-value" id="current-outdoor-temp">--</div>
+                <div class="metric-unit">°C</div>
+            </div>
+            <div class="metric-card outdoor">
+                <div class="metric-label">Humedad Exterior</div>
+                <div class="metric-value" id="current-outdoor-humidity">--</div>
+                <div class="metric-unit">%</div>
             </div>
         </div>
-        <div class="average-card">
-            <h3 class="average-title">Últimas 12 horas</h3>
-            <div class="average-values">
-                <div class="average-value">
-                    <div class="average-value-label">Temperatura Promedio</div>
-                    <div class="average-value-number" id="avg-temp-12h">--</div>
-                    <div class="average-value-label">°C</div>
-                </div>
-                <div class="average-value">
-                    <div class="average-value-label">Humedad Promedio</div>
-                    <div class="average-value-number" id="avg-humidity-12h">--</div>
-                    <div class="average-value-label">%</div>
-                </div>
-            </div>
-        </div>
-        <div class="average-card">
-            <h3 class="average-title">Últimas 24 horas</h3>
-            <div class="average-values">
-                <div class="average-value">
-                    <div class="average-value-label">Temperatura Promedio</div>
-                    <div class="average-value-number" id="avg-temp-24h">--</div>
-                    <div class="average-value-label">°C</div>
-                </div>
-                <div class="average-value">
-                    <div class="average-value-label">Humedad Promedio</div>
-                    <div class="average-value-number" id="avg-humidity-24h">--</div>
-                    <div class="average-value-label">%</div>
+
+        <!-- Historical Charts -->
+        <h2 class="section-title">📈 Gráficos Históricos</h2>
+        
+        <div class="chart-container">
+            <div class="chart-header">
+                <div class="chart-title">Temperatura y Humedad</div>
+                <div class="time-selector">
+                    <button class="time-btn active" data-period="1" data-interval="hourly">1 Día</button>
+                    <button class="time-btn" data-period="7" data-interval="hourly">7 Días</button>
+                    <button class="time-btn" data-period="30" data-interval="6hourly">30 Días</button>
+                    <button class="time-btn" data-period="90" data-interval="daily">90 Días</button>
                 </div>
             </div>
+            <div class="chart-wrapper">
+                <canvas id="tempHumidityChart"></canvas>
+            </div>
         </div>
-        <div class="average-card">
-            <h3 class="average-title">Última semana</h3>
-            <div class="average-values">
-                <div class="average-value">
-                    <div class="average-value-label">Temperatura Promedio</div>
-                    <div class="average-value-number" id="avg-temp-1w">--</div>
-                    <div class="average-value-label">°C</div>
-                </div>
-                <div class="average-value">
-                    <div class="average-value-label">Humedad Promedio</div>
-                    <div class="average-value-number" id="avg-humidity-1w">--</div>
-                    <div class="average-value-label">%</div>
-                </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <div class="chart-title">VPD (Vapor Pressure Deficit)</div>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="vpdChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-header">
+                <div class="chart-title">Comparación Interior vs Exterior</div>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="comparisonChart"></canvas>
             </div>
         </div>
     </div>
-
-    <div class="last-update" id="last-update"></div>
 
     <script>
-        const timeWindows = ['6h', '12h', '24h', '1w'];
+        // Chart configurations
+        const chartConfig = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        padding: 20,
+                        font: {
+                            size: 13,
+                            weight: 'bold'
+                        }
+                    }
+                },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: {
+                        size: 14,
+                        weight: 'bold'
+                    },
+                    bodyFont: {
+                        size: 13
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 0
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                }
+            }
+        };
 
-        function updateCurrentData(data) {
-            // Datos interiores
-            document.getElementById('current-temp').textContent = data.temperature.toFixed(1);
-            document.getElementById('current-humidity').textContent = data.humidity.toFixed(1);
-            document.getElementById('current-target-humidity').textContent = data.target_humidity ? data.target_humidity.toFixed(1) : '--';
-            document.getElementById('current-vpd').textContent = data.vpd.toFixed(2);
-            document.getElementById('current-leaf-temp').textContent = data.leaf_temperature.toFixed(1);
-            
-            // Datos exteriores
-            document.getElementById('current-outdoor-temp').textContent = data.outside_temperature.toFixed(1);
-            document.getElementById('current-outdoor-humidity').textContent = data.outside_humidity.toFixed(1);
-            
-            document.getElementById('last-update').textContent = `Última actualización: ${new Date().toLocaleString()}`;
-        }
+        // Initialize charts
+        let tempHumidityChart, vpdChart, comparisonChart;
+        let currentPeriod = 1;
+        let currentInterval = 'hourly';
 
-        function updateHistoricalData(data) {
-            timeWindows.forEach(window => {
-                const windowData = data[window];
-                if (windowData && windowData.length > 0) {
-                    const temperatures = windowData.map(point => point.temperature);
-                    const humidities = windowData.map(point => point.humidity);
+        function initCharts() {
+            // Temperature & Humidity Chart
+            const ctx1 = document.getElementById('tempHumidityChart').getContext('2d');
+            tempHumidityChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperatura (°C)',
+                            data: [],
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Humedad (%)',
+                            data: [],
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: 'Humedad Objetivo (%)',
+                            data: [],
+                            borderColor: '#2ecc71',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            tension: 0.4,
+                            fill: false,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    ...chartConfig,
+                    scales: {
+                        ...chartConfig.scales,
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Temperatura (°C)',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(231, 76, 60, 0.1)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Humedad (%)',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            }
+                        }
+                    }
+                }
+            });
 
-                    const avgTemp = temperatures.reduce((a, b) => a + b, 0) / temperatures.length;
-                    const avgHumidity = humidities.reduce((a, b) => a + b, 0) / humidities.length;
+            // VPD Chart
+            const ctx2 = document.getElementById('vpdChart').getContext('2d');
+            vpdChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'VPD (kPa)',
+                        data: [],
+                        borderColor: '#9b59b6',
+                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    ...chartConfig,
+                    scales: {
+                        ...chartConfig.scales,
+                        y: {
+                            ...chartConfig.scales.y,
+                            title: {
+                                display: true,
+                                text: 'VPD (kPa)',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
-                    document.getElementById(`avg-temp-${window}`).textContent = avgTemp.toFixed(1);
-                    document.getElementById(`avg-humidity-${window}`).textContent = avgHumidity.toFixed(1);
+            // Comparison Chart
+            const ctx3 = document.getElementById('comparisonChart').getContext('2d');
+            comparisonChart = new Chart(ctx3, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperatura Interior (°C)',
+                            data: [],
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Temperatura Exterior (°C)',
+                            data: [],
+                            borderColor: '#f39c12',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Humedad Interior (%)',
+                            data: [],
+                            borderColor: '#3498db',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: 'Humedad Exterior (%)',
+                            data: [],
+                            borderColor: '#1abc9c',
+                            backgroundColor: 'transparent',
+                            borderWidth: 3,
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    ...chartConfig,
+                    scales: {
+                        ...chartConfig.scales,
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Temperatura (°C)',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Humedad (%)',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            }
+                        }
+                    }
                 }
             });
         }
 
-        function fetchData() {
-            // Obtener datos actuales
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            
+            if (currentInterval === 'daily') {
+                return `${day}/${month}`;
+            } else {
+                return `${day}/${month} ${hours}:${minutes}`;
+            }
+        }
+
+        function updateCurrentData(data) {
+            document.getElementById('current-temp').textContent = data.temperature?.toFixed(1) || '--';
+            document.getElementById('current-humidity').textContent = data.humidity?.toFixed(1) || '--';
+            document.getElementById('current-target-humidity').textContent = 
+                data.target_humidity ? data.target_humidity.toFixed(1) : '--';
+            document.getElementById('current-vpd').textContent = data.vpd?.toFixed(2) || '--';
+            document.getElementById('current-leaf-temp').textContent = 
+                data.leaf_temperature ? data.leaf_temperature.toFixed(1) : '--';
+            document.getElementById('current-outdoor-temp').textContent = 
+                data.outside_temperature?.toFixed(1) || '--';
+            document.getElementById('current-outdoor-humidity').textContent = 
+                data.outside_humidity?.toFixed(1) || '--';
+            
+            document.getElementById('last-update').textContent = 
+                `Última actualización: ${new Date().toLocaleString('es-AR')}`;
+        }
+
+        function updateDatabaseStats(stats) {
+            if (stats.sensor_data_count) {
+                document.getElementById('stat-records').textContent = 
+                    stats.sensor_data_count.toLocaleString('es-AR');
+            }
+            if (stats.database_size_mb) {
+                document.getElementById('stat-db-size').textContent = 
+                    `${stats.database_size_mb} MB`;
+            }
+            if (stats.oldest_record) {
+                const date = new Date(stats.oldest_record);
+                document.getElementById('stat-oldest').textContent = 
+                    date.toLocaleDateString('es-AR');
+            }
+        }
+
+        function updateHistoricalCharts(data) {
+            if (!data || !data.data || data.data.length === 0) {
+                console.log('No historical data available');
+                return;
+            }
+
+            // Reverse data to show oldest to newest
+            const sortedData = [...data.data].reverse();
+            
+            const labels = sortedData.map(d => formatDate(d.datetime));
+            const temperatures = sortedData.map(d => d.temperature);
+            const humidities = sortedData.map(d => d.humidity);
+            const targetHumidities = sortedData.map(d => d.target_humidity || null);
+            const vpds = sortedData.map(d => d.vpd);
+            const outsideTemps = sortedData.map(d => d.outside_temperature);
+            const outsideHumidities = sortedData.map(d => d.outside_humidity);
+
+            // Update Temperature & Humidity Chart
+            tempHumidityChart.data.labels = labels;
+            tempHumidityChart.data.datasets[0].data = temperatures;
+            tempHumidityChart.data.datasets[1].data = humidities;
+            tempHumidityChart.data.datasets[2].data = targetHumidities;
+            tempHumidityChart.update();
+
+            // Update VPD Chart
+            vpdChart.data.labels = labels;
+            vpdChart.data.datasets[0].data = vpds;
+            vpdChart.update();
+
+            // Update Comparison Chart
+            comparisonChart.data.labels = labels;
+            comparisonChart.data.datasets[0].data = temperatures;
+            comparisonChart.data.datasets[1].data = outsideTemps;
+            comparisonChart.data.datasets[2].data = humidities;
+            comparisonChart.data.datasets[3].data = outsideHumidities;
+            comparisonChart.update();
+        }
+
+        function fetchCurrentData() {
             fetch('/api/current-data')
                 .then(response => response.json())
                 .then(data => updateCurrentData(data))
                 .catch(error => console.error('Error fetching current data:', error));
+        }
 
-            // Obtener datos históricos
-            fetch('/api/historical-data')
+        function fetchDatabaseStats() {
+            fetch('/api/database-stats')
                 .then(response => response.json())
-                .then(data => updateHistoricalData(data))
+                .then(stats => updateDatabaseStats(stats))
+                .catch(error => console.error('Error fetching database stats:', error));
+        }
+
+        function fetchHistoricalData(days, interval) {
+            fetch(`/api/history/aggregated?days=${days}&interval=${interval}`)
+                .then(response => response.json())
+                .then(data => updateHistoricalCharts(data))
                 .catch(error => console.error('Error fetching historical data:', error));
         }
 
-        // Actualizar datos cada 3 segundos
-        fetchData();
-        setInterval(fetchData, 3000);
+        // Time period selector
+        document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                currentPeriod = parseInt(this.dataset.period);
+                currentInterval = this.dataset.interval;
+                
+                fetchHistoricalData(currentPeriod, currentInterval);
+            });
+        });
+
+        // Initialize
+        window.addEventListener('load', function() {
+            initCharts();
+            fetchCurrentData();
+            fetchDatabaseStats();
+            fetchHistoricalData(currentPeriod, currentInterval);
+            
+            // Update current data every 3 seconds
+            setInterval(fetchCurrentData, 3000);
+            
+            // Update historical data every 30 seconds
+            setInterval(() => {
+                fetchHistoricalData(currentPeriod, currentInterval);
+            }, 30000);
+            
+            // Update database stats every 60 seconds
+            setInterval(fetchDatabaseStats, 60000);
+        });
     </script>
 </body>
-</html> 
+</html>

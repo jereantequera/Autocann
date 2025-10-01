@@ -10,7 +10,9 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 - Control de ventilación
 - Sistema de riego automatizado
 - Dashboard web con Flask para visualización de datos
-- Almacenamiento histórico de datos en Redis
+- Almacenamiento híbrido de datos:
+  - Redis para datos en tiempo real
+  - SQLite para persistencia histórica a largo plazo
 
 ## Hardware Requerido
 
@@ -121,8 +123,13 @@ http://<ip-de-tu-raspberry>:5000
 ### Endpoints API
 
 - `GET /` - Dashboard principal
-- `GET /api/current-data` - Datos actuales de sensores
-- `GET /api/historical-data` - Datos históricos (6h, 12h, 24h, 1 semana)
+- `GET /api/current-data` - Datos actuales de sensores (Redis)
+- `GET /api/historical-data` - Datos históricos en ventanas de tiempo (Redis)
+- `GET /api/sensor-history` - Historial de sensores con filtros avanzados (SQLite)
+- `GET /api/history/aggregated` - Datos agregados para gráficos (SQLite)
+- `GET /api/database-stats` - Estadísticas de la base de datos
+
+📖 **Ver [USAGE.md](./USAGE.md) para documentación completa de la API y ejemplos de uso.**
 
 ## Configuración de Pines GPIO
 
@@ -247,12 +254,24 @@ Los logs se almacenan en el directorio `logs/`:
 
 ### Backup de Datos
 
-Los datos históricos se almacenan en Redis. Para hacer backup:
+#### Redis (Datos en Tiempo Real)
 
 ```bash
 docker exec redis-stack-server redis-cli SAVE
 docker cp redis-stack-server:/data/dump.rdb ./backup/
 ```
+
+#### SQLite (Datos Históricos)
+
+```bash
+# Backup simple
+cp data/autocann.db data/autocann_backup_$(date +%Y%m%d).db
+
+# Backup usando SQLite dump
+sqlite3 data/autocann.db .dump > backup_$(date +%Y%m%d).sql
+```
+
+📖 **Ver [USAGE.md](./USAGE.md) para más información sobre el sistema de almacenamiento.**
 
 ## Troubleshooting
 
