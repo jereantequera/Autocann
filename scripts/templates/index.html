@@ -244,6 +244,228 @@
             color: #2c3e50;
         }
         
+        /* Grow Management Styles */
+        .grow-control {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .grow-info {
+            flex: 1;
+            min-width: 250px;
+        }
+        
+        .grow-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .grow-stage {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+        
+        .grow-stage.early_veg {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .grow-stage.late_veg {
+            background: #cce5ff;
+            color: #004085;
+        }
+        
+        .grow-stage.flowering {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .grow-stage.dry {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .grow-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        select.form-control {
+            cursor: pointer;
+        }
+        
+        textarea.form-control {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+        }
+        
+        .grow-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .grow-item {
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .grow-item:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+        }
+        
+        .grow-item.active {
+            border-color: #27ae60;
+            background: #d4edda;
+        }
+        
+        .grow-item-name {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        .grow-item-date {
+            font-size: 0.85em;
+            color: #7f8c8d;
+        }
+        
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 1.8em;
@@ -255,6 +477,19 @@
             
             .metric-value {
                 font-size: 2em;
+            }
+            
+            .grow-control {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .grow-actions {
+                width: 100%;
+            }
+            
+            .btn {
+                flex: 1;
             }
         }
     </style>
@@ -276,10 +511,29 @@
                         <div class="db-stat-value" id="stat-db-size">--</div>
                     </div>
                     <div class="db-stat">
+                        <div class="db-stat-label">Cultivos</div>
+                        <div class="db-stat-value" id="stat-grows">--</div>
+                    </div>
+                    <div class="db-stat">
                         <div class="db-stat-label">Desde</div>
                         <div class="db-stat-value" id="stat-oldest">--</div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Grow Control -->
+        <div class="grow-control">
+            <div class="grow-info">
+                <div class="grow-name" id="grow-name">Cargando...</div>
+                <div>
+                    <span class="grow-stage" id="grow-stage">--</span>
+                </div>
+            </div>
+            <div class="grow-actions">
+                <button class="btn btn-primary" onclick="showGrowModal()">📋 Ver Cultivos</button>
+                <button class="btn btn-success" onclick="showNewGrowModal()">➕ Nuevo Cultivo</button>
+                <button class="btn btn-secondary" onclick="showStageModal()">🔄 Cambiar Etapa</button>
             </div>
         </div>
 
@@ -361,6 +615,68 @@
             </div>
             <div class="chart-wrapper">
                 <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- New Grow Modal -->
+    <div id="newGrowModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Crear Nuevo Cultivo</div>
+            <div class="form-group">
+                <label class="form-label">Nombre del Cultivo</label>
+                <input type="text" id="newGrowName" class="form-control" placeholder="Ej: Cultivo #2 - OG Kush">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Etapa Inicial</label>
+                <select id="newGrowStage" class="form-control">
+                    <option value="early_veg">Vegetativo Temprano</option>
+                    <option value="late_veg">Vegetativo Tardío</option>
+                    <option value="flowering">Floración</option>
+                    <option value="dry">Secado</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notas (opcional)</label>
+                <textarea id="newGrowNotes" class="form-control" placeholder="Ej: Semillas feminizadas, ..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('newGrowModal')">Cancelar</button>
+                <button class="btn btn-success" onclick="createGrow()">Crear Cultivo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Stage Modal -->
+    <div id="stageModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Cambiar Etapa del Cultivo</div>
+            <div class="form-group">
+                <label class="form-label">Nueva Etapa</label>
+                <select id="newStage" class="form-control">
+                    <option value="early_veg">Vegetativo Temprano</option>
+                    <option value="late_veg">Vegetativo Tardío</option>
+                    <option value="flowering">Floración</option>
+                    <option value="dry">Secado</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('stageModal')">Cancelar</button>
+                <button class="btn btn-primary" onclick="updateStage()">Actualizar Etapa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grows List Modal -->
+    <div id="growsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Todos los Cultivos</div>
+            <div class="grow-list" id="growList">
+                <div class="loading">Cargando cultivos...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('growsModal')">Cerrar</button>
             </div>
         </div>
     </div>
@@ -654,11 +970,31 @@
                 document.getElementById('stat-db-size').textContent = 
                     `${stats.database_size_mb} MB`;
             }
+            if (stats.grow_count) {
+                document.getElementById('stat-grows').textContent = stats.grow_count;
+            }
             if (stats.oldest_record) {
                 const date = new Date(stats.oldest_record);
                 document.getElementById('stat-oldest').textContent = 
                     date.toLocaleDateString('es-AR');
             }
+        }
+
+        function updateActiveGrow(grow) {
+            if (!grow) return;
+            
+            document.getElementById('grow-name').textContent = grow.name;
+            
+            const stageElement = document.getElementById('grow-stage');
+            const stageNames = {
+                'early_veg': 'Vegetativo Temprano',
+                'late_veg': 'Vegetativo Tardío',
+                'flowering': 'Floración',
+                'dry': 'Secado'
+            };
+            
+            stageElement.textContent = stageNames[grow.stage] || grow.stage;
+            stageElement.className = `grow-stage ${grow.stage}`;
         }
 
         function updateHistoricalCharts(data) {
@@ -720,6 +1056,201 @@
                 .catch(error => console.error('Error fetching historical data:', error));
         }
 
+        function fetchActiveGrow() {
+            fetch('/api/grows/active')
+                .then(response => response.json())
+                .then(grow => updateActiveGrow(grow))
+                .catch(error => console.error('Error fetching active grow:', error));
+        }
+
+        // Modal Functions
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        function showNewGrowModal() {
+            document.getElementById('newGrowName').value = '';
+            document.getElementById('newGrowStage').value = 'early_veg';
+            document.getElementById('newGrowNotes').value = '';
+            showModal('newGrowModal');
+        }
+
+        function showStageModal() {
+            showModal('stageModal');
+        }
+
+        function showGrowModal() {
+            showModal('growsModal');
+            loadGrowsList();
+        }
+
+        // Grow Management Functions
+        async function createGrow() {
+            const name = document.getElementById('newGrowName').value.trim();
+            const stage = document.getElementById('newGrowStage').value;
+            const notes = document.getElementById('newGrowNotes').value.trim();
+
+            if (!name) {
+                alert('Por favor ingresá un nombre para el cultivo');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/grows', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name, stage, notes })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ ${result.message}`);
+                    closeModal('newGrowModal');
+                    fetchActiveGrow();
+                    fetchDatabaseStats();
+                    fetchHistoricalData(currentPeriod, currentInterval);
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error creating grow:', error);
+                alert('❌ Error al crear el cultivo');
+            }
+        }
+
+        async function updateStage() {
+            const newStage = document.getElementById('newStage').value;
+
+            try {
+                const activeGrow = await fetch('/api/grows/active').then(r => r.json());
+                
+                const response = await fetch(`/api/grows/${activeGrow.id}/stage`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stage: newStage })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ ${result.message}`);
+                    closeModal('stageModal');
+                    fetchActiveGrow();
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error updating stage:', error);
+                alert('❌ Error al actualizar la etapa');
+            }
+        }
+
+        async function activateGrow(growId) {
+            if (!confirm('¿Querés activar este cultivo? Se desactivará el cultivo actual.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/grows/${growId}/activate`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ ${result.message}`);
+                    closeModal('growsModal');
+                    fetchActiveGrow();
+                    fetchDatabaseStats();
+                    fetchHistoricalData(currentPeriod, currentInterval);
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error activating grow:', error);
+                alert('❌ Error al activar el cultivo');
+            }
+        }
+
+        async function endGrow(growId) {
+            if (!confirm('¿Querés finalizar este cultivo? No podrá reactivarse.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/grows/${growId}/end`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ ${result.message}`);
+                    loadGrowsList();
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error ending grow:', error);
+                alert('❌ Error al finalizar el cultivo');
+            }
+        }
+
+        async function loadGrowsList() {
+            const growListElement = document.getElementById('growList');
+            growListElement.innerHTML = '<div class="loading">Cargando cultivos...</div>';
+
+            try {
+                const response = await fetch('/api/grows');
+                const data = await response.json();
+
+                if (data.grows && data.grows.length > 0) {
+                    const stageNames = {
+                        'early_veg': 'Vegetativo Temprano',
+                        'late_veg': 'Vegetativo Tardío',
+                        'flowering': 'Floración',
+                        'dry': 'Secado'
+                    };
+
+                    growListElement.innerHTML = data.grows.map(grow => `
+                        <div class="grow-item ${grow.is_active ? 'active' : ''}" onclick="${!grow.is_active ? `activateGrow(${grow.id})` : ''}">
+                            <div class="grow-item-name">
+                                ${grow.name}
+                                ${grow.is_active ? '✅ ACTIVO' : ''}
+                            </div>
+                            <div>
+                                <span class="grow-stage ${grow.stage}">${stageNames[grow.stage] || grow.stage}</span>
+                            </div>
+                            <div class="grow-item-date">
+                                Inicio: ${grow.start_date}<br>
+                                ${grow.end_date ? `Fin: ${grow.end_date}` : ''}
+                                ${grow.sample_count ? `Muestras: ${grow.sample_count.toLocaleString('es-AR')}` : ''}
+                            </div>
+                            ${!grow.end_date && !grow.is_active ? `
+                                <button class="btn btn-danger" style="margin-top: 10px;" onclick="event.stopPropagation(); endGrow(${grow.id})">
+                                    Finalizar Cultivo
+                                </button>
+                            ` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    growListElement.innerHTML = '<p style="text-align: center; color: #7f8c8d;">No hay cultivos registrados</p>';
+                }
+            } catch (error) {
+                console.error('Error loading grows:', error);
+                growListElement.innerHTML = '<p style="text-align: center; color: #e74c3c;">Error al cargar cultivos</p>';
+            }
+        }
+
         // Time period selector
         document.querySelectorAll('.time-btn').forEach(btn => {
             btn.addEventListener('click', function() {
@@ -738,6 +1269,7 @@
             initCharts();
             fetchCurrentData();
             fetchDatabaseStats();
+            fetchActiveGrow();
             fetchHistoricalData(currentPeriod, currentInterval);
             
             // Update current data every 3 seconds
@@ -750,6 +1282,16 @@
             
             // Update database stats every 60 seconds
             setInterval(fetchDatabaseStats, 60000);
+            
+            // Update active grow every 60 seconds
+            setInterval(fetchActiveGrow, 60000);
+        });
+
+        // Close modal when clicking outside
+        window.addEventListener('click', function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
         });
     </script>
 </body>

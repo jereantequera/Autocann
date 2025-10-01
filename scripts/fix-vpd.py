@@ -12,7 +12,7 @@ import busio
 import gpiozero
 import pytz
 import redis
-from database import store_control_event, store_sensor_sample
+from database import get_active_grow, store_control_event, store_sensor_sample
 
 HUMIDITY_CONTROL_PIN_UP = 25
 HUMIDITY_CONTROL_PIN_DOWN = 16
@@ -297,12 +297,26 @@ def store_historical_data(sensors_data):
         redis_client.set(key, json.dumps(data_list))
         redis_client.set(buffer_key, json.dumps(buffer_list))
 
-def main(stage):
+def main(stage_override=None):
     setup_gpio()
-    STAGE = stage if stage in ["early_veg", "late_veg", "flowering", "dry"] else "early_veg"
     
     while True:
         try:
+            # Get active grow to determine current stage
+            active_grow = get_active_grow()
+            if not active_grow:
+                print("No active grow found. Please create a grow first.")
+                sleep(10)
+                continue
+            
+            # Use stage from active grow, or override from command line
+            if stage_override and stage_override in ["early_veg", "late_veg", "flowering", "dry"]:
+                STAGE = stage_override
+                print(f"Using override stage: {STAGE}")
+            else:
+                STAGE = active_grow['stage']
+                print(f"Using stage from active grow '{active_grow['name']}': {STAGE}")
+            
             sensors_data = read_sensors()
             if sensors_data is None:
                 print("No valid sensor data, retrying in 3 seconds...")
@@ -317,7 +331,7 @@ def main(stage):
             humidity_is_in_range = False
             # Store historical data in Redis
             store_historical_data(sensors_data)            
-            if stage != "dry":
+            if STAGE != "dry":
                 if vpd_is_in_range(leaf_vpd, STAGE):
                     sensors_data['leaf_temperature'] = leaf_temperature
                     sensors_data['leaf_vpd'] = leaf_vpd
@@ -377,8 +391,7 @@ def main(stage):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        stage = sys.argv[1]
-        main(stage)
-    else:
-        main("early_veg")
+    # Optional stage override from command line
+    # If not provided, will use the stage from the active grow in the database
+    stage_override = sys.argv[1] if len(sys.argv) > 1 else None
+    main(stage_override)
