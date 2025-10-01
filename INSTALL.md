@@ -8,12 +8,18 @@
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Agregá uv al PATH:
+**Importante:** Agregá uv al PATH permanentemente:
 
 ```bash
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+# Agregar al archivo de configuración
+echo 'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
+
+# Verificar que funciona
+uv --version
 ```
+
+Si ya tenés uv instalado pero el script no lo encuentra, agregá manualmente el export a tu `~/.bashrc`.
 
 ### Paso 2: Clonar el repositorio
 
@@ -74,6 +80,7 @@ make run-vpd      # En otra terminal
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env 
 ```
 
 Agregá uv al PATH (ver output del comando anterior).
@@ -212,6 +219,27 @@ sudo i2cdetect -y 1
 # Deberías ver 76 y 77
 ```
 
+### "uv: command not found" en start_services.sh
+
+Si el script no encuentra `uv`, el PATH no está configurado correctamente:
+
+```bash
+# Agregar permanentemente a ~/.bashrc
+echo 'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Verificar
+uv --version
+which uv
+
+# Si sigue sin funcionar, encontrá dónde está uv:
+find ~ -name "uv" -type f 2>/dev/null
+
+# Y agregá esa ruta específica al PATH
+```
+
+**Nota:** El script `start_services.sh` ahora incluye el PATH automáticamente, pero necesitás que `~/.bashrc` también lo tenga para usar `uv` manualmente.
+
 ---
 
 ## Migración desde venv
@@ -229,6 +257,77 @@ uv sync              # En desarrollo
 
 # Verificar
 make check
+```
+
+---
+
+## Administración Remota SSH
+
+### Configuración Inicial (Solo primera vez)
+
+Para trabajar cómodamente desde tu Mac sin ingresar contraseña cada vez:
+
+```bash
+# 1. Crear archivo de configuración (opcional pero recomendado)
+cp config.mk.example config.mk
+nano config.mk
+
+# Editá la IP de tu Raspberry Pi:
+RPI_HOST = 192.168.100.37  # Usar IP fija, no .local
+
+# 2. Configurar SSH key (automático)
+make ssh-setup
+
+# Esto hará:
+# - Generar una clave SSH si no existe
+# - Copiar la clave a la Raspberry Pi
+# - Te pedirá la contraseña UNA ÚLTIMA VEZ
+```
+
+**¿Por qué SSH key?** Sin esto, tenés que ingresar la contraseña cada vez que ejecutás `make ssh`, `make deploy`, etc. Con la key configurada, todo funciona automáticamente.
+
+### Comandos Disponibles
+
+```bash
+# Conectarse
+make ssh
+
+# Ver logs remotos
+make ssh-logs
+
+# Verificar servicios
+make ssh-status
+
+# Reiniciar servicios
+make ssh-restart
+
+# Deploy completo (desde tu Mac)
+make deploy
+```
+
+### Workflow de Desarrollo Típico
+
+```bash
+# 1. En tu Mac: Editar código
+code scripts/fix-vpd.py
+
+# 2. Commit y deploy
+git add .
+git commit -m "Update VPD logic"
+make deploy  # Push, pull en RPi, y reinicia servicios
+
+# 3. Verificar remotamente
+make ssh-status
+make ssh-logs
+```
+
+### Sin config.mk
+
+También podés pasar variables en línea:
+
+```bash
+make ssh RPI_HOST=192.168.1.50 RPI_USER=pi
+make deploy RPI_HOST=autocann.local
 ```
 
 ---

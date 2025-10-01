@@ -35,3 +35,4 @@ dump.rdb
 
 # Project specific
 *.pid
+config.mk

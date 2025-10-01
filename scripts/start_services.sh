@@ -12,6 +12,13 @@ mkdir -p logs
 
 cd scripts
 
+# Verificar si uv está disponible
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv no está instalado o no se encuentra en PATH"
+    echo "Instalá uv con: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
 # Verificar si el backend ya está corriendo
 if ! pgrep -f "python backend.py" > /dev/null; then
     echo "Iniciando backend..."

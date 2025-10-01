@@ -133,6 +133,71 @@ Los pines GPIO están configurados en `scripts/fix-vpd.py`:
 - Pin 7: Control de ventilación
 - Pin 24: Control de riego (en `watering.py`)
 
+## Administración Remota (SSH)
+
+### Configuración SSH (Primera vez)
+
+Para facilitar la administración remota, primero configurá SSH sin contraseña:
+
+```bash
+# 1. Crear archivo de configuración (opcional)
+cp config.mk.example config.mk
+# Editá config.mk con la IP de tu Raspberry Pi
+
+# 2. Configurar SSH key (solo primera vez)
+make ssh-setup
+# Esto genera una clave SSH y la copia a la Raspberry Pi
+# Te pedirá la contraseña una última vez
+
+# 3. ¡Listo! Ahora podés conectarte sin contraseña
+make ssh
+```
+
+**Sin config.mk:** También podés pasar la IP directamente:
+
+```bash
+make ssh-setup RPI_HOST=192.168.100.37
+make ssh RPI_HOST=192.168.100.37
+```
+
+### Comandos SSH Disponibles
+
+```bash
+# Conectarse a la Raspberry Pi
+make ssh
+
+# Ver logs remotos
+make ssh-logs
+
+# Ver estado de servicios
+make ssh-status
+
+# Reiniciar servicios
+make ssh-restart
+
+# Deploy completo (push + pull + restart)
+make deploy
+```
+
+### Variables de Configuración
+
+Podés personalizar la conexión SSH:
+
+```bash
+# En línea de comandos
+make ssh RPI_HOST=192.168.1.50 RPI_USER=pi
+
+# O crear config.mk:
+RPI_USER = tu_usuario
+RPI_HOST = 192.168.1.100
+RPI_PATH = /ruta/al/proyecto
+```
+
+**Valores por defecto:**
+- `RPI_USER`: `autocann`
+- `RPI_HOST`: `autocann.local`
+- `RPI_PATH`: `/home/autocann/Autocann`
+
 ## Desarrollo
 
 ### Estructura de Dependencias
