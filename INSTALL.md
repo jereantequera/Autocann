@@ -17,6 +17,12 @@ source ~/.bashrc
 
 # Verificar que funciona
 uv --version
+
+# Habilitar I2C
+sudo raspi-config # Interfacing Options → I2C -> Enable
+sudo apt-get update
+sudo apt-get install -y i2c-tools
+sudo reboot
 ```
 
 Si ya tenés uv instalado pero el script no lo encuentra, agregá manualmente el export a tu `~/.bashrc`.
