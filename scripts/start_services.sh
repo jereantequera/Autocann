@@ -31,5 +31,5 @@ else
     echo "Backend ya está corriendo"
 fi
 
-# Iniciar el script de VPD usando uv
-uv run fix-vpd.py dry >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
+# Iniciar el script de VPD usando uv (con output unbuffered para logs en tiempo real)
+uv run python -u fix-vpd.py dry >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
