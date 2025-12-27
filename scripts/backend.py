@@ -56,6 +56,22 @@ def get_current_data():
     return jsonify({'error': 'No current data available'}), 404
 
 
+@app.route('/api/sensor-status', methods=['GET'])
+def get_sensor_status():
+    """
+    Endpoint to get BME280 sensor connectivity status.
+    Returns whether indoor and outdoor sensors are connected and working.
+    """
+    data = redis_client.get('sensor_status')
+    if data:
+        return jsonify(json.loads(data))
+    # Default response if no status stored yet
+    return jsonify({
+        "indoor": {"ok": None, "error": "Estado desconocido"},
+        "outdoor": {"ok": None, "error": "Estado desconocido"},
+    })
+
+
 @app.route('/api/output-status', methods=['GET'])
 def get_output_status():
     """

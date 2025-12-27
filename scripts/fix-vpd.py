@@ -25,14 +25,73 @@ FLOWERING_VPD_RANGE = (1.2, 1.5)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
+# BME280 sensor addresses
+BME280_ADDRESSES = [0x76, 0x77]
+
 # Initialize I2C bus
 i2c = busio.I2C(board.SCL, board.SDA)
 
-# Initialize BME280 sensors with different addresses
-# Indoor sensor: address 0x76 (SD0 connected to GND)
-bme280_in = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=0x76)
-# Outdoor sensor: address 0x77 (SD0 connected to VCC)
-bme280_out = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=0x77)
+# Sensor globals (initialized by check_and_init_sensors)
+bme280_in = None
+bme280_out = None
+
+
+def check_and_init_sensors():
+    """
+    Check if BME280 sensors are connected and initialize them.
+    Returns True if both sensors are OK, False otherwise.
+    Also stores sensor status in Redis for dashboard display.
+    """
+    global bme280_in, bme280_out
+
+    # Scan I2C bus
+    while not i2c.try_lock():
+        pass
+    found = i2c.scan()
+    i2c.unlock()
+
+    ok = True
+    sensor_status = {
+        "indoor": {"ok": False, "error": None},
+        "outdoor": {"ok": False, "error": None},
+    }
+
+    for addr in BME280_ADDRESSES:
+        sensor_name = "indoor" if addr == 0x76 else "outdoor"
+
+        if addr not in found:
+            error_msg = "Sensor no detectado"
+            print(f"❌ BME280 {sensor_name} no detectado en 0x{addr:02x}")
+            sensor_status[sensor_name]["error"] = error_msg
+            ok = False
+            continue
+
+        try:
+            bme = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=addr)
+            # Test read to make sure sensor responds properly
+            _ = bme.temperature
+            _ = bme.humidity
+            print(f"✅ BME280 {sensor_name} OK en 0x{addr:02x}")
+            sensor_status[sensor_name]["ok"] = True
+
+            # Assign to correct global
+            if addr == 0x76:
+                bme280_in = bme
+            else:
+                bme280_out = bme
+        except Exception as e:
+            error_msg = str(e)
+            print(f"⚠️ BME280 {sensor_name} responde mal en 0x{addr:02x}: {e}")
+            sensor_status[sensor_name]["error"] = error_msg
+            ok = False
+
+    # Store sensor status in Redis for dashboard
+    try:
+        redis_client.set("sensor_status", json.dumps(sensor_status))
+    except Exception as e:
+        print(f"⚠️ No se pudo guardar estado de sensores en Redis: {e}")
+
+    return ok
 
 humidity_control_up = None
 humidity_control_down = None
@@ -298,6 +357,11 @@ def store_historical_data(sensors_data):
         redis_client.set(buffer_key, json.dumps(buffer_list))
 
 def main(stage_override=None):
+    # Check sensors before starting
+    if not check_and_init_sensors():
+        print("❌ No se pueden inicializar los sensores BME280. Saliendo...")
+        sys.exit(1)
+
     setup_gpio()
     
     # Keep track of current stage to detect changes

@@ -168,6 +168,29 @@
         .output-state-unknown {
             color: #7f8c8d;
         }
+
+        /* Sensor status indicator */
+        .sensor-status {
+            display: inline-block;
+            font-size: 0.6em;
+            margin-left: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            vertical-align: middle;
+            cursor: help;
+        }
+
+        .sensor-status.ok {
+            background: rgba(39, 174, 96, 0.2);
+        }
+
+        .sensor-status.error {
+            background: rgba(231, 76, 60, 0.3);
+        }
+
+        .sensor-status.unknown {
+            background: rgba(127, 140, 141, 0.2);
+        }
         
         .chart-container {
             background: white;
@@ -583,7 +606,10 @@
         </div>
 
         <!-- Current Indoor Data -->
-        <h2 class="section-title">📊 Datos Actuales - Interior</h2>
+        <h2 class="section-title">
+            📊 Datos Actuales - Interior
+            <span class="sensor-status" id="sensor-status-indoor" title="Estado del sensor interior">⏳</span>
+        </h2>
         <div class="current-data-grid">
             <div class="metric-card">
                 <div class="metric-label">Temperatura</div>
@@ -613,7 +639,10 @@
         </div>
 
         <!-- Current Outdoor Data -->
-        <h2 class="section-title">🌤️ Datos Actuales - Exterior</h2>
+        <h2 class="section-title">
+            🌤️ Datos Actuales - Exterior
+            <span class="sensor-status" id="sensor-status-outdoor" title="Estado del sensor exterior">⏳</span>
+        </h2>
         <div class="current-data-grid">
             <div class="metric-card outdoor">
                 <div class="metric-label">Temperatura Exterior</div>
@@ -1148,6 +1177,50 @@
                 .catch(error => console.error('Error fetching output status:', error));
         }
 
+        function updateSensorStatus(data) {
+            const indoorEl = document.getElementById('sensor-status-indoor');
+            const outdoorEl = document.getElementById('sensor-status-outdoor');
+
+            if (indoorEl) {
+                if (data.indoor?.ok === true) {
+                    indoorEl.textContent = '✅ Sensor OK';
+                    indoorEl.className = 'sensor-status ok';
+                    indoorEl.title = 'Sensor interior conectado y funcionando';
+                } else if (data.indoor?.ok === false) {
+                    indoorEl.textContent = '❌ ' + (data.indoor.error || 'Error');
+                    indoorEl.className = 'sensor-status error';
+                    indoorEl.title = 'Error: ' + (data.indoor.error || 'Sensor no disponible');
+                } else {
+                    indoorEl.textContent = '⏳ Desconocido';
+                    indoorEl.className = 'sensor-status unknown';
+                    indoorEl.title = 'Estado del sensor desconocido';
+                }
+            }
+
+            if (outdoorEl) {
+                if (data.outdoor?.ok === true) {
+                    outdoorEl.textContent = '✅ Sensor OK';
+                    outdoorEl.className = 'sensor-status ok';
+                    outdoorEl.title = 'Sensor exterior conectado y funcionando';
+                } else if (data.outdoor?.ok === false) {
+                    outdoorEl.textContent = '❌ ' + (data.outdoor.error || 'Error');
+                    outdoorEl.className = 'sensor-status error';
+                    outdoorEl.title = 'Error: ' + (data.outdoor.error || 'Sensor no disponible');
+                } else {
+                    outdoorEl.textContent = '⏳ Desconocido';
+                    outdoorEl.className = 'sensor-status unknown';
+                    outdoorEl.title = 'Estado del sensor desconocido';
+                }
+            }
+        }
+
+        function fetchSensorStatus() {
+            fetch('/api/sensor-status')
+                .then(response => response.json())
+                .then(data => updateSensorStatus(data))
+                .catch(error => console.error('Error fetching sensor status:', error));
+        }
+
         // Output toggles removed (read-only dashboard)
 
         function fetchDatabaseStats() {
@@ -1409,6 +1482,7 @@
             initCharts();
             fetchCurrentData();
             fetchOutputsStatus();
+            fetchSensorStatus();
             fetchDatabaseStats();
             fetchActiveGrow();
             fetchHistoricalData(currentPeriod, currentInterval, currentHours);
@@ -1416,6 +1490,9 @@
             // Update current data every 3 seconds
             setInterval(fetchCurrentData, 3000);
             setInterval(fetchOutputsStatus, 3000);
+            
+            // Update sensor status every 30 seconds
+            setInterval(fetchSensorStatus, 30000);
             
             // Update historical data every 30 seconds
             setInterval(() => {
