@@ -136,6 +136,23 @@
         .metric-card.outdoor .metric-value {
             color: white;
         }
+
+        /* Outputs / Relays */
+        .metric-card.output-card .metric-value {
+            font-size: 1.8em;
+        }
+
+        .output-state-on {
+            color: #27ae60;
+        }
+
+        .output-state-off {
+            color: #e74c3c;
+        }
+
+        .output-state-unknown {
+            color: #7f8c8d;
+        }
         
         .chart-container {
             background: white;
@@ -534,6 +551,16 @@
                 <button class="btn btn-primary" onclick="showGrowModal()">📋 Ver Cultivos</button>
                 <button class="btn btn-success" onclick="showNewGrowModal()">➕ Nuevo Cultivo</button>
                 <button class="btn btn-secondary" onclick="showStageModal()">🔄 Cambiar Etapa</button>
+            </div>
+        </div>
+
+        <!-- Outputs / Relays -->
+        <h2 class="section-title">🔌 Salidas (Relays)</h2>
+        <div class="current-data-grid" id="outputs-grid">
+            <div class="metric-card output-card">
+                <div class="metric-label">Cargando salidas...</div>
+                <div class="metric-value output-state-unknown">--</div>
+                <div class="metric-unit">Estado</div>
             </div>
         </div>
 
@@ -1051,6 +1078,53 @@
                 .catch(error => console.error('Error fetching current data:', error));
         }
 
+        function updateOutputsStatus(payload) {
+            const grid = document.getElementById('outputs-grid');
+            const outputs = payload?.outputs || [];
+
+            if (!grid) return;
+
+            if (!outputs.length) {
+                grid.innerHTML = `
+                    <div class="metric-card output-card">
+                        <div class="metric-label">Salidas</div>
+                        <div class="metric-value output-state-unknown">No configuradas</div>
+                        <div class="metric-unit">Estado</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = outputs.map(o => {
+                let stateText = '--';
+                let stateClass = 'output-state-unknown';
+                if (o.state === true) {
+                    stateText = 'PRENDIDA';
+                    stateClass = 'output-state-on';
+                } else if (o.state === false) {
+                    stateText = 'APAGADA';
+                    stateClass = 'output-state-off';
+                }
+
+                const label = o.label || o.name || 'Salida';
+                const pin = (o.pin_bcm !== undefined && o.pin_bcm !== null) ? `BCM ${o.pin_bcm}` : 'BCM --';
+                return `
+                    <div class="metric-card output-card">
+                        <div class="metric-label">${label} (${pin})</div>
+                        <div class="metric-value ${stateClass}">${stateText}</div>
+                        <div class="metric-unit">Estado</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function fetchOutputsStatus() {
+            fetch('/api/output-status')
+                .then(response => response.json())
+                .then(payload => updateOutputsStatus(payload))
+                .catch(error => console.error('Error fetching output status:', error));
+        }
+
         function fetchDatabaseStats() {
             fetch('/api/database-stats')
                 .then(response => response.json())
@@ -1309,12 +1383,14 @@
         window.addEventListener('load', function() {
             initCharts();
             fetchCurrentData();
+            fetchOutputsStatus();
             fetchDatabaseStats();
             fetchActiveGrow();
             fetchHistoricalData(currentPeriod, currentInterval, currentHours);
             
             // Update current data every 3 seconds
             setInterval(fetchCurrentData, 3000);
+            setInterval(fetchOutputsStatus, 3000);
             
             // Update historical data every 30 seconds
             setInterval(() => {

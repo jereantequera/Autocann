@@ -13,6 +13,12 @@ app = Flask(__name__)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Cordoba')
 
+try:
+    # Optional: keep backend import-safe even if file is missing in older deployments.
+    from gpio_outputs import OUTPUTS  # type: ignore
+except Exception:
+    OUTPUTS = []
+
 @app.route('/')
 def index():
     """
@@ -48,6 +54,42 @@ def get_current_data():
     if data:
         return jsonify(json.loads(data))
     return jsonify({'error': 'No current data available'}), 404
+
+
+@app.route('/api/output-status', methods=['GET'])
+def get_output_status():
+    """
+    Endpoint to get current output/relay status from Redis plus BCM pin mapping.
+    """
+    outputs = []
+    for o in OUTPUTS:
+        redis_key = o.get("redis_key")
+        raw = redis_client.get(redis_key) if redis_key else None
+        if raw is None:
+            state = None
+        else:
+            try:
+                val = raw.decode("utf-8").strip().lower()
+            except Exception:
+                val = str(raw).strip().lower()
+            if val in ("true", "1", "on", "yes"):
+                state = True
+            elif val in ("false", "0", "off", "no"):
+                state = False
+            else:
+                state = None
+
+        outputs.append(
+            {
+                "name": o.get("name"),
+                "label": o.get("label"),
+                "pin_bcm": o.get("pin_bcm"),
+                "redis_key": redis_key,
+                "state": state,
+            }
+        )
+
+    return jsonify({"outputs": outputs})
 
 
 @app.route('/api/sensor-history', methods=['GET'])
