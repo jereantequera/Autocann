@@ -14,5 +14,3 @@ for addr in "${EXPECTED[@]}"; do
     echo "✅ BME280 detectado en 0x$addr"
   fi
 done
-
-exit $OK

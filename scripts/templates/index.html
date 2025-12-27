@@ -191,6 +191,44 @@
         .sensor-status.unknown {
             background: rgba(127, 140, 141, 0.2);
         }
+
+        /* Sensor alert banner */
+        .sensor-alert {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 10px 40px rgba(231, 76, 60, 0.3);
+            animation: pulse-alert 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-alert {
+            0%, 100% { box-shadow: 0 10px 40px rgba(231, 76, 60, 0.3); }
+            50% { box-shadow: 0 10px 50px rgba(231, 76, 60, 0.5); }
+        }
+
+        .sensor-alert-icon {
+            font-size: 2.5em;
+        }
+
+        .sensor-alert-content {
+            flex: 1;
+        }
+
+        .sensor-alert-title {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .sensor-alert-message {
+            font-size: 1em;
+            opacity: 0.9;
+        }
         
         .chart-container {
             background: white;
@@ -574,6 +612,15 @@
                         <div class="db-stat-value" id="stat-oldest">--</div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Sensor Alert Banner (hidden by default) -->
+        <div id="sensor-alert" class="sensor-alert" style="display: none;">
+            <div class="sensor-alert-icon">⚠️</div>
+            <div class="sensor-alert-content">
+                <div class="sensor-alert-title">Problema con sensores</div>
+                <div class="sensor-alert-message" id="sensor-alert-message">--</div>
             </div>
         </div>
 
@@ -1179,6 +1226,10 @@
         function updateSensorStatus(data) {
             const indoorEl = document.getElementById('sensor-status-indoor');
             const outdoorEl = document.getElementById('sensor-status-outdoor');
+            const alertEl = document.getElementById('sensor-alert');
+            const alertMsgEl = document.getElementById('sensor-alert-message');
+
+            let errors = [];
 
             if (indoorEl) {
                 if (data.indoor?.ok === true) {
@@ -1189,6 +1240,7 @@
                     indoorEl.textContent = '❌ ' + (data.indoor.error || 'Error');
                     indoorEl.className = 'sensor-status error';
                     indoorEl.title = 'Error: ' + (data.indoor.error || 'Sensor no disponible');
+                    errors.push('Interior: ' + (data.indoor.error || 'Error'));
                 } else {
                     indoorEl.textContent = '⏳ Desconocido';
                     indoorEl.className = 'sensor-status unknown';
@@ -1205,10 +1257,21 @@
                     outdoorEl.textContent = '❌ ' + (data.outdoor.error || 'Error');
                     outdoorEl.className = 'sensor-status error';
                     outdoorEl.title = 'Error: ' + (data.outdoor.error || 'Sensor no disponible');
+                    errors.push('Exterior: ' + (data.outdoor.error || 'Error'));
                 } else {
                     outdoorEl.textContent = '⏳ Desconocido';
                     outdoorEl.className = 'sensor-status unknown';
                     outdoorEl.title = 'Estado del sensor desconocido';
+                }
+            }
+
+            // Show/hide alert banner
+            if (alertEl && alertMsgEl) {
+                if (errors.length > 0) {
+                    alertMsgEl.textContent = errors.join(' • ');
+                    alertEl.style.display = 'flex';
+                } else {
+                    alertEl.style.display = 'none';
                 }
             }
         }

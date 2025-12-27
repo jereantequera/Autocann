@@ -109,6 +109,26 @@ def setup_gpio():
     except Exception as e:
         raise e
 
+
+def all_relays_off():
+    """
+    Turn off all relays and update Redis. Used for safe shutdown.
+    """
+    print("🔌 Apagando todos los relays...")
+    try:
+        if humidity_control_up:
+            humidity_control_up.off()
+            redis_client.set('humidity_control_up', 'false')
+        if humidity_control_down:
+            humidity_control_down.off()
+            redis_client.set('humidity_control_down', 'false')
+        if ventilation_control:
+            ventilation_control.off()
+            redis_client.set('ventilation_control', 'false')
+        print("✅ Todos los relays apagados")
+    except Exception as e:
+        print(f"⚠️ Error apagando relays: {e}")
+
 def humidity_up_on():
     try:
         humidity_control_up.on()
@@ -357,12 +377,14 @@ def store_historical_data(sensors_data):
         redis_client.set(buffer_key, json.dumps(buffer_list))
 
 def main(stage_override=None):
+    # Setup GPIO first so we can turn off relays if needed
+    setup_gpio()
+
     # Check sensors before starting
     if not check_and_init_sensors():
         print("❌ No se pueden inicializar los sensores BME280. Saliendo...")
+        all_relays_off()
         sys.exit(1)
-
-    setup_gpio()
     
     # Keep track of current stage to detect changes
     current_stage = None
