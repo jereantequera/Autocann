@@ -92,6 +92,82 @@ def get_output_status():
     return jsonify({"outputs": outputs})
 
 
+@app.route('/api/output-control', methods=['POST'])
+def set_output_control():
+    """
+    Endpoint to manually turn an output/relay ON/OFF.
+
+    Body (JSON):
+    - name: output name (one of gpio_outputs.OUTPUTS[*].name)
+    - state: boolean (true=on, false=off)
+    """
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    state = data.get("state")
+
+    if not name or not isinstance(name, str):
+        return jsonify({"error": "Missing or invalid 'name'"}), 400
+    if not isinstance(state, bool):
+        return jsonify({"error": "Missing or invalid 'state' (must be boolean)"}), 400
+
+    output = None
+    for o in OUTPUTS:
+        if o.get("name") == name:
+            output = o
+            break
+
+    if not output:
+        return jsonify({"error": f"Unknown output name '{name}'"}), 404
+
+    pin_bcm = output.get("pin_bcm")
+    redis_key = output.get("redis_key")
+    active_high = bool(output.get("active_high", True))
+
+    if pin_bcm is None:
+        return jsonify({"error": f"Output '{name}' has no pin configured"}), 500
+
+    # 1) Try to control the real GPIO (on Raspberry Pi).
+    try:
+        import gpiozero  # type: ignore
+    except Exception:
+        return jsonify(
+            {
+                "error": "gpiozero is not available on this machine. "
+                "This endpoint must run on the Raspberry Pi with '--extra rpi' deps installed."
+            }
+        ), 501
+
+    try:
+        dev = gpiozero.OutputDevice(int(pin_bcm), active_high=active_high, initial_value=False)
+        if state:
+            dev.on()
+        else:
+            dev.off()
+        dev.close()
+    except Exception as e:
+        return jsonify({"error": f"Failed to control GPIO BCM {pin_bcm}: {e}"}), 500
+
+    # 2) Mirror state in Redis so the dashboard can show it.
+    try:
+        if redis_key:
+            redis_client.set(redis_key, "true" if state else "false")
+    except Exception as e:
+        return jsonify({"error": f"GPIO set, but failed updating Redis: {e}"}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "output": {
+                "name": output.get("name"),
+                "label": output.get("label"),
+                "pin_bcm": pin_bcm,
+                "redis_key": redis_key,
+                "state": state,
+            },
+        }
+    )
+
+
 @app.route('/api/sensor-history', methods=['GET'])
 def get_sensor_history():
     """
