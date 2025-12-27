@@ -591,20 +591,6 @@
                 <button class="btn btn-secondary" onclick="showStageModal()">🔄 Cambiar Etapa</button>
             </div>
         </div>
-
-        <!-- Outputs / Relays -->
-        <h2 class="section-title">🔌 Salidas (Relays)</h2>
-        <div class="last-update" style="margin: -10px 0 15px 15px;">
-            Nota: si está corriendo el control automático (fix-vpd), puede volver a cambiar las salidas.
-        </div>
-        <div class="current-data-grid" id="outputs-grid">
-            <div class="metric-card output-card">
-                <div class="metric-label">Cargando salidas...</div>
-                <div class="metric-value output-state-unknown">--</div>
-                <div class="metric-unit">Estado</div>
-            </div>
-        </div>
-
         <!-- Current Indoor Data -->
         <h2 class="section-title">
             📊 Datos Actuales - Interior
@@ -653,6 +639,19 @@
                 <div class="metric-label">Humedad Exterior</div>
                 <div class="metric-value" id="current-outdoor-humidity">--</div>
                 <div class="metric-unit">%</div>
+            </div>
+        </div>
+
+        <!-- Outputs / Relays -->
+        <h2 class="section-title">🔌 Salidas (Relays)</h2>
+        <div class="last-update" style="margin: -10px 0 15px 15px;">
+            Nota: si está corriendo el control automático (fix-vpd), puede volver a cambiar las salidas.
+        </div>
+        <div class="current-data-grid" id="outputs-grid">
+            <div class="metric-card output-card">
+                <div class="metric-label">Cargando salidas...</div>
+                <div class="metric-value output-state-unknown">--</div>
+                <div class="metric-unit">Estado</div>
             </div>
         </div>
 
