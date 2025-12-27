@@ -12,7 +12,6 @@ from flask import Flask, jsonify, render_template, request
 app = Flask(__name__)
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 ARGENTINA_TZ = pytz.timezone('America/Argentina/Cordoba')
-MANUAL_OVERRIDE_TTL_SECONDS_DEFAULT = 10 * 60  # 10 minutes
 
 try:
     # Optional: keep backend import-safe even if file is missing in older deployments.
@@ -105,14 +104,11 @@ def set_output_control():
     data = request.get_json(silent=True) or {}
     name = data.get("name")
     state = data.get("state")
-    ttl_seconds = data.get("ttl_seconds", MANUAL_OVERRIDE_TTL_SECONDS_DEFAULT)
 
     if not name or not isinstance(name, str):
         return jsonify({"error": "Missing or invalid 'name'"}), 400
     if not isinstance(state, bool):
         return jsonify({"error": "Missing or invalid 'state' (must be boolean)"}), 400
-    if not isinstance(ttl_seconds, int) or ttl_seconds < 0 or ttl_seconds > (24 * 60 * 60):
-        return jsonify({"error": "Invalid 'ttl_seconds' (must be int between 0 and 86400)"}), 400
 
     output = None
     for o in OUTPUTS:
@@ -122,42 +118,6 @@ def set_output_control():
 
     if not output:
         return jsonify({"error": f"Unknown output name '{name}'"}), 404
-
-    def _set_gpio_and_redis(o, desired_state: bool):
-        pin_bcm_local = o.get("pin_bcm")
-        redis_key_local = o.get("redis_key")
-        active_high_local = bool(o.get("active_high", True))
-
-        if pin_bcm_local is None:
-            raise ValueError(f"Output '{o.get('name')}' has no pin configured")
-
-        dev = gpiozero.OutputDevice(int(pin_bcm_local), active_high=active_high_local, initial_value=False)
-        if desired_state:
-            dev.on()
-        else:
-            dev.off()
-        dev.close()
-
-        # Mirror state in Redis so the dashboard can show it.
-        if redis_key_local:
-            redis_client.set(redis_key_local, "true" if desired_state else "false")
-
-        # Manual override key: fix-vpd.py will respect this for a while.
-        override_key = f"manual_override:{o.get('name')}"
-        if ttl_seconds == 0:
-            redis_client.delete(override_key)
-        else:
-            redis_client.set(override_key, "true" if desired_state else "false", ex=ttl_seconds)
-
-        return {
-            "name": o.get("name"),
-            "label": o.get("label"),
-            "pin_bcm": pin_bcm_local,
-            "redis_key": redis_key_local,
-            "state": desired_state,
-            "manual_override_key": override_key,
-            "manual_override_ttl_seconds": ttl_seconds,
-        }
 
     pin_bcm = output.get("pin_bcm")
     redis_key = output.get("redis_key")
@@ -178,19 +138,34 @@ def set_output_control():
         ), 501
 
     try:
-        # Safety: humidity_up and humidity_down should not be ON at the same time.
-        changed = []
-        changed.append(_set_gpio_and_redis(output, state))
-
-        if state and name in ("humidity_up", "humidity_down"):
-            other_name = "humidity_down" if name == "humidity_up" else "humidity_up"
-            other_output = next((o for o in OUTPUTS if o.get("name") == other_name), None)
-            if other_output:
-                changed.append(_set_gpio_and_redis(other_output, False))
-
-        return jsonify({"success": True, "changed": changed})
+        dev = gpiozero.OutputDevice(int(pin_bcm), active_high=active_high, initial_value=False)
+        if state:
+            dev.on()
+        else:
+            dev.off()
+        dev.close()
     except Exception as e:
-        return jsonify({"error": f"Failed to control output(s): {e}"}), 500
+        return jsonify({"error": f"Failed to control GPIO BCM {pin_bcm}: {e}"}), 500
+
+    # 2) Mirror state in Redis so the dashboard can show it.
+    try:
+        if redis_key:
+            redis_client.set(redis_key, "true" if state else "false")
+    except Exception as e:
+        return jsonify({"error": f"GPIO set, but failed updating Redis: {e}"}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "output": {
+                "name": output.get("name"),
+                "label": output.get("label"),
+                "pin_bcm": pin_bcm,
+                "redis_key": redis_key,
+                "state": state,
+            },
+        }
+    )
 
 
 @app.route('/api/sensor-history', methods=['GET'])

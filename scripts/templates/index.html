@@ -155,62 +155,7 @@
             margin-top: 6px;
         }
 
-        /* Toggle switch */
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 52px;
-            height: 28px;
-            flex: 0 0 auto;
-        }
-
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #cfd6dd;
-            transition: .2s;
-            border-radius: 999px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 22px;
-            width: 22px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .2s;
-            border-radius: 999px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-
-        .switch input:checked + .slider {
-            background-color: #27ae60;
-        }
-
-        .switch input:focus + .slider {
-            box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.2);
-        }
-
-        .switch input:checked + .slider:before {
-            transform: translateX(24px);
-        }
-
-        .switch input:disabled + .slider {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        /* (Switch removed) Outputs are read-only now */
 
         .output-state-on {
             color: #27ae60;
@@ -1181,8 +1126,6 @@
 
                 const label = o.label || o.name || 'Salida';
                 const pin = (o.pin_bcm !== undefined && o.pin_bcm !== null) ? `BCM ${o.pin_bcm}` : 'BCM --';
-                const checked = (o.state === true) ? 'checked' : '';
-                const disabled = (!o.name) ? 'disabled' : '';
                 return `
                     <div class="metric-card output-card">
                         <div class="output-card-header">
@@ -1190,11 +1133,6 @@
                                 <div class="metric-label">${label}</div>
                                 <div class="output-meta">${pin}</div>
                             </div>
-                            <label class="switch" title="Prender / apagar salida">
-                                <input type="checkbox" ${checked} ${disabled}
-                                    onchange="onOutputToggle('${o.name}', this.checked, this)">
-                                <span class="slider"></span>
-                            </label>
                         </div>
                         <div class="metric-value ${stateClass}">${stateText}</div>
                         <div class="metric-unit">Estado</div>
@@ -1210,33 +1148,7 @@
                 .catch(error => console.error('Error fetching output status:', error));
         }
 
-        async function onOutputToggle(name, nextState, el) {
-            // Prevent rapid toggles while request is in flight
-            if (el) el.disabled = true;
-            try {
-                const response = await fetch('/api/output-control', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name, state: !!nextState })
-                });
-
-                const result = await response.json();
-                if (!response.ok) {
-                    // Revert UI
-                    if (el) el.checked = !nextState;
-                    alert(`❌ Error: ${result.error || 'No se pudo cambiar la salida'}`);
-                } else {
-                    // Force refresh to sync UI with backend/redis
-                    fetchOutputsStatus();
-                }
-            } catch (error) {
-                if (el) el.checked = !nextState;
-                console.error('Error controlling output:', error);
-                alert('❌ Error de red al controlar la salida');
-            } finally {
-                if (el) el.disabled = false;
-            }
-        }
+        // Output toggles removed (read-only dashboard)
 
         function fetchDatabaseStats() {
             fetch('/api/database-stats')

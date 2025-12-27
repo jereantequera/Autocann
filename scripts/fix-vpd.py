@@ -39,58 +39,6 @@ humidity_control_down = None
 ventilation_control = None
 
 
-def _parse_redis_bool(raw):
-    if raw is None:
-        return None
-    try:
-        s = raw.decode("utf-8").strip().lower()
-    except Exception:
-        s = str(raw).strip().lower()
-    if s in ("true", "1", "on", "yes"):
-        return True
-    if s in ("false", "0", "off", "no"):
-        return False
-    return None
-
-
-def _get_manual_override(name: str):
-    # Key written by backend.py when user toggles from dashboard
-    raw = redis_client.get(f"manual_override:{name}")
-    return _parse_redis_bool(raw)
-
-
-def apply_manual_overrides():
-    """
-    If any manual override is present in Redis, apply it and return True.
-    This prevents the automatic control loop from immediately overriding
-    the user's manual action from the dashboard.
-    """
-    overrides = {
-        "humidity_up": _get_manual_override("humidity_up"),
-        "humidity_down": _get_manual_override("humidity_down"),
-        "ventilation": _get_manual_override("ventilation"),
-    }
-
-    overrides = {k: v for k, v in overrides.items() if v is not None}
-    if not overrides:
-        return False
-
-    # Safety: never keep both humidity directions ON simultaneously.
-    if overrides.get("humidity_up") is True and overrides.get("humidity_down") is True:
-        # Prefer keeping humidity_up, disable the other override to avoid flapping.
-        redis_client.delete("manual_override:humidity_down")
-        overrides["humidity_down"] = False
-
-    if "humidity_up" in overrides:
-        humidity_up_on() if overrides["humidity_up"] else humidity_up_off()
-    if "humidity_down" in overrides:
-        humidity_down_on() if overrides["humidity_down"] else humidity_down_off()
-    if "ventilation" in overrides:
-        ventilation_on() if overrides["ventilation"] else ventilation_off()
-
-    return True
-
-
 def setup_gpio():
     global humidity_control_up
     global humidity_control_down
@@ -445,11 +393,6 @@ def main(stage_override=None):
                 print(f"💾 Sample saved to database (next save in 5 minutes)")
             
             if humidity_is_in_range:
-                sleep(3)
-                continue
-
-            # Manual override from dashboard (temporary). If present, it wins.
-            if apply_manual_overrides():
                 sleep(3)
                 continue
 

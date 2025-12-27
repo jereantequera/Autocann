@@ -16,8 +16,6 @@ rpi = [
     "adafruit-circuitpython-bme280>=2.6.0",
     "adafruit-blinka>=8.0.0",
     "gpiozero>=2.0.0",
-    # gpiozero prefers lgpio on newer Raspberry Pi OS; otherwise it falls back.
-    "lgpio",
     "RPi.GPIO>=0.7.1",
 ]
 dev = [
