@@ -396,6 +396,11 @@ def main(stage_override=None):
     last_db_save_time = 0
     DB_SAVE_INTERVAL = 300  # 5 minutes in seconds
     
+    # Track consecutive sensor failures for safe shutdown
+    consecutive_sensor_failures = 0
+    MAX_SENSOR_FAILURES = 3  # After 3 consecutive failures, turn off relays
+    relays_safe_shutdown = False  # Track if relays are in safe shutdown mode
+    
     while True:
         try:
             # Check for stage changes periodically
@@ -403,6 +408,9 @@ def main(stage_override=None):
                 active_grow = get_active_grow()
                 if not active_grow:
                     print("No active grow found. Please create a grow first.")
+                    if not relays_safe_shutdown:
+                        all_relays_off()
+                        relays_safe_shutdown = True
                     sleep(10)
                     continue
                 
@@ -433,9 +441,34 @@ def main(stage_override=None):
             
             sensors_data = read_sensors()
             if sensors_data is None:
-                print("No valid sensor data, retrying in 3 seconds...")
-                sleep(3)
+                consecutive_sensor_failures += 1
+                print(f"⚠️ No valid sensor data (failure {consecutive_sensor_failures}/{MAX_SENSOR_FAILURES})")
+                
+                # If we've had too many consecutive failures, turn off relays for safety
+                if consecutive_sensor_failures >= MAX_SENSOR_FAILURES:
+                    if not relays_safe_shutdown:
+                        print("🛑 Too many sensor failures - entering safe mode")
+                        all_relays_off()
+                        relays_safe_shutdown = True
+                    
+                    # Try to reinitialize sensors
+                    print("🔄 Attempting to reinitialize sensors...")
+                    if check_and_init_sensors():
+                        print("✅ Sensors reinitialized successfully!")
+                        consecutive_sensor_failures = 0
+                        relays_safe_shutdown = False
+                    else:
+                        print("❌ Sensor reinitialization failed, retrying in 10 seconds...")
+                        sleep(10)
+                else:
+                    sleep(3)
                 continue
+            
+            # Sensors read successfully - reset failure counter and safe shutdown flag
+            if consecutive_sensor_failures > 0:
+                print(f"✅ Sensor readings restored after {consecutive_sensor_failures} failures")
+            consecutive_sensor_failures = 0
+            relays_safe_shutdown = False
             
             temperature = float(sensors_data['temperature'])
             humidity = float(sensors_data['humidity'])
@@ -505,8 +538,18 @@ def main(stage_override=None):
             sleep(3)
             
         except Exception as e:
-            print("Error in main loop: {}".format(e))
-            sleep(3)
+            print(f"❌ Error in main loop: {e}")
+            consecutive_sensor_failures += 1
+            
+            # If we're getting repeated errors, enter safe mode
+            if consecutive_sensor_failures >= MAX_SENSOR_FAILURES:
+                if not relays_safe_shutdown:
+                    print("🛑 Too many errors - entering safe mode")
+                    all_relays_off()
+                    relays_safe_shutdown = True
+                sleep(10)
+            else:
+                sleep(3)
 
 
 if __name__ == "__main__":
