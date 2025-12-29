@@ -425,18 +425,22 @@ def main(stage_override=None):
             humidity_is_in_range = False
             # Store historical data in Redis
             store_historical_data(sensors_data)            
+            
+            # Always calculate leaf data
+            sensors_data['leaf_temperature'] = leaf_temperature
+            sensors_data['leaf_vpd'] = leaf_vpd
+            
             if STAGE != "dry":
-                if vpd_is_in_range(leaf_vpd, STAGE):
-                    sensors_data['leaf_temperature'] = leaf_temperature
-                    sensors_data['leaf_vpd'] = leaf_vpd
+                target_humidity = calculate_target_humidity(STAGE, temperature)
+                sensors_data['target_humidity'] = target_humidity
+                sensors_data['vpd_in_range'] = vpd_is_in_range(leaf_vpd, STAGE)
+                
+                if sensors_data['vpd_in_range']:
                     redis_client.set('sensors', json.dumps(sensors_data))
                     sleep(3)
                     continue
-                target_humidity = calculate_target_humidity(STAGE, temperature)
-                sensors_data['target_humidity'] = target_humidity
-                sensors_data['leaf_temperature'] = leaf_temperature
-                sensors_data['leaf_vpd'] = leaf_vpd
             else:
+                sensors_data['vpd_in_range'] = False
                 if humidity >= 60 and humidity <= 65:
                     target_humidity = humidity
                     humidity_is_in_range = True
@@ -444,9 +448,7 @@ def main(stage_override=None):
                     target_humidity = 60
                 elif humidity <= 60:
                     target_humidity = 65
-            sensors_data['target_humidity'] = target_humidity
-            sensors_data['leaf_temperature'] = leaf_temperature
-            sensors_data['leaf_vpd'] = leaf_vpd
+                sensors_data['target_humidity'] = target_humidity
             
             # Store in Redis for real-time access
             redis_client.set('sensors', json.dumps(sensors_data))

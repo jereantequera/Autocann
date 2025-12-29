@@ -104,6 +104,36 @@
             box-shadow: 0 15px 50px rgba(0,0,0,0.15);
         }
         
+        .metric-card.vpd-optimal {
+            border: 2px solid #27ae60;
+            box-shadow: 0 10px 40px rgba(39, 174, 96, 0.2);
+        }
+        
+        .metric-card.vpd-adjusting {
+            border: 2px solid #f39c12;
+            box-shadow: 0 10px 40px rgba(243, 156, 18, 0.2);
+        }
+        
+        .vpd-status {
+            margin-top: 10px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .vpd-status.in-range {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+        }
+        
+        .vpd-status.adjusting {
+            background: linear-gradient(135deg, #f39c12, #f1c40f);
+            color: #2c3e50;
+        }
+        
         .metric-label {
             color: #7f8c8d;
             font-size: 0.9em;
@@ -659,10 +689,11 @@
                 <div class="metric-value" id="current-target-humidity">--</div>
                 <div class="metric-unit">%</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card" id="vpd-card">
                 <div class="metric-label">VPD</div>
                 <div class="metric-value" id="current-vpd">--</div>
                 <div class="metric-unit">kPa</div>
+                <div class="vpd-status" id="vpd-status"></div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Temp. Hoja</div>
@@ -1085,6 +1116,26 @@
                 data.outside_temperature?.toFixed(1) || '--';
             document.getElementById('current-outdoor-humidity').textContent = 
                 data.outside_humidity?.toFixed(1) || '--';
+            
+            // Update VPD status indicator
+            const vpdCard = document.getElementById('vpd-card');
+            const vpdStatus = document.getElementById('vpd-status');
+            
+            if (data.vpd_in_range === true) {
+                vpdCard.classList.remove('vpd-adjusting');
+                vpdCard.classList.add('vpd-optimal');
+                vpdStatus.className = 'vpd-status in-range';
+                vpdStatus.textContent = '✓ En rango óptimo';
+            } else if (data.vpd_in_range === false) {
+                vpdCard.classList.remove('vpd-optimal');
+                vpdCard.classList.add('vpd-adjusting');
+                vpdStatus.className = 'vpd-status adjusting';
+                vpdStatus.textContent = '⚡ Ajustando...';
+            } else {
+                vpdCard.classList.remove('vpd-optimal', 'vpd-adjusting');
+                vpdStatus.className = 'vpd-status';
+                vpdStatus.textContent = '';
+            }
             
             document.getElementById('last-update').textContent = 
                 `Última actualización: ${new Date().toLocaleString('es-AR')}`;
