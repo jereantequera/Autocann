@@ -513,6 +513,11 @@ def main(stage_override=None):
     last_db_save_time = 0
     DB_SAVE_INTERVAL = 300  # 5 minutes in seconds
     
+    # Hysteresis control: track if we're actively raising or lowering humidity
+    # When raising, continue until target is reached (not just until VPD is in range)
+    # This prevents constant cycling and keeps average humidity higher
+    humidity_control_mode = None  # None, 'raising', or 'lowering'
+    
     while True:
         try:
             # Check for stage changes periodically
@@ -542,6 +547,8 @@ def main(stage_override=None):
                     
                     current_stage = new_stage
                     current_grow_id = active_grow['id']
+                    # Reset humidity control mode on stage change
+                    humidity_control_mode = None
                 
                 STAGE = current_stage
             
@@ -553,6 +560,7 @@ def main(stage_override=None):
                 # Try to reinitialize sensors
                 print("⚠️ No valid sensor data - attempting sensor reinit...")
                 all_outputs_off()  # Safety: turn off all outputs
+                humidity_control_mode = None  # Reset control mode on error
                 check_and_init_sensors()
                 sleep(3)
                 continue
@@ -575,8 +583,37 @@ def main(stage_override=None):
                 sensors_data['target_humidity'] = target_humidity
                 sensors_data['vpd_in_range'] = vpd_is_in_range(leaf_vpd, STAGE)
                 
-                if sensors_data['vpd_in_range']:
-                    # VPD is in range - turn off all humidity controls
+                # Hysteresis logic: when actively raising/lowering, continue until target is reached
+                # This prevents the humidifier from cycling on/off rapidly
+                if humidity_control_mode == 'raising':
+                    if humidity >= target_humidity:
+                        # Reached target humidity - stop raising
+                        print(f"✅ Target humidity reached ({humidity:.1f}% >= {target_humidity}%), stopping humidifier")
+                        humidity_up_off()
+                        humidity_down_off()
+                        ventilation_off()
+                        humidity_control_mode = None
+                        redis_client.set('sensors', json.dumps(sensors_data))
+                        sleep(3)
+                        continue
+                    # Still below target - continue raising (don't stop just because VPD is in range)
+                    # The control logic below will keep the humidifier running
+                    
+                elif humidity_control_mode == 'lowering':
+                    if humidity <= target_humidity:
+                        # Reached target humidity - stop lowering
+                        print(f"✅ Target humidity reached ({humidity:.1f}% <= {target_humidity}%), stopping dehumidifier")
+                        humidity_up_off()
+                        humidity_down_off()
+                        ventilation_off()
+                        humidity_control_mode = None
+                        redis_client.set('sensors', json.dumps(sensors_data))
+                        sleep(3)
+                        continue
+                    # Still above target - continue lowering
+                    
+                elif sensors_data['vpd_in_range']:
+                    # Not actively controlling and VPD is in range - do nothing
                     humidity_up_off()
                     humidity_down_off()
                     ventilation_off()
@@ -584,10 +621,12 @@ def main(stage_override=None):
                     sleep(3)
                     continue
             else:
+                # Dry mode: target is 60-65% humidity
                 sensors_data['vpd_in_range'] = False
                 if humidity >= 60 and humidity <= 65:
                     target_humidity = humidity
                     humidity_is_in_range = True
+                    humidity_control_mode = None  # Reset mode when in range
                 elif humidity >= 65:
                     target_humidity = 60
                 elif humidity <= 60:
@@ -609,12 +648,17 @@ def main(stage_override=None):
                 humidity_up_off()
                 humidity_down_off()
                 ventilation_off()
+                humidity_control_mode = None
                 sleep(3)
                 continue
 
             if target_humidity is None:
                 continue
             if humidity < target_humidity:
+                # Start or continue raising humidity
+                if humidity_control_mode != 'raising':
+                    print(f"🔼 Starting to raise humidity ({humidity:.1f}% → {target_humidity}%)")
+                    humidity_control_mode = 'raising'
                 humidity_up_on()
                 humidity_down_off()
                 if outside_humidity > target_humidity:
@@ -622,6 +666,10 @@ def main(stage_override=None):
                 else:
                     ventilation_off()
             elif humidity > target_humidity:
+                # Start or continue lowering humidity
+                if humidity_control_mode != 'lowering':
+                    print(f"🔽 Starting to lower humidity ({humidity:.1f}% → {target_humidity}%)")
+                    humidity_control_mode = 'lowering'
                 humidity_up_off()
                 humidity_down_on()
                 if outside_humidity < target_humidity:
@@ -629,6 +677,8 @@ def main(stage_override=None):
                 else:
                     ventilation_off()
             elif humidity == target_humidity:
+                # At target - stop all controls
+                humidity_control_mode = None
                 humidity_up_off()
                 humidity_down_off()
                 ventilation_off()
