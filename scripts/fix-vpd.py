@@ -53,28 +53,23 @@ def init_i2c_bus():
                 pass
             i2c = None
         
-        # Small delay before reinitializing
-        sleep(0.5)
+        sleep(0.1)
         
         # Create new I2C bus
         i2c = busio.I2C(board.SCL, board.SDA)
-        print("✅ I2C bus initialized")
         return i2c
         
     except Exception as e:
-        print(f"❌ Failed to initialize I2C bus: {e}")
+        print(f"❌ I2C init failed: {e}")
         return None
 
 
 def i2c_clock_recovery():
     """
     Attempt to recover I2C bus by sending 9 clock pulses on SCL.
-    This is a standard I2C recovery technique when a slave is holding SDA low.
+    Standard I2C recovery technique when a slave is holding SDA low.
     """
-    print("🔧 Attempting I2C clock recovery (9 clock pulses)...")
-    
     try:
-        # Close I2C bus first
         global i2c
         if i2c is not None:
             try:
@@ -83,56 +78,34 @@ def i2c_clock_recovery():
                 pass
             i2c = None
         
-        sleep(0.1)
-        
-        # Use GPIO to manually toggle SCL 9 times
-        # SCL is GPIO3, SDA is GPIO2 on Raspberry Pi
+        # Use GPIO to manually toggle SCL 9 times (GPIO3 = SCL on RPi)
         import RPi.GPIO as GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
+        GPIO.setup(3, GPIO.OUT)
         
-        SCL_PIN = 3
-        SDA_PIN = 2
-        
-        # Set SCL as output
-        GPIO.setup(SCL_PIN, GPIO.OUT)
-        
-        # Send 9 clock pulses (standard I2C recovery)
         for _ in range(9):
-            GPIO.output(SCL_PIN, GPIO.HIGH)
-            sleep(0.001)  # 1ms high
-            GPIO.output(SCL_PIN, GPIO.LOW)
-            sleep(0.001)  # 1ms low
+            GPIO.output(3, GPIO.HIGH)
+            sleep(0.001)
+            GPIO.output(3, GPIO.LOW)
+            sleep(0.001)
         
-        # End with SCL high
-        GPIO.output(SCL_PIN, GPIO.HIGH)
-        sleep(0.001)
+        GPIO.output(3, GPIO.HIGH)
+        GPIO.cleanup([3])
         
-        # Clean up GPIO
-        GPIO.cleanup([SCL_PIN])
-        
-        print("✅ Clock recovery pulses sent")
-        sleep(0.5)
-        
-        # Reinitialize I2C bus
         return init_i2c_bus()
         
     except ImportError:
-        print("⚠️ RPi.GPIO not available, trying alternative recovery...")
         return recover_i2c_via_kernel()
-    except Exception as e:
-        print(f"❌ Clock recovery failed: {e}")
+    except Exception:
         return recover_i2c_via_kernel()
 
 
 def recover_i2c_via_kernel():
     """
     Try to recover I2C by reloading the kernel module.
-    This is more aggressive but sometimes necessary.
     """
     import subprocess
-    
-    print("🔧 Attempting I2C kernel module reload...")
     
     try:
         global i2c
@@ -143,25 +116,19 @@ def recover_i2c_via_kernel():
                 pass
             i2c = None
         
-        sleep(0.5)
-        
-        # Try to reload i2c-bcm2835 module (requires root)
+        # Reload i2c-bcm2835 module (requires root)
         try:
             subprocess.run(['sudo', 'rmmod', 'i2c_bcm2835'], 
-                         capture_output=True, timeout=5)
-            sleep(0.5)
+                         capture_output=True, timeout=3)
             subprocess.run(['sudo', 'modprobe', 'i2c_bcm2835'], 
-                         capture_output=True, timeout=5)
-            sleep(1)
-            print("✅ I2C kernel module reloaded")
-        except Exception as e:
-            print(f"⚠️ Kernel module reload not available: {e}")
+                         capture_output=True, timeout=3)
+            sleep(0.2)
+        except Exception:
+            pass
         
-        # Reinitialize I2C bus
         return init_i2c_bus()
         
-    except Exception as e:
-        print(f"❌ Kernel recovery failed: {e}")
+    except Exception:
         return init_i2c_bus()
 
 
