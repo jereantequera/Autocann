@@ -14,8 +14,7 @@ import redis
 from database import get_active_grow, store_control_event, store_sensor_sample
 
 HUMIDITY_CONTROL_PIN_UP = 25
-HUMIDITY_CONTROL_PIN_DOWN = 16
-VENTILATION_CONTROL_PIN = 7
+HUMIDITY_CONTROL_PIN_DOWN = 7
 
 # DHT22 sensor GPIO pins
 DHT22_INDOOR_PIN = 4
@@ -156,19 +155,16 @@ def check_and_init_sensors():
 
 humidity_control_up = None
 humidity_control_down = None
-ventilation_control = None
 
 
 def setup_gpio():
     global humidity_control_up
     global humidity_control_down
-    global ventilation_control
     try:
         # active_high=False because relay modules are typically active-low
         # (relay activates when pin is LOW, deactivates when pin is HIGH)
         humidity_control_up = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_UP, active_high=False, initial_value=False)
         humidity_control_down = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_DOWN, active_high=False, initial_value=False)
-        ventilation_control = gpiozero.OutputDevice(VENTILATION_CONTROL_PIN, active_high=False, initial_value=False)
     except Exception as e:
         raise e
 
@@ -202,22 +198,6 @@ def humidity_down_off():
         humidity_control_down.off()
         redis_client.set('humidity_control_down', 'false')
         store_control_event('humidity_down', 'off')
-    except Exception as e:
-        print(e)
-
-def ventilation_on():
-    try:
-        ventilation_control.on()
-        redis_client.set('ventilation_control', 'true')
-        store_control_event('ventilation', 'on')
-    except Exception as e:
-        print(e)
-
-def ventilation_off():
-    try:
-        ventilation_control.off()
-        redis_client.set('ventilation_control', 'false')
-        store_control_event('ventilation', 'off')
     except Exception as e:
         print(e)
 
@@ -481,12 +461,9 @@ def all_outputs_off():
             humidity_control_up.off()
         if humidity_control_down:
             humidity_control_down.off()
-        if ventilation_control:
-            ventilation_control.off()
         # Update Redis state
         redis_client.set('humidity_control_up', 'false')
         redis_client.set('humidity_control_down', 'false')
-        redis_client.set('ventilation_control', 'false')
     except Exception as e:
         print(f"⚠️ Error turning off outputs: {e}")
 
@@ -591,7 +568,6 @@ def main(stage_override=None):
                         print(f"✅ Target humidity reached ({humidity:.1f}% >= {target_humidity}%), stopping humidifier")
                         humidity_up_off()
                         humidity_down_off()
-                        ventilation_off()
                         humidity_control_mode = None
                         redis_client.set('sensors', json.dumps(sensors_data))
                         sleep(3)
@@ -605,7 +581,6 @@ def main(stage_override=None):
                         print(f"✅ Target humidity reached ({humidity:.1f}% <= {target_humidity}%), stopping dehumidifier")
                         humidity_up_off()
                         humidity_down_off()
-                        ventilation_off()
                         humidity_control_mode = None
                         redis_client.set('sensors', json.dumps(sensors_data))
                         sleep(3)
@@ -616,7 +591,6 @@ def main(stage_override=None):
                     # Not actively controlling and VPD is in range - do nothing
                     humidity_up_off()
                     humidity_down_off()
-                    ventilation_off()
                     redis_client.set('sensors', json.dumps(sensors_data))
                     sleep(3)
                     continue
@@ -647,7 +621,6 @@ def main(stage_override=None):
                 # Humidity is in dry range - turn off all controls
                 humidity_up_off()
                 humidity_down_off()
-                ventilation_off()
                 humidity_control_mode = None
                 sleep(3)
                 continue
@@ -661,10 +634,6 @@ def main(stage_override=None):
                     humidity_control_mode = 'raising'
                 humidity_up_on()
                 humidity_down_off()
-                if outside_humidity > target_humidity:
-                    ventilation_on()
-                else:
-                    ventilation_off()
             elif humidity > target_humidity:
                 # Start or continue lowering humidity
                 if humidity_control_mode != 'lowering':
@@ -672,16 +641,11 @@ def main(stage_override=None):
                     humidity_control_mode = 'lowering'
                 humidity_up_off()
                 humidity_down_on()
-                if outside_humidity < target_humidity:
-                    ventilation_on()
-                else:
-                    ventilation_off()
             elif humidity == target_humidity:
                 # At target - stop all controls
                 humidity_control_mode = None
                 humidity_up_off()
                 humidity_down_off()
-                ventilation_off()
             sleep(3)
             
         except Exception as e:
