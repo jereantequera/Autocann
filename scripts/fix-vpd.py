@@ -576,6 +576,10 @@ def main(stage_override=None):
                 sensors_data['vpd_in_range'] = vpd_is_in_range(leaf_vpd, STAGE)
                 
                 if sensors_data['vpd_in_range']:
+                    # VPD is in range - turn off all humidity controls
+                    humidity_up_off()
+                    humidity_down_off()
+                    ventilation_off()
                     redis_client.set('sensors', json.dumps(sensors_data))
                     sleep(3)
                     continue
@@ -601,6 +605,10 @@ def main(stage_override=None):
                 print(f"💾 Sample saved to database (next save in 5 minutes)")
             
             if humidity_is_in_range:
+                # Humidity is in dry range - turn off all controls
+                humidity_up_off()
+                humidity_down_off()
+                ventilation_off()
                 sleep(3)
                 continue
 
