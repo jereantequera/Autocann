@@ -357,14 +357,34 @@ def store_historical_data(sensors_data):
         redis_client.set(key, json.dumps(data_list))
         redis_client.set(buffer_key, json.dumps(buffer_list))
 
+def all_outputs_off():
+    """Turn off all outputs safely."""
+    try:
+        if humidity_control_up:
+            humidity_control_up.off()
+        if humidity_control_down:
+            humidity_control_down.off()
+        if ventilation_control:
+            ventilation_control.off()
+        # Update Redis state
+        redis_client.set('humidity_control_up', 'false')
+        redis_client.set('humidity_control_down', 'false')
+        redis_client.set('ventilation_control', 'false')
+    except Exception as e:
+        print(f"⚠️ Error turning off outputs: {e}")
+
+
 def main(stage_override=None):
     # Setup GPIO first
     setup_gpio()
+    
+    # Ensure all outputs are off at startup
+    all_outputs_off()
 
-    # Check sensors before starting
-    if not check_and_init_sensors():
-        print("❌ No se pueden inicializar los sensores BME280. Saliendo...")
-        sys.exit(1)
+    # Check sensors before starting - retry instead of exiting
+    while not check_and_init_sensors():
+        print("❌ No se pueden inicializar los sensores BME280. Reintentando en 30 segundos...")
+        sleep(30)
     
     # Keep track of current stage to detect changes
     current_stage = None
