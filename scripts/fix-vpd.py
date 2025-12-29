@@ -7,6 +7,7 @@ from datetime import datetime
 from time import sleep
 
 import adafruit_bme280.advanced as adafruit_bme280
+import adafruit_dht
 import board
 import busio
 import gpiozero
@@ -18,6 +19,8 @@ HUMIDITY_CONTROL_PIN_UP = 25
 HUMIDITY_CONTROL_PIN_DOWN = 16
 VENTILATION_CONTROL_PIN = 7
 
+# DHT22 outdoor sensor GPIO pin
+DHT22_PIN = 13
 
 EARLY_VEG_VPD_RANGE = (0.6, 1.0)
 LATE_VEG_VPD_RANGE = (0.8, 1.2)
@@ -25,15 +28,15 @@ FLOWERING_VPD_RANGE = (1.2, 1.5)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
-# BME280 sensor addresses
-BME280_ADDRESSES = [0x76, 0x77]
+# BME280 indoor sensor address
+BME280_ADDRESS = 0x76
 
 # I2C bus - will be initialized in init_i2c_bus()
 i2c = None
 
 # Sensor globals (initialized by check_and_init_sensors)
 bme280_in = None
-bme280_out = None
+dht22_out = None
 
 
 
@@ -181,43 +184,39 @@ def recover_i2c_bus():
     return False
 
 
+def init_dht22():
+    """
+    Initialize the DHT22 outdoor sensor.
+    Returns the sensor object or None if failed.
+    """
+    global dht22_out
+    
+    try:
+        # Map GPIO number to board pin
+        gpio_to_board = {
+            13: board.D13,
+        }
+        
+        pin = gpio_to_board.get(DHT22_PIN, board.D13)
+        dht22_out = adafruit_dht.DHT22(pin, use_pulseio=False)
+        return dht22_out
+    except Exception as e:
+        print(f"❌ DHT22 init failed: {e}")
+        return None
+
+
 def check_and_init_sensors(try_recovery=True):
     """
-    Check if BME280 sensors are connected and initialize them.
+    Check if sensors are connected and initialize them.
+    - BME280 for indoor (I2C address 0x76)
+    - DHT22 for outdoor (GPIO 13)
     Returns True if both sensors are OK, False otherwise.
     Also stores sensor status in Redis for dashboard display.
     
     Parameters:
     - try_recovery: If True and sensors not found, attempt I2C bus recovery
     """
-    global bme280_in, bme280_out, i2c
-
-    # Ensure I2C bus is initialized
-    if i2c is None:
-        if not init_i2c_bus():
-            return False
-
-    # Scan I2C bus
-    found = []
-    try:
-        while not i2c.try_lock():
-            pass
-        found = i2c.scan()
-        i2c.unlock()
-    except Exception as e:
-        print(f"❌ I2C scan failed: {e}")
-        if try_recovery:
-            if recover_i2c_bus():
-                return check_and_init_sensors(try_recovery=False)
-        return False
-
-    # If no devices found, try recovery
-    if not found:
-        print("⚠️ No I2C devices detected on bus")
-        if try_recovery:
-            if recover_i2c_bus():
-                return check_and_init_sensors(try_recovery=False)
-        return False
+    global bme280_in, dht22_out, i2c
 
     ok = True
     sensor_status = {
@@ -225,34 +224,77 @@ def check_and_init_sensors(try_recovery=True):
         "outdoor": {"ok": False, "error": None},
     }
 
-    for addr in BME280_ADDRESSES:
-        sensor_name = "indoor" if addr == 0x76 else "outdoor"
-
-        if addr not in found:
-            error_msg = "Sensor no detectado"
-            print(f"❌ BME280 {sensor_name} no detectado en 0x{addr:02x}")
-            sensor_status[sensor_name]["error"] = error_msg
+    # === Initialize BME280 indoor sensor ===
+    # Ensure I2C bus is initialized
+    if i2c is None:
+        if not init_i2c_bus():
+            sensor_status["indoor"]["error"] = "I2C bus init failed"
             ok = False
-            continue
 
+    if i2c is not None:
+        # Scan I2C bus
+        found = []
         try:
-            bme = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=addr)
-            # Test read to make sure sensor responds properly
-            _ = bme.temperature
-            _ = bme.humidity
-            print(f"✅ BME280 {sensor_name} OK en 0x{addr:02x}")
-            sensor_status[sensor_name]["ok"] = True
-
-            # Assign to correct global
-            if addr == 0x76:
-                bme280_in = bme
-            else:
-                bme280_out = bme
+            while not i2c.try_lock():
+                pass
+            found = i2c.scan()
+            i2c.unlock()
         except Exception as e:
-            error_msg = str(e)
-            print(f"⚠️ BME280 {sensor_name} responde mal en 0x{addr:02x}: {e}")
-            sensor_status[sensor_name]["error"] = error_msg
+            print(f"❌ I2C scan failed: {e}")
+            if try_recovery:
+                if recover_i2c_bus():
+                    return check_and_init_sensors(try_recovery=False)
+            sensor_status["indoor"]["error"] = f"I2C scan failed: {e}"
             ok = False
+
+        # Check if BME280 indoor is detected
+        if BME280_ADDRESS not in found:
+            error_msg = "Sensor no detectado"
+            print(f"❌ BME280 indoor no detectado en 0x{BME280_ADDRESS:02x}")
+            sensor_status["indoor"]["error"] = error_msg
+            ok = False
+            if try_recovery:
+                if recover_i2c_bus():
+                    return check_and_init_sensors(try_recovery=False)
+        else:
+            try:
+                bme = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=BME280_ADDRESS)
+                # Test read to make sure sensor responds properly
+                _ = bme.temperature
+                _ = bme.humidity
+                print(f"✅ BME280 indoor OK en 0x{BME280_ADDRESS:02x}")
+                sensor_status["indoor"]["ok"] = True
+                bme280_in = bme
+            except Exception as e:
+                error_msg = str(e)
+                print(f"⚠️ BME280 indoor responde mal en 0x{BME280_ADDRESS:02x}: {e}")
+                sensor_status["indoor"]["error"] = error_msg
+                ok = False
+
+    # === Initialize DHT22 outdoor sensor ===
+    try:
+        if dht22_out is None:
+            init_dht22()
+        
+        if dht22_out is not None:
+            # Test read (DHT22 needs time between reads, so we try once)
+            try:
+                _ = dht22_out.temperature
+                _ = dht22_out.humidity
+                print(f"✅ DHT22 outdoor OK en GPIO {DHT22_PIN}")
+                sensor_status["outdoor"]["ok"] = True
+            except RuntimeError as e:
+                # DHT sensors often fail first read, that's normal
+                print(f"⚠️ DHT22 first read failed (normal): {e}")
+                sensor_status["outdoor"]["ok"] = True  # Still mark as OK
+        else:
+            sensor_status["outdoor"]["error"] = "DHT22 init failed"
+            ok = False
+    except Exception as e:
+        error_msg = str(e)
+        print(f"⚠️ DHT22 outdoor error: {e}")
+        sensor_status["outdoor"]["error"] = error_msg
+        ok = False
 
     # Store sensor status in Redis for dashboard
     try:
@@ -406,22 +448,60 @@ def vpd_is_in_range(vpd, stage):
             return False
     return True
 
+def read_dht22_with_retry(max_attempts=5):
+    """
+    Read DHT22 sensor with retry logic.
+    DHT sensors are notorious for failing reads, so we retry multiple times.
+    
+    Returns tuple (temperature, humidity) or (None, None) on failure.
+    """
+    global dht22_out
+    
+    for attempt in range(max_attempts):
+        try:
+            if dht22_out is None:
+                init_dht22()
+                if dht22_out is None:
+                    return None, None
+            
+            temperature = dht22_out.temperature
+            humidity = dht22_out.humidity
+            
+            if temperature is not None and humidity is not None:
+                return temperature, humidity
+                
+        except RuntimeError as e:
+            # DHT sensors often throw RuntimeError on failed reads
+            if attempt < max_attempts - 1:
+                sleep(2)  # DHT22 needs at least 2 seconds between reads
+            continue
+        except Exception as e:
+            print(f"⚠️ DHT22 error: {e}")
+            if attempt < max_attempts - 1:
+                sleep(2)
+            continue
+    
+    return None, None
+
+
 def read_sensors(max_retries=3, retry_delay=2):
     """
     Read sensors with retry logic and I2C recovery
+    - BME280 for indoor readings
+    - DHT22 for outdoor readings
     
     Parameters:
     - max_retries: Maximum number of retry attempts
     - retry_delay: Delay between retries in seconds
     """
-    global bme280_in, bme280_out
+    global bme280_in, dht22_out
     
     for attempt in range(max_retries):
         json_data = {}
         
-        # Check if sensors are initialized
-        if bme280_in is None or bme280_out is None:
-            print(f"⚠️ Sensors not initialized, attempting reinit (attempt {attempt + 1}/{max_retries})")
+        # Check if indoor sensor is initialized
+        if bme280_in is None:
+            print(f"⚠️ Indoor sensor not initialized, attempting reinit (attempt {attempt + 1}/{max_retries})")
             if check_and_init_sensors():
                 continue  # Retry reading
             else:
@@ -429,21 +509,30 @@ def read_sensors(max_retries=3, retry_delay=2):
                 continue
         
         try:
-            # Read from BME280 sensors
+            # Read from BME280 indoor sensor
             temperature_c = bme280_in.temperature
             humidity = bme280_in.relative_humidity
-            outside_temperature_c = bme280_out.temperature   
-            outside_humidity = bme280_out.relative_humidity
             
-            # Validate readings
-            if any(reading is None for reading in [temperature_c, humidity, outside_temperature_c, outside_humidity]):
-                raise RuntimeError("Invalid sensor reading (None values)")
-                
+            # Validate indoor readings
+            if temperature_c is None or humidity is None:
+                raise RuntimeError("Invalid indoor sensor reading (None values)")
+            
             json_data['temperature'] = round(temperature_c, 2)
             json_data['humidity'] = round(humidity, 2)
-            json_data['outside_temperature'] = round(outside_temperature_c, 2)
-            json_data['outside_humidity'] = round(outside_humidity, 2)
             json_data['vpd'] = calculate_vpd(temperature_c, humidity)
+            
+            # Read from DHT22 outdoor sensor
+            outside_temperature_c, outside_humidity = read_dht22_with_retry()
+            
+            if outside_temperature_c is not None and outside_humidity is not None:
+                json_data['outside_temperature'] = round(outside_temperature_c, 2)
+                json_data['outside_humidity'] = round(outside_humidity, 2)
+            else:
+                # Use fallback values if DHT22 fails (use indoor values as approximation)
+                print(f"⚠️ DHT22 read failed, using fallback values")
+                json_data['outside_temperature'] = json_data['temperature']
+                json_data['outside_humidity'] = json_data['humidity']
+            
             return json_data
             
         except RuntimeError as error:
@@ -456,9 +545,8 @@ def read_sensors(max_retries=3, retry_delay=2):
             # OSError often indicates I2C bus issues
             print(f"🚨 I2C communication error (attempt {attempt + 1}/{max_retries}): {error}")
             
-            # Reset sensor references and try recovery
+            # Reset indoor sensor reference and try recovery
             bme280_in = None
-            bme280_out = None
             
             if attempt < max_retries - 1:
                 print("🔄 Attempting I2C recovery...")
@@ -472,7 +560,6 @@ def read_sensors(max_retries=3, retry_delay=2):
             print(f"Unexpected error: {error}")
             # For unexpected errors, try recovery once
             bme280_in = None
-            bme280_out = None
             if attempt < max_retries - 1:
                 check_and_init_sensors()
                 sleep(retry_delay)
