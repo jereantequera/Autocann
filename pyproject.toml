@@ -13,7 +13,6 @@ dependencies = [
 [project.optional-dependencies]
 # Raspberry Pi specific dependencies (only install on Raspberry Pi)
 rpi = [
-    "adafruit-circuitpython-bme280>=2.6.0",
     "adafruit-circuitpython-dht>=4.0.0",
     "adafruit-blinka>=8.0.0",
     "gpiozero>=2.0.0",
