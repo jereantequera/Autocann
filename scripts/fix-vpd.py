@@ -110,25 +110,6 @@ def setup_gpio():
         raise e
 
 
-def all_relays_off():
-    """
-    Turn off all relays and update Redis. Used for safe shutdown.
-    """
-    print("🔌 Apagando todos los relays...")
-    try:
-        if humidity_control_up:
-            humidity_control_up.off()
-            redis_client.set('humidity_control_up', 'false')
-        if humidity_control_down:
-            humidity_control_down.off()
-            redis_client.set('humidity_control_down', 'false')
-        if ventilation_control:
-            ventilation_control.off()
-            redis_client.set('ventilation_control', 'false')
-        print("✅ Todos los relays apagados")
-    except Exception as e:
-        print(f"⚠️ Error apagando relays: {e}")
-
 def humidity_up_on():
     try:
         humidity_control_up.on()
@@ -377,13 +358,12 @@ def store_historical_data(sensors_data):
         redis_client.set(buffer_key, json.dumps(buffer_list))
 
 def main(stage_override=None):
-    # Setup GPIO first so we can turn off relays if needed
+    # Setup GPIO first
     setup_gpio()
 
     # Check sensors before starting
     if not check_and_init_sensors():
         print("❌ No se pueden inicializar los sensores BME280. Saliendo...")
-        all_relays_off()
         sys.exit(1)
     
     # Keep track of current stage to detect changes
@@ -396,11 +376,6 @@ def main(stage_override=None):
     last_db_save_time = 0
     DB_SAVE_INTERVAL = 300  # 5 minutes in seconds
     
-    # Track consecutive sensor failures for safe shutdown
-    consecutive_sensor_failures = 0
-    MAX_SENSOR_FAILURES = 3  # After 3 consecutive failures, turn off relays
-    relays_safe_shutdown = False  # Track if relays are in safe shutdown mode
-    
     while True:
         try:
             # Check for stage changes periodically
@@ -408,9 +383,6 @@ def main(stage_override=None):
                 active_grow = get_active_grow()
                 if not active_grow:
                     print("No active grow found. Please create a grow first.")
-                    if not relays_safe_shutdown:
-                        all_relays_off()
-                        relays_safe_shutdown = True
                     sleep(10)
                     continue
                 
@@ -441,34 +413,9 @@ def main(stage_override=None):
             
             sensors_data = read_sensors()
             if sensors_data is None:
-                consecutive_sensor_failures += 1
-                print(f"⚠️ No valid sensor data (failure {consecutive_sensor_failures}/{MAX_SENSOR_FAILURES})")
-                
-                # If we've had too many consecutive failures, turn off relays for safety
-                if consecutive_sensor_failures >= MAX_SENSOR_FAILURES:
-                    if not relays_safe_shutdown:
-                        print("🛑 Too many sensor failures - entering safe mode")
-                        all_relays_off()
-                        relays_safe_shutdown = True
-                    
-                    # Try to reinitialize sensors
-                    print("🔄 Attempting to reinitialize sensors...")
-                    if check_and_init_sensors():
-                        print("✅ Sensors reinitialized successfully!")
-                        consecutive_sensor_failures = 0
-                        relays_safe_shutdown = False
-                    else:
-                        print("❌ Sensor reinitialization failed, retrying in 10 seconds...")
-                        sleep(10)
-                else:
-                    sleep(3)
+                print("⚠️ No valid sensor data")
+                sleep(3)
                 continue
-            
-            # Sensors read successfully - reset failure counter and safe shutdown flag
-            if consecutive_sensor_failures > 0:
-                print(f"✅ Sensor readings restored after {consecutive_sensor_failures} failures")
-            consecutive_sensor_failures = 0
-            relays_safe_shutdown = False
             
             temperature = float(sensors_data['temperature'])
             humidity = float(sensors_data['humidity'])
@@ -539,17 +486,7 @@ def main(stage_override=None):
             
         except Exception as e:
             print(f"❌ Error in main loop: {e}")
-            consecutive_sensor_failures += 1
-            
-            # If we're getting repeated errors, enter safe mode
-            if consecutive_sensor_failures >= MAX_SENSOR_FAILURES:
-                if not relays_safe_shutdown:
-                    print("🛑 Too many errors - entering safe mode")
-                    all_relays_off()
-                    relays_safe_shutdown = True
-                sleep(10)
-            else:
-                sleep(3)
+            sleep(3)
 
 
 if __name__ == "__main__":
