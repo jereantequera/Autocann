@@ -211,8 +211,8 @@ def recover_i2c_bus():
             pass
     
     # Method 3: Kernel module reload (already tried in clock_recovery fallback)
-    print("📍 Method 3: Waiting longer and retrying...")
-    sleep(5)
+    print("📍 Method 3: Waiting and retrying...")
+    sleep(2)
     if init_i2c_bus():
         try:
             while not i2c.try_lock():
@@ -647,8 +647,8 @@ def main(stage_override=None):
 
     # Check sensors before starting - retry instead of exiting
     while not check_and_init_sensors():
-        print("❌ No se pueden inicializar los sensores BME280. Reintentando en 30 segundos...")
-        sleep(30)
+        print("❌ No se pueden inicializar los sensores BME280. Reintentando en 5 segundos...")
+        sleep(5)
     
     # Keep track of current stage to detect changes
     current_stage = None
@@ -671,7 +671,7 @@ def main(stage_override=None):
                 active_grow = get_active_grow()
                 if not active_grow:
                     print("No active grow found. Please create a grow first.")
-                    sleep(10)
+                    sleep(5)
                     continue
                 
                 # Use stage from active grow, or override from command line
@@ -715,11 +715,11 @@ def main(stage_override=None):
                             print("✅ Sensors recovered successfully!")
                             consecutive_sensor_failures = 0
                         else:
-                            print("❌ Sensor init failed after recovery. Waiting 60s...")
-                            sleep(60)
+                            print("❌ Sensor init failed after recovery. Waiting 5s...")
+                            sleep(5)
                     else:
-                        print("❌ I2C recovery failed. Waiting 60s before retry...")
-                        sleep(60)
+                        print("❌ I2C recovery failed. Waiting 5s before retry...")
+                        sleep(5)
                     consecutive_sensor_failures = 0  # Reset to avoid spam
                 else:
                     sleep(3)
