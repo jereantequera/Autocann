@@ -35,9 +35,6 @@ i2c = None
 bme280_in = None
 bme280_out = None
 
-# I2C recovery attempt counter
-i2c_recovery_attempts = 0
-MAX_I2C_RECOVERY_ATTEMPTS = 5
 
 
 def init_i2c_bus():
@@ -170,69 +167,50 @@ def recover_i2c_via_kernel():
 
 def recover_i2c_bus():
     """
-    Main I2C recovery function. Tries multiple recovery methods.
+    Main I2C recovery function. Tries all methods immediately until one works.
     """
-    global i2c_recovery_attempts
-    
-    i2c_recovery_attempts += 1
-    print(f"\n🚨 I2C bus recovery attempt {i2c_recovery_attempts}/{MAX_I2C_RECOVERY_ATTEMPTS}")
+    print("🔄 I2C recovery...")
     
     # Method 1: Simple reinitialize
-    print("📍 Method 1: Simple reinitialize...")
     if init_i2c_bus():
-        # Test if devices are visible
         try:
             while not i2c.try_lock():
                 pass
             found = i2c.scan()
             i2c.unlock()
-            
             if found:
-                print(f"✅ I2C devices found after reinit: {[hex(addr) for addr in found]}")
-                i2c_recovery_attempts = 0
+                print(f"✅ Recovered (reinit): {[hex(a) for a in found]}")
                 return True
         except Exception:
             pass
     
-    # Method 2: Clock recovery
-    print("📍 Method 2: Clock recovery...")
+    # Method 2: Clock recovery (9 pulses)
     if i2c_clock_recovery():
         try:
             while not i2c.try_lock():
                 pass
             found = i2c.scan()
             i2c.unlock()
-            
             if found:
-                print(f"✅ I2C devices found after clock recovery: {[hex(addr) for addr in found]}")
-                i2c_recovery_attempts = 0
+                print(f"✅ Recovered (clock): {[hex(a) for a in found]}")
                 return True
         except Exception:
             pass
     
-    # Method 3: Kernel module reload (already tried in clock_recovery fallback)
-    print("📍 Method 3: Waiting and retrying...")
-    sleep(2)
+    # Method 3: Final reinit attempt
     if init_i2c_bus():
         try:
             while not i2c.try_lock():
                 pass
             found = i2c.scan()
             i2c.unlock()
-            
             if found:
-                print(f"✅ I2C devices found after wait: {[hex(addr) for addr in found]}")
-                i2c_recovery_attempts = 0
+                print(f"✅ Recovered (retry): {[hex(a) for a in found]}")
                 return True
         except Exception:
             pass
     
-    if i2c_recovery_attempts >= MAX_I2C_RECOVERY_ATTEMPTS:
-        print(f"❌ I2C recovery failed after {MAX_I2C_RECOVERY_ATTEMPTS} attempts")
-        print("💡 Try: 1) Check wiring  2) Power cycle sensors  3) Reboot Pi")
-        i2c_recovery_attempts = 0
-        return False
-    
+    print("❌ Recovery failed - check wiring or reboot")
     return False
 
 
@@ -660,10 +638,6 @@ def main(stage_override=None):
     last_db_save_time = 0
     DB_SAVE_INTERVAL = 300  # 5 minutes in seconds
     
-    # Track consecutive sensor failures for aggressive recovery
-    consecutive_sensor_failures = 0
-    MAX_CONSECUTIVE_FAILURES = 10
-    
     while True:
         try:
             # Check for stage changes periodically
@@ -701,32 +675,12 @@ def main(stage_override=None):
             
             sensors_data = read_sensors()
             if sensors_data is None:
-                consecutive_sensor_failures += 1
-                print(f"⚠️ No valid sensor data (failure {consecutive_sensor_failures}/{MAX_CONSECUTIVE_FAILURES})")
-                
-                # After too many failures, try aggressive recovery
-                if consecutive_sensor_failures >= MAX_CONSECUTIVE_FAILURES:
-                    print("\n🚨 Too many consecutive sensor failures!")
-                    print("🔄 Attempting full I2C bus recovery...")
-                    all_outputs_off()  # Safety: turn off all outputs
-                    
-                    if recover_i2c_bus():
-                        if check_and_init_sensors():
-                            print("✅ Sensors recovered successfully!")
-                            consecutive_sensor_failures = 0
-                        else:
-                            print("❌ Sensor init failed after recovery. Waiting 5s...")
-                            sleep(5)
-                    else:
-                        print("❌ I2C recovery failed. Waiting 5s before retry...")
-                        sleep(5)
-                    consecutive_sensor_failures = 0  # Reset to avoid spam
-                else:
-                    sleep(3)
+                # Immediately try recovery - no waiting, no counting
+                print("⚠️ No valid sensor data - attempting immediate recovery...")
+                all_outputs_off()  # Safety: turn off all outputs
+                recover_i2c_bus()
+                check_and_init_sensors()
                 continue
-            
-            # Reset failure counter on successful read
-            consecutive_sensor_failures = 0
             
             temperature = float(sensors_data['temperature'])
             humidity = float(sensors_data['humidity'])
