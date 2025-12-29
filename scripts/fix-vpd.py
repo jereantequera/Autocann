@@ -590,10 +590,10 @@ def main(stage_override=None):
     # Initialize I2C bus first
     init_i2c_bus()
 
-    # Check sensors before starting - retry instead of exiting
+    # Check sensors before starting - full recovery on failure
     while not check_and_init_sensors():
-        print("❌ No se pueden inicializar los sensores BME280. Reintentando en 5 segundos...")
-        sleep(5)
+        print("🔄 Sensores no detectados - reiniciando bus I2C...")
+        recover_i2c_bus()
     
     # Keep track of current stage to detect changes
     current_stage = None
