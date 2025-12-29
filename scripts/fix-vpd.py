@@ -103,9 +103,11 @@ def setup_gpio():
     global humidity_control_down
     global ventilation_control
     try:
-        humidity_control_up = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_UP, active_high=True, initial_value=False)
-        humidity_control_down = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_DOWN, active_high=True, initial_value=False)
-        ventilation_control = gpiozero.OutputDevice(VENTILATION_CONTROL_PIN, active_high=True, initial_value=False)
+        # active_high=False because relay modules are typically active-low
+        # (relay activates when pin is LOW, deactivates when pin is HIGH)
+        humidity_control_up = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_UP, active_high=False, initial_value=False)
+        humidity_control_down = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_DOWN, active_high=False, initial_value=False)
+        ventilation_control = gpiozero.OutputDevice(VENTILATION_CONTROL_PIN, active_high=False, initial_value=False)
     except Exception as e:
         raise e
 

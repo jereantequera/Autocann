@@ -15,23 +15,22 @@ OUTPUTS: List[Dict[str, Any]] = [
         "label": "Humedad arriba (humidificador)",
         "pin_bcm": 25,
         "redis_key": "humidity_control_up",
-        # Match current `fix-vpd.py` initialization (gpiozero OutputDevice(..., active_high=True))
-        "active_high": True,
+        # Relay modules are typically active-low (relay ON when pin is LOW)
+        "active_high": False,
     },
     {
         "name": "humidity_down",
         "label": "Humedad abajo (bajar humedad)",
-        # NOTE: This matches current `fix-vpd.py` config. Change here when wiring is confirmed.
         "pin_bcm": 16,
         "redis_key": "humidity_control_down",
-        "active_high": True,
+        "active_high": False,
     },
     {
         "name": "ventilation",
         "label": "Ventilación (extracción)",
         "pin_bcm": 7,
         "redis_key": "ventilation_control",
-        "active_high": True,
+        "active_high": False,
     },
 ]
 
