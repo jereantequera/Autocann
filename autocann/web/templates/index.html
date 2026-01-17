@@ -983,6 +983,282 @@
             }
         }
 
+        /* VPD Score Card */
+        .vpd-score-card {
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(168, 85, 247, 0.1) 100%);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 16px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .vpd-score-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .vpd-score-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .vpd-score-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3em;
+            font-weight: 700;
+            color: #a855f7;
+            line-height: 1;
+        }
+
+        .vpd-score-value.excellent { color: #22c55e; }
+        .vpd-score-value.good { color: #84cc16; }
+        .vpd-score-value.fair { color: #fbbf24; }
+        .vpd-score-value.poor { color: #ef4444; }
+
+        .vpd-score-label {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            margin-top: 8px;
+        }
+
+        .vpd-score-bar {
+            display: flex;
+            gap: 3px;
+            margin-top: 16px;
+        }
+
+        .vpd-score-day {
+            flex: 1;
+            height: 40px;
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .vpd-score-day:hover {
+            transform: scaleY(1.1);
+        }
+
+        .vpd-score-day-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, #a855f7, #c084fc);
+            transition: height 0.5s ease;
+        }
+
+        .vpd-score-day-label {
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7em;
+            color: var(--text-muted);
+        }
+
+        .vpd-score-days-labels {
+            display: flex;
+            margin-top: 8px;
+            gap: 3px;
+        }
+
+        .vpd-score-days-labels span {
+            flex: 1;
+            text-align: center;
+            font-size: 0.7em;
+            color: var(--text-muted);
+        }
+
+        /* Anomalies Alert */
+        .anomalies-alert {
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(245, 158, 11, 0.1) 100%);
+            border: 1px solid var(--vpd-adjusting);
+            border-radius: 12px;
+            padding: 16px 24px;
+            margin-bottom: 24px;
+            display: none;
+        }
+
+        .anomalies-alert.show { display: block; }
+        .anomalies-alert.critical {
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(239, 68, 68, 0.1) 100%);
+            border-color: #ef4444;
+        }
+
+        .anomalies-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .anomalies-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .anomalies-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .anomaly-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+
+        .anomaly-item.critical { border-left: 3px solid #ef4444; }
+        .anomaly-item.warning { border-left: 3px solid var(--vpd-adjusting); }
+
+        .anomaly-time {
+            color: var(--text-muted);
+            font-size: 0.85em;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Weekly Report Modal */
+        .report-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 600px) {
+            .report-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .report-stat {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .report-stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.8em;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .report-stat-label {
+            color: var(--text-muted);
+            font-size: 0.8em;
+            margin-top: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .report-trend {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .report-trend.up { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .report-trend.down { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .report-trend.neutral { background: rgba(156, 163, 175, 0.2); color: #9ca3af; }
+
+        .report-section {
+            margin-bottom: 24px;
+        }
+
+        .report-section-title {
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hourly-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 80px;
+            padding: 0 4px;
+        }
+
+        .hourly-bar {
+            flex: 1;
+            background: linear-gradient(to top, #a855f7, #c084fc);
+            border-radius: 2px 2px 0 0;
+            min-height: 4px;
+            transition: height 0.3s ease;
+            cursor: pointer;
+        }
+
+        .hourly-bar:hover {
+            opacity: 0.8;
+        }
+
+        .hourly-labels {
+            display: flex;
+            gap: 2px;
+            padding: 4px 4px 0;
+        }
+
+        .hourly-labels span {
+            flex: 1;
+            text-align: center;
+            font-size: 0.6em;
+            color: var(--text-muted);
+        }
+
+        .insights-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .insight-card {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .insight-icon {
+            font-size: 1.5em;
+            margin-bottom: 8px;
+        }
+
+        .insight-label {
+            font-size: 0.8em;
+            color: var(--text-muted);
+        }
+
+        .insight-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
         /* Loading State */
         .loading {
             text-align: center;
@@ -1046,6 +1322,20 @@
             </div>
         </div>
 
+        <!-- Anomalies Alert -->
+        <div id="anomalies-alert" class="anomalies-alert">
+            <div class="anomalies-header">
+                <div class="anomalies-title">
+                    <span id="anomalies-icon">⚠️</span>
+                    <span id="anomalies-title-text">Anomalías Detectadas</span>
+                </div>
+                <button class="btn btn-ghost" onclick="dismissAnomalies()" style="padding: 4px 12px; font-size: 0.8em;">Descartar</button>
+            </div>
+            <div class="anomalies-list" id="anomalies-list">
+                <!-- Anomalies will be inserted here -->
+            </div>
+        </div>
+
         <!-- Grow Control Bar -->
         <div class="grow-bar">
             <div class="grow-info">
@@ -1053,6 +1343,7 @@
                 <span class="grow-stage" id="grow-stage">--</span>
             </div>
             <div class="grow-actions">
+                <button class="btn btn-ghost" onclick="showWeeklyReportModal()">📊 Reporte</button>
                 <button class="btn btn-ghost" onclick="showGrowModal()">📋 Cultivos</button>
                 <button class="btn btn-secondary" onclick="showStageModal()">🔄 Etapa</button>
                 <button class="btn btn-primary" onclick="showNewGrowModal()">➕ Nuevo</button>
@@ -1211,6 +1502,24 @@
                         <span class="summary-stat-label">Máximo</span>
                         <span class="summary-stat-value max" id="summary-vpd-max">-- kPa</span>
                     </div>
+                </div>
+            </div>
+            <!-- VPD Score Card -->
+            <div class="vpd-score-card">
+                <div class="vpd-score-header">
+                    <div class="vpd-score-title">
+                        <span>🏆</span>
+                        VPD Score (7 días)
+                    </div>
+                    <span style="font-size: 0.8em; color: var(--text-muted);" id="vpd-score-range">--</span>
+                </div>
+                <div class="vpd-score-value" id="vpd-score-value">--%</div>
+                <div class="vpd-score-label" id="vpd-score-label">% del tiempo en rango óptimo</div>
+                <div class="vpd-score-bar" id="vpd-score-bar">
+                    <!-- Daily bars will be inserted here -->
+                </div>
+                <div class="vpd-score-days-labels" id="vpd-score-days-labels">
+                    <!-- Day labels will be inserted here -->
                 </div>
             </div>
         </div>
@@ -1390,6 +1699,86 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" onclick="closeModal('growsModal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Report Modal -->
+    <div id="weeklyReportModal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                📊 Reporte Semanal
+                <span id="report-period" style="font-size: 0.6em; color: var(--text-muted); display: block; margin-top: 4px;"></span>
+            </div>
+            
+            <div id="report-loading" class="loading">Generando reporte</div>
+            
+            <div id="report-content" style="display: none;">
+                <!-- Summary Stats -->
+                <div class="report-grid">
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-vpd-score" style="color: #a855f7;">--%</div>
+                        <div class="report-stat-label">VPD Score</div>
+                        <div class="report-trend neutral" id="report-vpd-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-temp-avg" style="color: var(--temp-hot);">--°C</div>
+                        <div class="report-stat-label">Temp. Promedio</div>
+                        <div class="report-trend neutral" id="report-temp-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-humidity-avg" style="color: var(--humidity-high);">--%</div>
+                        <div class="report-stat-label">Hum. Promedio</div>
+                        <div class="report-trend neutral" id="report-humidity-trend">--</div>
+                    </div>
+                </div>
+
+                <!-- Insights -->
+                <div class="report-section">
+                    <div class="report-section-title">💡 Insights</div>
+                    <div class="insights-grid">
+                        <div class="insight-card">
+                            <div class="insight-icon">🌟</div>
+                            <div class="insight-label">Mejor hora</div>
+                            <div class="insight-value" id="report-best-hour">--:00</div>
+                            <div style="font-size: 0.8em; color: var(--accent-green);" id="report-best-score">-- score</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">⚠️</div>
+                            <div class="insight-label">Peor hora</div>
+                            <div class="insight-value" id="report-worst-hour">--:00</div>
+                            <div style="font-size: 0.8em; color: var(--vpd-danger);" id="report-worst-score">-- score</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hourly Distribution -->
+                <div class="report-section">
+                    <div class="report-section-title">📈 VPD Score por Hora</div>
+                    <div class="hourly-chart" id="report-hourly-chart">
+                        <!-- Bars will be inserted here -->
+                    </div>
+                    <div class="hourly-labels" id="report-hourly-labels">
+                        <!-- Labels will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Daily Scores -->
+                <div class="report-section">
+                    <div class="report-section-title">📅 Score Diario</div>
+                    <div id="report-daily-scores" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Daily scores will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Sample Count -->
+                <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; margin-top: 16px;">
+                    Basado en <strong id="report-samples">--</strong> muestras
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeModal('weeklyReportModal')">Cerrar</button>
             </div>
         </div>
     </div>
@@ -2232,6 +2621,282 @@
             }
         }
 
+        // ===============================
+        // VPD Score Functions
+        // ===============================
+
+        function getScoreClass(score) {
+            if (score >= 85) return 'excellent';
+            if (score >= 70) return 'good';
+            if (score >= 50) return 'fair';
+            return 'poor';
+        }
+
+        function getScoreLabel(score) {
+            if (score >= 85) return '🏆 Excelente';
+            if (score >= 70) return '✅ Bueno';
+            if (score >= 50) return '⚠️ Regular';
+            return '❌ Necesita mejorar';
+        }
+
+        function updateVpdScore(data) {
+            if (data.error) {
+                console.error('VPD Score error:', data.error);
+                return;
+            }
+
+            const scoreEl = document.getElementById('vpd-score-value');
+            const labelEl = document.getElementById('vpd-score-label');
+            const rangeEl = document.getElementById('vpd-score-range');
+            const barEl = document.getElementById('vpd-score-bar');
+            const labelsEl = document.getElementById('vpd-score-days-labels');
+
+            const score = data.overall_score;
+            if (score !== null && score !== undefined) {
+                scoreEl.textContent = `${score}%`;
+                scoreEl.className = `vpd-score-value ${getScoreClass(score)}`;
+                labelEl.textContent = getScoreLabel(score);
+            } else {
+                scoreEl.textContent = '--%';
+                labelEl.textContent = 'Sin datos suficientes';
+            }
+
+            if (data.vpd_range) {
+                rangeEl.textContent = `${data.vpd_range.min}-${data.vpd_range.max} kPa`;
+            }
+
+            // Render daily bars
+            if (data.daily_scores && data.daily_scores.length > 0) {
+                const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+                
+                barEl.innerHTML = data.daily_scores.map(day => {
+                    const height = day.score !== null ? day.score : 0;
+                    const dayDate = new Date(day.date);
+                    const dayName = dayNames[dayDate.getDay()];
+                    return `
+                        <div class="vpd-score-day" title="${day.date}: ${day.score !== null ? day.score + '%' : 'Sin datos'}">
+                            <div class="vpd-score-day-fill" style="height: ${height}%;"></div>
+                        </div>
+                    `;
+                }).join('');
+
+                labelsEl.innerHTML = data.daily_scores.map(day => {
+                    const dayDate = new Date(day.date);
+                    const dayName = dayNames[dayDate.getDay()];
+                    return `<span>${dayName}</span>`;
+                }).join('');
+            }
+        }
+
+        function fetchVpdScore() {
+            fetch('/api/vpd-score?days=7')
+                .then(response => response.json())
+                .then(data => updateVpdScore(data))
+                .catch(error => console.error('Error fetching VPD score:', error));
+        }
+
+        // ===============================
+        // Anomalies Functions
+        // ===============================
+
+        let anomaliesDismissed = false;
+
+        function updateAnomalies(data) {
+            if (data.error || anomaliesDismissed) return;
+
+            const alertEl = document.getElementById('anomalies-alert');
+            const listEl = document.getElementById('anomalies-list');
+            const iconEl = document.getElementById('anomalies-icon');
+            const titleEl = document.getElementById('anomalies-title-text');
+
+            const allIssues = [
+                ...(data.anomalies || []).map(a => ({...a, severity: 'critical'})),
+                ...(data.warnings || []).map(w => ({...w, severity: w.severity || 'warning'}))
+            ];
+
+            if (allIssues.length === 0) {
+                alertEl.classList.remove('show', 'critical');
+                return;
+            }
+
+            alertEl.classList.add('show');
+            
+            if (data.status === 'critical') {
+                alertEl.classList.add('critical');
+                iconEl.textContent = '🚨';
+                titleEl.textContent = 'Problemas Críticos Detectados';
+            } else {
+                alertEl.classList.remove('critical');
+                iconEl.textContent = '⚠️';
+                titleEl.textContent = 'Advertencias Detectadas';
+            }
+
+            listEl.innerHTML = allIssues.slice(0, 5).map(issue => `
+                <div class="anomaly-item ${issue.severity}">
+                    <span>${issue.severity === 'critical' ? '🔴' : '🟡'}</span>
+                    <span style="flex: 1;">${issue.message}</span>
+                    <span class="anomaly-time">${issue.timestamp ? issue.timestamp.split(' ')[1] || '' : ''}</span>
+                </div>
+            `).join('');
+
+            if (allIssues.length > 5) {
+                listEl.innerHTML += `
+                    <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; padding: 8px;">
+                        + ${allIssues.length - 5} más...
+                    </div>
+                `;
+            }
+        }
+
+        function dismissAnomalies() {
+            anomaliesDismissed = true;
+            const alertEl = document.getElementById('anomalies-alert');
+            alertEl.classList.remove('show');
+            // Reset after 5 minutes
+            setTimeout(() => { anomaliesDismissed = false; }, 5 * 60 * 1000);
+        }
+
+        function fetchAnomalies() {
+            if (anomaliesDismissed) return;
+            
+            fetch('/api/anomalies?hours=24')
+                .then(response => response.json())
+                .then(data => updateAnomalies(data))
+                .catch(error => console.error('Error fetching anomalies:', error));
+        }
+
+        // ===============================
+        // Weekly Report Functions
+        // ===============================
+
+        function showWeeklyReportModal() {
+            showModal('weeklyReportModal');
+            document.getElementById('report-loading').style.display = 'block';
+            document.getElementById('report-content').style.display = 'none';
+            fetchWeeklyReport();
+        }
+
+        function updateWeeklyReport(data) {
+            if (data.error) {
+                console.error('Weekly report error:', data.error);
+                return;
+            }
+
+            document.getElementById('report-loading').style.display = 'none';
+            document.getElementById('report-content').style.display = 'block';
+
+            // Period
+            if (data.report_period) {
+                document.getElementById('report-period').textContent = 
+                    `${data.report_period.start} → ${data.report_period.end}`;
+            }
+
+            // VPD Score
+            const vpdScore = data.vpd_score?.overall;
+            document.getElementById('report-vpd-score').textContent = 
+                vpdScore !== null ? `${vpdScore}%` : '--%';
+            
+            // Trends
+            updateTrend('report-vpd-trend', data.trends?.vpd_score, '%', true);
+            updateTrend('report-temp-trend', data.trends?.temperature, '°C');
+            updateTrend('report-humidity-trend', data.trends?.humidity, '%');
+
+            // Summary stats
+            document.getElementById('report-temp-avg').textContent = 
+                data.summary?.temperature?.avg !== null ? `${data.summary.temperature.avg}°C` : '--°C';
+            document.getElementById('report-humidity-avg').textContent = 
+                data.summary?.humidity?.avg !== null ? `${data.summary.humidity.avg}%` : '--%';
+
+            // Insights
+            const insights = data.insights || {};
+            document.getElementById('report-best-hour').textContent = 
+                insights.best_hour !== null ? `${String(insights.best_hour).padStart(2, '0')}:00` : '--:00';
+            document.getElementById('report-best-score').textContent = 
+                insights.best_hour_score !== null ? `${insights.best_hour_score}% score` : '-- score';
+            document.getElementById('report-worst-hour').textContent = 
+                insights.worst_hour !== null ? `${String(insights.worst_hour).padStart(2, '0')}:00` : '--:00';
+            document.getElementById('report-worst-score').textContent = 
+                insights.worst_hour_score !== null ? `${insights.worst_hour_score}% score` : '-- score';
+
+            // Hourly chart
+            const hourlyData = data.hourly_distribution || [];
+            const chartEl = document.getElementById('report-hourly-chart');
+            const labelsEl = document.getElementById('report-hourly-labels');
+            
+            if (hourlyData.length > 0) {
+                chartEl.innerHTML = hourlyData.map(h => {
+                    const height = h.vpd_score || 0;
+                    return `<div class="hourly-bar" style="height: ${height}%;" title="${h.hour_label}: ${h.vpd_score}%"></div>`;
+                }).join('');
+
+                labelsEl.innerHTML = hourlyData.map((h, i) => {
+                    // Only show every 3rd label to avoid crowding
+                    return `<span>${i % 3 === 0 ? h.hour : ''}</span>`;
+                }).join('');
+            }
+
+            // Daily scores
+            const dailyScores = data.vpd_score?.daily || [];
+            const dailyEl = document.getElementById('report-daily-scores');
+            const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            
+            dailyEl.innerHTML = dailyScores.map(day => {
+                const dayDate = new Date(day.date);
+                const dayName = dayNames[dayDate.getDay()];
+                const score = day.score;
+                const scoreClass = getScoreClass(score);
+                const barWidth = score !== null ? score : 0;
+                
+                return `
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="width: 80px; font-size: 0.85em; color: var(--text-secondary);">${dayName}</span>
+                        <div style="flex: 1; height: 24px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${barWidth}%; background: linear-gradient(90deg, #a855f7, #c084fc); transition: width 0.5s;"></div>
+                        </div>
+                        <span style="width: 50px; text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${score >= 70 ? 'var(--accent-green)' : score >= 50 ? 'var(--vpd-adjusting)' : 'var(--vpd-danger)'};">
+                            ${score !== null ? score + '%' : '--'}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+
+            // Sample count
+            document.getElementById('report-samples').textContent = 
+                data.summary?.sample_count?.toLocaleString('es-AR') || '--';
+        }
+
+        function updateTrend(elementId, value, unit, invertColors = false) {
+            const el = document.getElementById(elementId);
+            if (value === null || value === undefined) {
+                el.className = 'report-trend neutral';
+                el.textContent = '= sin cambio';
+                return;
+            }
+
+            const isUp = value > 0;
+            const isDown = value < 0;
+            
+            if (invertColors) {
+                // For VPD score, up is good (green), down is bad (red)
+                el.className = `report-trend ${isUp ? 'down' : isDown ? 'up' : 'neutral'}`;
+            } else {
+                el.className = `report-trend ${isUp ? 'up' : isDown ? 'down' : 'neutral'}`;
+            }
+            
+            const arrow = isUp ? '↑' : isDown ? '↓' : '=';
+            el.textContent = `${arrow} ${Math.abs(value)}${unit} vs semana ant.`;
+        }
+
+        function fetchWeeklyReport() {
+            fetch('/api/weekly-report')
+                .then(response => response.json())
+                .then(data => updateWeeklyReport(data))
+                .catch(error => {
+                    console.error('Error fetching weekly report:', error);
+                    document.getElementById('report-loading').textContent = 'Error al cargar reporte';
+                });
+        }
+
         // Time period selector - sync both selectors
         function handleTimeBtnClick(clickedBtn) {
             // Remove active from ALL time buttons (both selectors)
@@ -2283,6 +2948,8 @@
             fetchHistoricalData(currentPeriod, currentInterval, currentHours);
             fetchPeriodSummary();
             updateSummaryPeriodLabel();
+            fetchVpdScore();
+            fetchAnomalies();
             
             // Update intervals
             setInterval(fetchCurrentData, 3000);
@@ -2294,6 +2961,8 @@
             }, 30000);
             setInterval(fetchDatabaseStats, 60000);
             setInterval(fetchActiveGrow, 60000);
+            setInterval(fetchVpdScore, 5 * 60 * 1000);  // Every 5 minutes
+            setInterval(fetchAnomalies, 60000);  // Every minute
         });
 
         // Close modal on outside click

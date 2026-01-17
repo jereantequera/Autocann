@@ -701,6 +701,478 @@ def get_database_stats(grow_id: Optional[int] = None) -> Dict:
         return {}
 
 
+# ===============================
+# Analytics Functions
+# ===============================
+
+# VPD ranges per stage (same as vpd_math.py)
+VPD_RANGES = {
+    "early_veg": (0.6, 1.0),
+    "late_veg": (0.8, 1.2),
+    "flowering": (1.2, 1.5),
+    "dry": (0.8, 1.2),  # Same as late_veg for drying
+}
+
+
+def get_vpd_score(
+    days: int = 1,
+    grow_id: Optional[int] = None,
+) -> Dict:
+    """
+    Calculate VPD score: percentage of time VPD was in optimal range.
+    Returns daily scores for the specified number of days.
+    """
+    try:
+        if grow_id is None:
+            active_grow = get_active_grow()
+            if active_grow:
+                grow_id = int(active_grow["id"])
+                stage = active_grow.get("stage", "early_veg")
+            else:
+                return {"error": "No active grow found"}
+        else:
+            # Get stage for specified grow
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT stage FROM grows WHERE id = ?", (grow_id,))
+            row = cursor.fetchone()
+            conn.close()
+            stage = row[0] if row else "early_veg"
+
+        vpd_min, vpd_max = VPD_RANGES.get(stage, (0.6, 1.5))
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        current_time = datetime.now(ARGENTINA_TZ)
+        end_timestamp = int(current_time.timestamp())
+        start_timestamp = end_timestamp - (days * 24 * 3600)
+
+        # Get daily scores
+        daily_scores = []
+        for day_offset in range(days):
+            day_start = end_timestamp - ((day_offset + 1) * 24 * 3600)
+            day_end = end_timestamp - (day_offset * 24 * 3600)
+
+            query = """
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN vpd >= ? AND vpd <= ? THEN 1 ELSE 0 END) as in_range
+                FROM sensor_data
+                WHERE timestamp >= ? AND timestamp < ?
+            """
+            params: List[object] = [vpd_min, vpd_max, day_start, day_end]
+
+            if grow_id is not None:
+                query = query.replace("WHERE", "WHERE grow_id = ? AND")
+                params.insert(0, grow_id)
+
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+
+            total = row[0] or 0
+            in_range = row[1] or 0
+            score = round((in_range / total) * 100, 1) if total > 0 else None
+
+            day_date = datetime.fromtimestamp(day_start, ARGENTINA_TZ)
+            daily_scores.append({
+                "date": day_date.strftime("%Y-%m-%d"),
+                "day_name": day_date.strftime("%A"),
+                "score": score,
+                "samples_total": total,
+                "samples_in_range": in_range,
+            })
+
+        # Calculate overall score
+        query = """
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN vpd >= ? AND vpd <= ? THEN 1 ELSE 0 END) as in_range
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp <= ?
+        """
+        params = [vpd_min, vpd_max, start_timestamp, end_timestamp]
+
+        if grow_id is not None:
+            query = query.replace("WHERE", "WHERE grow_id = ? AND")
+            params.insert(0, grow_id)
+
+        cursor.execute(query, params)
+        row = cursor.fetchone()
+        conn.close()
+
+        total = row[0] or 0
+        in_range = row[1] or 0
+        overall_score = round((in_range / total) * 100, 1) if total > 0 else None
+
+        return {
+            "overall_score": overall_score,
+            "samples_total": total,
+            "samples_in_range": in_range,
+            "vpd_range": {"min": vpd_min, "max": vpd_max},
+            "stage": stage,
+            "days": days,
+            "daily_scores": list(reversed(daily_scores)),  # Oldest first
+        }
+
+    except Exception as e:
+        print(f"Error calculating VPD score: {e}")
+        return {"error": str(e)}
+
+
+def get_weekly_report(
+    grow_id: Optional[int] = None,
+) -> Dict:
+    """
+    Generate a comprehensive weekly report with statistics and insights.
+    """
+    try:
+        if grow_id is None:
+            active_grow = get_active_grow()
+            if active_grow:
+                grow_id = int(active_grow["id"])
+                grow_name = active_grow.get("name", "Unknown")
+                stage = active_grow.get("stage", "early_veg")
+            else:
+                return {"error": "No active grow found"}
+        else:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, stage FROM grows WHERE id = ?", (grow_id,))
+            row = cursor.fetchone()
+            conn.close()
+            grow_name = row[0] if row else "Unknown"
+            stage = row[1] if row else "early_veg"
+
+        current_time = datetime.now(ARGENTINA_TZ)
+        end_timestamp = int(current_time.timestamp())
+        start_timestamp = end_timestamp - (7 * 24 * 3600)
+
+        # Get period summary
+        summary = get_period_summary(start_timestamp, end_timestamp, grow_id)
+
+        # Get VPD score
+        vpd_score = get_vpd_score(days=7, grow_id=grow_id)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Get hourly distribution (what hours have best/worst VPD)
+        vpd_min, vpd_max = VPD_RANGES.get(stage, (0.6, 1.5))
+
+        query = """
+            SELECT 
+                CAST(strftime('%H', datetime) AS INTEGER) as hour,
+                COUNT(*) as total,
+                AVG(temperature) as avg_temp,
+                AVG(humidity) as avg_humidity,
+                AVG(vpd) as avg_vpd,
+                SUM(CASE WHEN vpd >= ? AND vpd <= ? THEN 1 ELSE 0 END) as in_range
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp <= ?
+        """
+        params: List[object] = [vpd_min, vpd_max, start_timestamp, end_timestamp]
+
+        if grow_id is not None:
+            query = query.replace("WHERE", "WHERE grow_id = ? AND")
+            params.insert(0, grow_id)
+
+        query += " GROUP BY hour ORDER BY hour"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        hourly_stats = []
+        best_hour = None
+        worst_hour = None
+        best_score = -1
+        worst_score = 101
+
+        for row in rows:
+            hour = row[0]
+            total = row[1]
+            in_range = row[5]
+            score = round((in_range / total) * 100, 1) if total > 0 else 0
+
+            hourly_stats.append({
+                "hour": hour,
+                "hour_label": f"{hour:02d}:00",
+                "avg_temp": round(row[2], 1) if row[2] else None,
+                "avg_humidity": round(row[3], 1) if row[3] else None,
+                "avg_vpd": round(row[4], 2) if row[4] else None,
+                "vpd_score": score,
+                "samples": total,
+            })
+
+            if score > best_score:
+                best_score = score
+                best_hour = hour
+            if score < worst_score:
+                worst_score = score
+                worst_hour = hour
+
+        # Compare with previous week
+        prev_start = start_timestamp - (7 * 24 * 3600)
+        prev_end = start_timestamp
+
+        prev_summary = get_period_summary(prev_start, prev_end, grow_id)
+        prev_vpd_score = get_vpd_score(days=7, grow_id=grow_id)
+
+        conn.close()
+
+        # Calculate trends
+        temp_trend = None
+        humidity_trend = None
+        vpd_trend = None
+
+        if summary.get("temperature", {}).get("avg") and prev_summary.get("temperature", {}).get("avg"):
+            temp_trend = round(summary["temperature"]["avg"] - prev_summary["temperature"]["avg"], 1)
+        if summary.get("humidity", {}).get("avg") and prev_summary.get("humidity", {}).get("avg"):
+            humidity_trend = round(summary["humidity"]["avg"] - prev_summary["humidity"]["avg"], 1)
+        if vpd_score.get("overall_score") and prev_vpd_score.get("overall_score"):
+            vpd_trend = round(vpd_score["overall_score"] - prev_vpd_score["overall_score"], 1)
+
+        return {
+            "grow_name": grow_name,
+            "stage": stage,
+            "report_period": {
+                "start": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d"),
+                "end": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d"),
+            },
+            "summary": {
+                "temperature": summary.get("temperature", {}),
+                "humidity": summary.get("humidity", {}),
+                "vpd": summary.get("vpd", {}),
+                "sample_count": summary.get("sample_count", 0),
+            },
+            "vpd_score": {
+                "overall": vpd_score.get("overall_score"),
+                "daily": vpd_score.get("daily_scores", []),
+                "range": vpd_score.get("vpd_range", {}),
+            },
+            "trends": {
+                "temperature": temp_trend,
+                "humidity": humidity_trend,
+                "vpd_score": vpd_trend,
+            },
+            "insights": {
+                "best_hour": best_hour,
+                "worst_hour": worst_hour,
+                "best_hour_score": best_score if best_hour is not None else None,
+                "worst_hour_score": worst_score if worst_hour is not None else None,
+            },
+            "hourly_distribution": hourly_stats,
+        }
+
+    except Exception as e:
+        print(f"Error generating weekly report: {e}")
+        return {"error": str(e)}
+
+
+def detect_anomalies(
+    hours: int = 24,
+    grow_id: Optional[int] = None,
+) -> Dict:
+    """
+    Detect anomalies in sensor data:
+    - Sensor disconnected (no data for extended period)
+    - Sudden spikes/drops in temperature or humidity
+    - Values outside physically possible ranges
+    - Stuck values (sensor malfunction)
+    """
+    try:
+        if grow_id is None:
+            active_grow = get_active_grow()
+            if active_grow:
+                grow_id = int(active_grow["id"])
+
+        anomalies = []
+        warnings = []
+
+        current_time = datetime.now(ARGENTINA_TZ)
+        end_timestamp = int(current_time.timestamp())
+        start_timestamp = end_timestamp - (hours * 3600)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Query to get data ordered by timestamp
+        query = """
+            SELECT timestamp, datetime, temperature, humidity, vpd, 
+                   outside_temperature, outside_humidity
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp <= ?
+        """
+        params: List[object] = [start_timestamp, end_timestamp]
+
+        if grow_id is not None:
+            query = query.replace("WHERE", "WHERE grow_id = ? AND")
+            params.insert(0, grow_id)
+
+        query += " ORDER BY timestamp ASC"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        if len(rows) == 0:
+            anomalies.append({
+                "type": "no_data",
+                "severity": "critical",
+                "message": f"No hay datos en las últimas {hours} horas",
+                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            conn.close()
+            return {"anomalies": anomalies, "warnings": warnings, "status": "critical"}
+
+        # Check for data gaps (no samples for > 15 minutes when expecting every 5 min)
+        expected_interval = 300  # 5 minutes
+        max_gap = 900  # 15 minutes (3 missed samples)
+
+        prev_timestamp = None
+        for row in rows:
+            if prev_timestamp is not None:
+                gap = row["timestamp"] - prev_timestamp
+                if gap > max_gap:
+                    gap_minutes = gap // 60
+                    gap_time = datetime.fromtimestamp(prev_timestamp, ARGENTINA_TZ)
+                    warnings.append({
+                        "type": "data_gap",
+                        "severity": "warning",
+                        "message": f"Sin datos por {gap_minutes} minutos",
+                        "timestamp": gap_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "gap_minutes": gap_minutes,
+                    })
+            prev_timestamp = row["timestamp"]
+
+        # Check time since last sample
+        last_sample_time = rows[-1]["timestamp"]
+        time_since_last = end_timestamp - last_sample_time
+        if time_since_last > max_gap:
+            minutes_ago = time_since_last // 60
+            anomalies.append({
+                "type": "stale_data",
+                "severity": "critical",
+                "message": f"Último dato hace {minutes_ago} minutos - sensor posiblemente desconectado",
+                "timestamp": datetime.fromtimestamp(last_sample_time, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                "minutes_ago": minutes_ago,
+            })
+
+        # Check for physically impossible values
+        for row in rows:
+            # Temperature checks (realistic range: -10 to 60°C)
+            if row["temperature"] is not None:
+                if row["temperature"] < -10 or row["temperature"] > 60:
+                    anomalies.append({
+                        "type": "invalid_temperature",
+                        "severity": "critical",
+                        "message": f"Temperatura inválida: {row['temperature']}°C",
+                        "timestamp": row["datetime"],
+                        "value": row["temperature"],
+                    })
+
+            # Humidity checks (0-100%)
+            if row["humidity"] is not None:
+                if row["humidity"] < 0 or row["humidity"] > 100:
+                    anomalies.append({
+                        "type": "invalid_humidity",
+                        "severity": "critical",
+                        "message": f"Humedad inválida: {row['humidity']}%",
+                        "timestamp": row["datetime"],
+                        "value": row["humidity"],
+                    })
+
+        # Check for sudden spikes (change > 10°C or 30% in 5 minutes)
+        temp_threshold = 10  # °C
+        humidity_threshold = 30  # %
+
+        prev_row = None
+        for row in rows:
+            if prev_row is not None:
+                time_diff = row["timestamp"] - prev_row["timestamp"]
+                if time_diff <= 600:  # Within 10 minutes
+                    if row["temperature"] and prev_row["temperature"]:
+                        temp_change = abs(row["temperature"] - prev_row["temperature"])
+                        if temp_change > temp_threshold:
+                            warnings.append({
+                                "type": "temperature_spike",
+                                "severity": "warning",
+                                "message": f"Cambio brusco de temperatura: {temp_change:.1f}°C en {time_diff // 60} min",
+                                "timestamp": row["datetime"],
+                                "change": temp_change,
+                                "from_value": prev_row["temperature"],
+                                "to_value": row["temperature"],
+                            })
+
+                    if row["humidity"] and prev_row["humidity"]:
+                        humidity_change = abs(row["humidity"] - prev_row["humidity"])
+                        if humidity_change > humidity_threshold:
+                            warnings.append({
+                                "type": "humidity_spike",
+                                "severity": "warning",
+                                "message": f"Cambio brusco de humedad: {humidity_change:.1f}% en {time_diff // 60} min",
+                                "timestamp": row["datetime"],
+                                "change": humidity_change,
+                                "from_value": prev_row["humidity"],
+                                "to_value": row["humidity"],
+                            })
+            prev_row = row
+
+        # Check for stuck values (same value for > 30 minutes = sensor malfunction)
+        stuck_threshold = 6  # 6 samples of 5 min = 30 minutes
+
+        temp_values = [r["temperature"] for r in rows if r["temperature"] is not None]
+        humidity_values = [r["humidity"] for r in rows if r["humidity"] is not None]
+
+        def check_stuck(values, name):
+            if len(values) < stuck_threshold:
+                return None
+            for i in range(len(values) - stuck_threshold + 1):
+                window = values[i:i + stuck_threshold]
+                if len(set(window)) == 1:  # All values identical
+                    return {
+                        "type": f"stuck_{name}",
+                        "severity": "warning",
+                        "message": f"{name.capitalize()} estancado en {window[0]} por >30 min - posible fallo de sensor",
+                        "value": window[0],
+                    }
+            return None
+
+        stuck_temp = check_stuck(temp_values, "temperature")
+        if stuck_temp:
+            warnings.append(stuck_temp)
+
+        stuck_humidity = check_stuck(humidity_values, "humidity")
+        if stuck_humidity:
+            warnings.append(stuck_humidity)
+
+        conn.close()
+
+        # Determine overall status
+        if anomalies:
+            status = "critical"
+        elif warnings:
+            status = "warning"
+        else:
+            status = "ok"
+
+        return {
+            "status": status,
+            "anomalies": anomalies,
+            "warnings": warnings,
+            "checked_period": {
+                "hours": hours,
+                "samples_checked": len(rows),
+                "start": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                "end": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        }
+
+    except Exception as e:
+        print(f"Error detecting anomalies: {e}")
+        return {"error": str(e), "status": "error"}
+
+
 # Initialize database when module is imported
 init_database()
 

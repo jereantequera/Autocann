@@ -10,6 +10,7 @@ from flask import Flask, jsonify, render_template, request
 from autocann.config import redis_config_from_env
 from autocann.db import (
     create_grow,
+    detect_anomalies,
     end_grow,
     get_active_grow,
     get_aggregated_data,
@@ -18,6 +19,8 @@ from autocann.db import (
     get_latest_sensor_data,
     get_period_summary,
     get_sensor_data_range,
+    get_vpd_score,
+    get_weekly_report,
     set_active_grow,
     update_grow_stage,
 )
@@ -401,6 +404,54 @@ def create_app() -> Flask:
                 return jsonify({"success": True, "message": f"Grow {grow_id} stage updated to {stage}"})
             return jsonify({"error": "Failed to update stage"}), 500
 
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ===============================
+    # Analytics Endpoints
+    # ===============================
+
+    @app.route("/api/vpd-score", methods=["GET"])
+    def vpd_score_endpoint():
+        """
+        Get VPD score (% of time in optimal range).
+        Query params: days (int, default 7), grow_id (optional)
+        """
+        try:
+            days = request.args.get("days", default=7, type=int)
+            grow_id = request.args.get("grow_id", type=int)
+
+            score = get_vpd_score(days=days, grow_id=grow_id)
+            return jsonify(score)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/weekly-report", methods=["GET"])
+    def weekly_report_endpoint():
+        """
+        Get comprehensive weekly report.
+        Query params: grow_id (optional)
+        """
+        try:
+            grow_id = request.args.get("grow_id", type=int)
+
+            report = get_weekly_report(grow_id=grow_id)
+            return jsonify(report)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/anomalies", methods=["GET"])
+    def anomalies_endpoint():
+        """
+        Detect anomalies in sensor data.
+        Query params: hours (int, default 24), grow_id (optional)
+        """
+        try:
+            hours = request.args.get("hours", default=24, type=int)
+            grow_id = request.args.get("grow_id", type=int)
+
+            anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
+            return jsonify(anomalies)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
