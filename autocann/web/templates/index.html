@@ -259,6 +259,26 @@
             margin-bottom: 30px;
         }
 
+        /* Hero Grid - 4 columns */
+        .hero-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 1200px) {
+            .hero-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         /* Hero Cards - VPD and Temperature */
         .hero-card {
             background: var(--bg-card);
@@ -343,11 +363,17 @@
 
         .hero-value {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 4.5em;
+            font-size: 3.2em;
             font-weight: 700;
             line-height: 1;
             margin-bottom: 8px;
-            letter-spacing: -3px;
+            letter-spacing: -2px;
+        }
+
+        @media (min-width: 1400px) {
+            .hero-value {
+                font-size: 3.8em;
+            }
         }
 
         .hero-unit {
@@ -439,6 +465,96 @@
             font-size: 0.75em;
             color: var(--text-muted);
             font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Hero Card Variants */
+        .hero-card.hero-vpd {
+            grid-column: span 1;
+        }
+
+        .hero-card.hero-temp .hero-value {
+            color: var(--temp-hot);
+        }
+
+        .hero-card.hero-humidity .hero-value {
+            color: var(--humidity-high);
+        }
+
+        .hero-card.hero-target .hero-value {
+            color: var(--accent-green);
+        }
+
+        .hero-card.hero-target {
+            background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.08) 100%);
+            border-color: var(--accent-green-dim);
+        }
+
+        /* Humidity Bar */
+        .humidity-bar-container {
+            margin-top: 16px;
+        }
+
+        .humidity-bar {
+            height: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            position: relative;
+            overflow: visible;
+        }
+
+        .humidity-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--humidity-high), var(--accent-teal));
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .humidity-bar-target {
+            position: absolute;
+            top: -4px;
+            width: 4px;
+            height: 16px;
+            background: var(--accent-green);
+            border-radius: 2px;
+            transform: translateX(-50%);
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+            transition: left 0.5s ease;
+        }
+
+        .humidity-bar-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.75em;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Humidity Difference Indicator */
+        .humidity-diff {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .humidity-diff.on-target {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+
+        .humidity-diff.too-low {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .humidity-diff.too-high {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--humidity-high);
         }
 
         /* Metrics Grid */
@@ -835,7 +951,17 @@
             }
 
             .hero-value {
-                font-size: 3em;
+                font-size: 2.5em;
+                letter-spacing: -1px;
+            }
+
+            .hero-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }
+
+            .hero-card {
+                padding: 20px;
             }
 
             .chart-wrapper {
@@ -844,6 +970,16 @@
 
             .summary-avg {
                 font-size: 2em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-value {
+                font-size: 3em;
             }
         }
 
@@ -923,12 +1059,12 @@
             </div>
         </div>
 
-        <!-- Hero Section - VPD & Temperature -->
-        <div class="main-grid">
+        <!-- Hero Section - Main Metrics -->
+        <div class="hero-grid">
             <!-- VPD Card -->
-            <div class="hero-card" id="vpd-card">
+            <div class="hero-card hero-vpd" id="vpd-card">
                 <div class="hero-header">
-                    <div class="hero-label">VPD Interior</div>
+                    <div class="hero-label">🎯 VPD Interior</div>
                     <span class="sensor-badge" id="sensor-status-indoor">⏳</span>
                 </div>
                 <div class="hero-value" id="current-vpd">--<span class="hero-unit">kPa</span></div>
@@ -955,22 +1091,44 @@
             </div>
 
             <!-- Temperature Card -->
-            <div class="hero-card">
+            <div class="hero-card hero-temp">
                 <div class="hero-header">
-                    <div class="hero-label">Temperatura Interior</div>
-                    <span class="sensor-badge" id="sensor-status-indoor-2">⏳</span>
+                    <div class="hero-label">🌡️ Temperatura</div>
                 </div>
-                <div class="hero-value" id="current-temp">--<span class="hero-unit">°C</span></div>
+                <div class="hero-value temp-value" id="current-temp">--<span class="hero-unit">°C</span></div>
                 <div class="hero-subtitle">
-                    Humedad: <strong id="current-humidity">--</strong>% 
-                    <span style="color: var(--text-muted); margin: 0 8px;">|</span>
-                    Objetivo: <strong id="current-target-humidity">--</strong>%
+                    <span style="color: var(--text-muted);">Temp. Hoja:</span>
+                    <strong id="current-leaf-temp">--</strong>°C
                 </div>
-                <div class="metrics-grid" style="margin-top: 20px;">
-                    <div class="metric-card" style="background: var(--bg-secondary);">
-                        <div class="metric-label">Temp. Hoja</div>
-                        <div class="metric-value" id="current-leaf-temp">--<span class="metric-unit">°C</span></div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div class="hero-card hero-humidity">
+                <div class="hero-header">
+                    <div class="hero-label">💧 Humedad Actual</div>
+                </div>
+                <div class="hero-value humidity-value" id="current-humidity">--<span class="hero-unit">%</span></div>
+                <div class="humidity-bar-container">
+                    <div class="humidity-bar">
+                        <div class="humidity-bar-fill" id="humidity-bar-fill" style="width: 0%"></div>
+                        <div class="humidity-bar-target" id="humidity-bar-target" style="left: 50%"></div>
                     </div>
+                    <div class="humidity-bar-labels">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target Humidity Card -->
+            <div class="hero-card hero-target">
+                <div class="hero-header">
+                    <div class="hero-label">🎯 Humedad Objetivo</div>
+                </div>
+                <div class="hero-value target-value" id="current-target-humidity">--<span class="hero-unit">%</span></div>
+                <div class="hero-subtitle">
+                    <span class="humidity-diff" id="humidity-diff"></span>
                 </div>
             </div>
         </div>
@@ -981,7 +1139,17 @@
                 <span class="section-title-icon">📊</span>
                 Resumen del Período
             </h2>
-            <span id="summary-period-label" style="color: var(--text-muted); font-size: 0.9em;">Últimas 24h</span>
+            <div class="time-selector" id="time-selector-top">
+                <button class="time-btn" data-hours="0.5" data-interval="raw">30m</button>
+                <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
+                <button class="time-btn" data-hours="3" data-interval="raw">3h</button>
+                <button class="time-btn" data-hours="6" data-interval="raw">6h</button>
+                <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
+                <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
+                <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
+                <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
+                <button class="time-btn" data-period="90" data-interval="daily">90d</button>
+            </div>
         </div>
         <div class="summary-grid">
             <div class="summary-card">
@@ -1103,7 +1271,7 @@
                     <span class="section-title-icon">📈</span>
                     Gráficos Históricos
                 </h2>
-                <div class="time-selector">
+                <div class="time-selector" id="time-selector-bottom">
                     <button class="time-btn" data-hours="0.5" data-interval="raw">30m</button>
                     <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
                     <button class="time-btn" data-hours="3" data-interval="raw">3h</button>
@@ -1518,16 +1686,48 @@
             marker.style.left = `${position}%`;
         }
 
+        function updateHumidityBar(humidity, targetHumidity) {
+            const fillEl = document.getElementById('humidity-bar-fill');
+            const targetEl = document.getElementById('humidity-bar-target');
+            const diffEl = document.getElementById('humidity-diff');
+            
+            if (fillEl && humidity !== null && humidity !== undefined) {
+                fillEl.style.width = `${Math.min(Math.max(humidity, 0), 100)}%`;
+            }
+            
+            if (targetEl && targetHumidity !== null && targetHumidity !== undefined) {
+                targetEl.style.left = `${Math.min(Math.max(targetHumidity, 0), 100)}%`;
+            }
+            
+            // Update difference indicator
+            if (diffEl && humidity !== null && targetHumidity !== null) {
+                const diff = humidity - targetHumidity;
+                const absDiff = Math.abs(diff).toFixed(1);
+                
+                if (Math.abs(diff) <= 3) {
+                    diffEl.className = 'humidity-diff on-target';
+                    diffEl.innerHTML = '✓ En objetivo';
+                } else if (diff < 0) {
+                    diffEl.className = 'humidity-diff too-low';
+                    diffEl.innerHTML = `↓ ${absDiff}% por debajo`;
+                } else {
+                    diffEl.className = 'humidity-diff too-high';
+                    diffEl.innerHTML = `↑ ${absDiff}% por encima`;
+                }
+            }
+        }
+
         function updateCurrentData(data) {
             document.getElementById('current-temp').innerHTML = 
                 (data.temperature?.toFixed(1) || '--') + '<span class="hero-unit">°C</span>';
-            document.getElementById('current-humidity').textContent = data.humidity?.toFixed(1) || '--';
-            document.getElementById('current-target-humidity').textContent = 
-                data.target_humidity ? data.target_humidity.toFixed(1) : '--';
+            document.getElementById('current-humidity').innerHTML = 
+                (data.humidity?.toFixed(1) || '--') + '<span class="hero-unit">%</span>';
+            document.getElementById('current-target-humidity').innerHTML = 
+                (data.target_humidity ? data.target_humidity.toFixed(1) : '--') + '<span class="hero-unit">%</span>';
             document.getElementById('current-vpd').innerHTML = 
                 (data.vpd?.toFixed(2) || '--') + '<span class="hero-unit">kPa</span>';
-            document.getElementById('current-leaf-temp').innerHTML = 
-                (data.leaf_temperature ? data.leaf_temperature.toFixed(1) : '--') + '<span class="metric-unit">°C</span>';
+            document.getElementById('current-leaf-temp').textContent = 
+                data.leaf_temperature ? data.leaf_temperature.toFixed(1) : '--';
             document.getElementById('current-outdoor-temp').innerHTML = 
                 (data.outside_temperature?.toFixed(1) || '--') + '<span class="metric-unit">°C</span>';
             document.getElementById('current-outdoor-humidity').innerHTML = 
@@ -1535,6 +1735,9 @@
             
             // Update VPD gauge
             updateVpdGauge(data.vpd);
+            
+            // Update humidity bar
+            updateHumidityBar(data.humidity, data.target_humidity);
             
             // Update VPD status
             const vpdCard = document.getElementById('vpd-card');
@@ -2029,26 +2232,43 @@
             }
         }
 
-        // Time period selector
+        // Time period selector - sync both selectors
+        function handleTimeBtnClick(clickedBtn) {
+            // Remove active from ALL time buttons (both selectors)
+            document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+            
+            // Find matching buttons in both selectors and activate them
+            const hours = clickedBtn.dataset.hours;
+            const period = clickedBtn.dataset.period;
+            const interval = clickedBtn.dataset.interval;
+            
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                if (hours && btn.dataset.hours === hours) {
+                    btn.classList.add('active');
+                } else if (period && btn.dataset.period === period) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            if (hours) {
+                currentHours = parseFloat(hours);
+                currentPeriod = null;
+                currentInterval = interval;
+                fetchHistoricalData(null, null, currentHours);
+            } else {
+                currentHours = null;
+                currentPeriod = parseInt(period);
+                currentInterval = interval;
+                fetchHistoricalData(currentPeriod, currentInterval);
+            }
+            
+            updateSummaryPeriodLabel();
+            fetchPeriodSummary();
+        }
+
         document.querySelectorAll('.time-btn').forEach(btn => {
             btn.addEventListener('click', function() {
-                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                
-                if (this.dataset.hours) {
-                    currentHours = parseFloat(this.dataset.hours);
-                    currentPeriod = null;
-                    currentInterval = this.dataset.interval;
-                    fetchHistoricalData(null, null, currentHours);
-                } else {
-                    currentHours = null;
-                    currentPeriod = parseInt(this.dataset.period);
-                    currentInterval = this.dataset.interval;
-                    fetchHistoricalData(currentPeriod, currentInterval);
-                }
-                
-                updateSummaryPeriodLabel();
-                fetchPeriodSummary();
+                handleTimeBtnClick(this);
             });
         });
 
