@@ -22,9 +22,9 @@ def redis_config_from_env() -> RedisConfig:
 @dataclass(frozen=True)
 class GpioPins:
     # Defaults aligned with README.md
-    humidity_up: int = 25
+    humidity_up: int = 7
     humidity_down: int = 16
-    ventilation: int = 7
+    ventilation: int = 25
 
 
 def gpio_pins_from_env() -> GpioPins:
@@ -38,8 +38,8 @@ def gpio_pins_from_env() -> GpioPins:
         return default if val is None or val == "" else int(val)
 
     return GpioPins(
-        humidity_up=_get_int("AUTOCANN_PIN_HUMIDITY_UP", 25),
+        humidity_up=_get_int("AUTOCANN_PIN_HUMIDITY_UP", 7),
         humidity_down=_get_int("AUTOCANN_PIN_HUMIDITY_DOWN", 16),
-        ventilation=_get_int("AUTOCANN_PIN_VENTILATION", 7),
+        ventilation=_get_int("AUTOCANN_PIN_VENTILATION", 25),
     )
 
