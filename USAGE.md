@@ -233,3 +233,188 @@ LIMIT 7;
 
 Si tenés datos históricos en Redis y querés migrarlos a SQLite, podés crear un script de migración. Los datos en Redis eventualmente se perderán al reiniciar, pero SQLite los mantiene permanentemente.
 
+---
+
+## Analytics y Monitoreo
+
+El sistema incluye funcionalidades avanzadas de analytics para monitorear la salud del cultivo y detectar problemas.
+
+### VPD Score
+
+El VPD Score mide el porcentaje del tiempo que el VPD (Vapor Pressure Deficit) estuvo dentro del rango óptimo para la etapa actual del cultivo.
+
+```bash
+# Score de los últimos 7 días
+GET /api/vpd-score?days=7
+
+# Score de los últimos 30 días
+GET /api/vpd-score?days=30
+
+# Score de un cultivo específico
+GET /api/vpd-score?days=7&grow_id=1
+```
+
+**Respuesta:**
+
+```json
+{
+  "overall_score": 78.5,
+  "samples_total": 2016,
+  "samples_in_range": 1582,
+  "vpd_range": {"min": 0.8, "max": 1.2},
+  "stage": "late_veg",
+  "days": 7,
+  "daily_scores": [
+    {"date": "2025-01-10", "day_name": "Friday", "score": 82.3, "samples_total": 288, "samples_in_range": 237},
+    {"date": "2025-01-11", "day_name": "Saturday", "score": 75.1, "samples_total": 288, "samples_in_range": 216}
+  ]
+}
+```
+
+**Interpretación del Score:**
+- 🏆 **≥85%**: Excelente - Condiciones óptimas
+- ✅ **70-84%**: Bueno - Condiciones aceptables
+- ⚠️ **50-69%**: Regular - Necesita atención
+- ❌ **<50%**: Necesita mejorar - Revisar configuración
+
+### Reporte Semanal
+
+Genera un reporte completo con estadísticas, tendencias y insights de los últimos 7 días.
+
+```bash
+GET /api/weekly-report
+
+# Para un cultivo específico
+GET /api/weekly-report?grow_id=1
+```
+
+**Respuesta:**
+
+```json
+{
+  "grow_name": "Cultivo #1",
+  "stage": "flowering",
+  "report_period": {
+    "start": "2025-01-10",
+    "end": "2025-01-17"
+  },
+  "summary": {
+    "temperature": {"avg": 24.5, "min": 21.2, "max": 27.8},
+    "humidity": {"avg": 62.3, "min": 55.0, "max": 72.5},
+    "vpd": {"avg": 1.25, "min": 0.95, "max": 1.55},
+    "sample_count": 2016
+  },
+  "vpd_score": {
+    "overall": 78.5,
+    "daily": [...],
+    "range": {"min": 1.2, "max": 1.5}
+  },
+  "trends": {
+    "temperature": 1.2,
+    "humidity": -3.5,
+    "vpd_score": 5.2
+  },
+  "insights": {
+    "best_hour": 14,
+    "worst_hour": 6,
+    "best_hour_score": 92.5,
+    "worst_hour_score": 45.3
+  },
+  "hourly_distribution": [...]
+}
+```
+
+**Campos importantes:**
+- **trends**: Comparación con la semana anterior (positivo = aumentó, negativo = disminuyó)
+- **insights.best_hour/worst_hour**: Las horas del día con mejor y peor rendimiento de VPD
+- **hourly_distribution**: Estadísticas desglosadas por hora del día
+
+### Detección de Anomalías
+
+El sistema detecta automáticamente problemas en los sensores y datos anómalos.
+
+```bash
+# Anomalías de las últimas 24 horas
+GET /api/anomalies?hours=24
+
+# Anomalías de las últimas 6 horas
+GET /api/anomalies?hours=6
+```
+
+**Respuesta:**
+
+```json
+{
+  "status": "warning",
+  "anomalies": [
+    {
+      "type": "stale_data",
+      "severity": "critical",
+      "message": "Último dato hace 45 minutos - sensor posiblemente desconectado",
+      "timestamp": "2025-01-17 14:30:00",
+      "minutes_ago": 45
+    }
+  ],
+  "warnings": [
+    {
+      "type": "temperature_spike",
+      "severity": "warning",
+      "message": "Cambio brusco de temperatura: 12.5°C en 5 min",
+      "timestamp": "2025-01-17 10:15:00",
+      "from_value": 22.5,
+      "to_value": 35.0
+    }
+  ],
+  "checked_period": {
+    "hours": 24,
+    "samples_checked": 288,
+    "start": "2025-01-16 15:00:00",
+    "end": "2025-01-17 15:00:00"
+  }
+}
+```
+
+#### Tipos de Anomalías Detectadas
+
+| Tipo | Severidad | Descripción | Causa Probable |
+|------|-----------|-------------|----------------|
+| `no_data` | 🔴 Critical | No hay datos en el período analizado | Sensor completamente desconectado o sistema apagado |
+| `stale_data` | 🔴 Critical | Último dato hace más de 15 minutos | Sensor desconectado o proceso VPD detenido |
+| `invalid_temperature` | 🔴 Critical | Temperatura fuera del rango físico (-10°C a 60°C) | Sensor defectuoso o conexión suelta |
+| `invalid_humidity` | 🔴 Critical | Humedad fuera del rango 0-100% | Sensor defectuoso o conexión suelta |
+| `data_gap` | 🟡 Warning | Sin datos por más de 15 minutos | Interrupción temporal, reinicio del sistema |
+| `temperature_spike` | 🟡 Warning | Cambio >10°C en menos de 10 minutos | Sensor tocado, puerta abierta, o lectura errónea |
+| `humidity_spike` | 🟡 Warning | Cambio >30% en menos de 10 minutos | Humidificador encendido/apagado bruscamente, o sensor errático |
+| `stuck_temperature` | 🟡 Warning | Mismo valor exacto por >30 minutos | Sensor congelado o defectuoso |
+| `stuck_humidity` | 🟡 Warning | Mismo valor exacto por >30 minutos | Sensor congelado o defectuoso |
+
+#### Estados del Sistema
+
+- **`ok`**: Sin problemas detectados
+- **`warning`**: Solo advertencias menores
+- **`critical`**: Hay anomalías críticas que requieren atención inmediata
+- **`error`**: Error al ejecutar la detección
+
+#### Umbrales de Detección
+
+| Parámetro | Umbral |
+|-----------|--------|
+| Intervalo esperado entre samples | 5 minutos |
+| Gap máximo antes de alerta | 15 minutos (3 samples perdidos) |
+| Cambio brusco de temperatura | >10°C en 10 min |
+| Cambio brusco de humedad | >30% en 10 min |
+| Tiempo para detectar valor estancado | 30 minutos (6 samples idénticos) |
+| Rango válido de temperatura | -10°C a 60°C |
+| Rango válido de humedad | 0% a 100% |
+
+### Dashboard
+
+Todas estas funcionalidades están integradas en el dashboard web:
+
+- **VPD Score Card**: Muestra el score de los últimos 7 días con barras por día
+- **Botón "📊 Reporte"**: Abre un modal con el reporte semanal completo
+- **Banner de Anomalías**: Aparece automáticamente cuando se detectan problemas
+
+El dashboard actualiza automáticamente:
+- VPD Score: cada 5 minutos
+- Anomalías: cada 1 minuto
