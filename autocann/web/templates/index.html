@@ -1625,20 +1625,12 @@
         <div style="margin-top: 40px; padding: 20px; background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border-color);">
             <div style="display: flex; gap: 32px; flex-wrap: wrap; justify-content: center;">
                 <div style="text-align: center;">
-                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px;">Registros</div>
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.3em; font-weight: 600;" id="stat-records">--</div>
-                </div>
-                <div style="text-align: center;">
                     <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px;">Base de Datos</div>
                     <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.3em; font-weight: 600;" id="stat-db-size">--</div>
                 </div>
                 <div style="text-align: center;">
                     <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px;">Cultivos</div>
                     <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.3em; font-weight: 600;" id="stat-grows">--</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px;">Desde</div>
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.3em; font-weight: 600;" id="stat-oldest">--</div>
                 </div>
             </div>
         </div>
@@ -2224,19 +2216,11 @@
         }
 
         function updateDatabaseStats(stats) {
-            if (stats.sensor_data_count) {
-                document.getElementById('stat-records').textContent = 
-                    stats.sensor_data_count.toLocaleString('es-AR');
-            }
-            if (stats.database_size_mb) {
+            if (stats.database_size_mb !== undefined) {
                 document.getElementById('stat-db-size').textContent = `${stats.database_size_mb} MB`;
             }
             if (stats.grow_count) {
                 document.getElementById('stat-grows').textContent = stats.grow_count;
-            }
-            if (stats.oldest_record) {
-                const date = new Date(stats.oldest_record);
-                document.getElementById('stat-oldest').textContent = date.toLocaleDateString('es-AR');
             }
         }
 

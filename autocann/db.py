@@ -638,63 +638,27 @@ def get_period_summary(
         return {"error": str(e)}
 
 
-def get_database_stats(grow_id: Optional[int] = None) -> Dict:
+def get_database_stats() -> Dict:
     """
-    Get statistics about the database.
+    Get statistics about the database (size and grow count only).
     """
     try:
-        # Get grow_id if not provided
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
-
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
-        # Get sensor data stats (filtered by grow if provided)
-        if grow_id is not None:
-            cursor.execute("SELECT COUNT(*) FROM sensor_data WHERE grow_id = ?", (grow_id,))
-            sensor_count = cursor.fetchone()[0]
-
-            cursor.execute(
-                "SELECT MIN(timestamp), MAX(timestamp) FROM sensor_data WHERE grow_id = ?",
-                (grow_id,),
-            )
-            min_ts, max_ts = cursor.fetchone()
-        else:
-            cursor.execute("SELECT COUNT(*) FROM sensor_data")
-            sensor_count = cursor.fetchone()[0]
-
-            cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM sensor_data")
-            min_ts, max_ts = cursor.fetchone()
-
-        # Get control events stats
-        cursor.execute("SELECT COUNT(*) FROM control_events")
-        control_count = cursor.fetchone()[0]
 
         # Get grow count
         cursor.execute("SELECT COUNT(*) FROM grows")
         grow_count = cursor.fetchone()[0]
 
+        conn.close()
+
         # Get database file size
         db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
         db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
 
-        conn.close()
-
         return {
-            "sensor_data_count": sensor_count,
-            "control_events_count": control_count,
             "grow_count": grow_count,
-            "oldest_record": datetime.fromtimestamp(min_ts, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            if min_ts
-            else None,
-            "newest_record": datetime.fromtimestamp(max_ts, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            if max_ts
-            else None,
             "database_size_mb": db_size_mb,
-            "database_path": str(DB_PATH),
         }
     except Exception as e:
         print(f"Error getting database stats: {e}")
@@ -765,7 +729,7 @@ def get_vpd_score(
 
             if grow_id is not None:
                 query = query.replace("WHERE", "WHERE grow_id = ? AND")
-                params.insert(0, grow_id)
+                params.insert(2, grow_id)  # Insert after vpd_min, vpd_max
 
             cursor.execute(query, params)
             row = cursor.fetchone()
@@ -795,7 +759,7 @@ def get_vpd_score(
 
         if grow_id is not None:
             query = query.replace("WHERE", "WHERE grow_id = ? AND")
-            params.insert(0, grow_id)
+            params.insert(2, grow_id)  # Insert after vpd_min, vpd_max
 
         cursor.execute(query, params)
         row = cursor.fetchone()
@@ -875,7 +839,7 @@ def get_weekly_report(
 
         if grow_id is not None:
             query = query.replace("WHERE", "WHERE grow_id = ? AND")
-            params.insert(0, grow_id)
+            params.insert(2, grow_id)  # Insert after vpd_min, vpd_max
 
         query += " GROUP BY hour ORDER BY hour"
 
