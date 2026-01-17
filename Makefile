@@ -1,4 +1,4 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend run-watering clean logs check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend clean logs check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
@@ -21,7 +21,6 @@ help:
 	@echo "  Ejecución local:"
 	@echo "    make run-vpd       - Ejecuta el control de VPD (early_veg por defecto)"
 	@echo "    make run-backend   - Ejecuta el servidor web"
-	@echo "    make run-watering  - Ejecuta el sistema de riego"
 	@echo "    make logs          - Muestra los últimos logs"
 	@echo "    make clean         - Limpia archivos temporales"
 	@echo ""
@@ -64,19 +63,15 @@ update:
 
 check:
 	@echo "Verificando sistema..."
-	uv run scripts/check_system.py
+	uv run python -m autocann.cli.check_system
 
 run-vpd:
 	@echo "Iniciando control de VPD..."
-	uv run scripts/fix-vpd.py early_veg
+	uv run python -m autocann.cli.vpd early_veg
 
 run-backend:
 	@echo "Iniciando servidor web..."
-	uv run scripts/backend.py
-
-run-watering:
-	@echo "Iniciando sistema de riego..."
-	uv run scripts/watering.py
+	uv run python -m autocann.cli.backend
 
 clean:
 	@echo "Limpiando archivos temporales..."
@@ -104,7 +99,7 @@ ssh-logs:
 
 ssh-status:
 	@echo "Estado de los servicios en la Raspberry Pi..."
-	ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd|watering)' || echo 'No hay servicios corriendo'"
+	ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd)' || echo 'No hay servicios corriendo'"
 
 ssh-restart:
 	@echo "Reiniciando servicios en la Raspberry Pi..."

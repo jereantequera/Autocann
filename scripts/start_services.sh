@@ -13,8 +13,6 @@ cd /home/autocann/Autocann
 # Crear directorio de logs si no existe
 mkdir -p logs
 
-cd scripts
-
 # Verificar si uv está disponible
 if ! command -v uv &> /dev/null; then
     echo "Error: uv no está instalado o no se encuentra en PATH"
@@ -26,11 +24,11 @@ fi
 if ! pgrep -f "python backend.py" > /dev/null; then
     echo "Iniciando backend..."
     # Iniciar el backend en segundo plano usando uv
-    uv run backend.py > "/home/autocann/Autocann/logs/backend_$FECHA.log" 2>&1 &
+    uv run python -m autocann.cli.backend > "/home/autocann/Autocann/logs/backend_$FECHA.log" 2>&1 &
 else
     echo "Backend ya está corriendo"
 fi
 
 # Iniciar el script de VPD usando uv (con output unbuffered para logs en tiempo real)
 # No pasamos argumento para que use el stage del cultivo activo en la base de datos
-uv run python -u fix-vpd.py >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
+uv run python -u -m autocann.cli.vpd >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1

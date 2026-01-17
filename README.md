@@ -8,7 +8,6 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 - Monitoreo de temperatura y humedad interior y exterior con sensores BME280
 - Control de humidificadores/deshumidificadores
 - Control de ventilación
-- Sistema de riego automatizado
 - Dashboard web con Flask para visualización de datos
 - Almacenamiento híbrido de datos:
   - Redis para datos en tiempo real
@@ -20,7 +19,7 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 - 2x Sensores BME280 (I2C)
   - Sensor interior: dirección 0x76 (SD0 → GND)
   - Sensor exterior: dirección 0x77 (SD0 → VCC)
-- Relés para control de dispositivos (humidificador, deshumidificador, ventilación, riego)
+- Relés para control de dispositivos (humidificador, deshumidificador, ventilación)
 - Docker para Redis
 
 ## Conexión de Sensores BME280
@@ -94,13 +93,10 @@ Con uv, podés ejecutar los scripts directamente:
 
 ```bash
 # Control de VPD
-uv run scripts/fix-vpd.py early_veg  # o late_veg, flowering, dry
+uv run python -m autocann.cli.vpd early_veg  # o late_veg, flowering, dry
 
 # Backend web
-uv run scripts/backend.py
-
-# Sistema de riego
-uv run scripts/watering.py
+uv run python -m autocann.cli.backend
 ```
 
 ## Etapas de Crecimiento
@@ -133,12 +129,25 @@ http://<ip-de-tu-raspberry>:5000
 
 ## Configuración de Pines GPIO
 
-Los pines GPIO están configurados en `scripts/fix-vpd.py`:
+Los pines GPIO ahora están centralizados en `autocann/config.py` (y usados por `autocann/hardware/outputs.py`).
+
+**Defaults (según README):**
 
 - Pin 25: Control de humidificador (subir humedad)
 - Pin 16: Control de deshumidificador (bajar humedad)
 - Pin 7: Control de ventilación
-- Pin 24: Control de riego (en `watering.py`)
+
+**Overrides por variables de entorno (sin tocar código):**
+
+- `AUTOCANN_PIN_HUMIDITY_UP`
+- `AUTOCANN_PIN_HUMIDITY_DOWN`
+- `AUTOCANN_PIN_VENTILATION`
+
+Ejemplo:
+
+```bash
+AUTOCANN_PIN_HUMIDITY_DOWN=7 uv run python -m autocann.cli.vpd early_veg
+```
 
 ## Administración Remota (SSH)
 

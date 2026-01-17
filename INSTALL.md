@@ -114,7 +114,7 @@ uv sync
 
 ```bash
 # Podés trabajar en el backend sin problemas
-uv run scripts/backend.py
+uv run python -m autocann.cli.backend
 
 # Los scripts de GPIO solo funcionan en Raspberry Pi
 # pero podés editarlos sin problemas
@@ -315,7 +315,7 @@ make deploy
 
 ```bash
 # 1. En tu Mac: Editar código
-code scripts/fix-vpd.py
+code autocann/cli/vpd.py
 
 # 2. Commit y deploy
 git add .
