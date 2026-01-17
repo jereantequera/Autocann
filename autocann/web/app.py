@@ -16,6 +16,7 @@ from autocann.db import (
     get_all_grows,
     get_database_stats,
     get_latest_sensor_data,
+    get_period_summary,
     get_sensor_data_range,
     set_active_grow,
     update_grow_stage,
@@ -256,6 +257,33 @@ def create_app() -> Flask:
         try:
             stats = get_database_stats()
             return jsonify(stats)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/period-summary", methods=["GET"])
+    def period_summary():
+        """
+        Get summary statistics (avg, min, max) for a time period.
+        Query params: hours (float) or days (int), grow_id (optional)
+        """
+        try:
+            hours = request.args.get("hours", type=float)
+            days = request.args.get("days", type=int)
+            grow_id = request.args.get("grow_id", type=int)
+
+            current_time = datetime.now(ARGENTINA_TZ)
+            end_timestamp = int(current_time.timestamp())
+
+            if hours is not None:
+                start_timestamp = end_timestamp - int(hours * 3600)
+            elif days is not None:
+                start_timestamp = end_timestamp - (days * 24 * 3600)
+            else:
+                # Default to last 24 hours
+                start_timestamp = end_timestamp - (24 * 3600)
+
+            summary = get_period_summary(start_timestamp, end_timestamp, grow_id)
+            return jsonify(summary)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 

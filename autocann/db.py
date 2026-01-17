@@ -551,6 +551,93 @@ def cleanup_old_data(days_to_keep: int = 90) -> Tuple[int, int]:
         return (0, 0)
 
 
+def get_period_summary(
+    start_timestamp: int,
+    end_timestamp: int,
+    grow_id: Optional[int] = None,
+) -> Dict:
+    """
+    Get summary statistics (avg, min, max) for a time period.
+    """
+    try:
+        # Get grow_id if not provided
+        if grow_id is None:
+            active_grow = get_active_grow()
+            if active_grow:
+                grow_id = int(active_grow["id"])
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        query = """
+            SELECT
+                AVG(temperature) as avg_temp,
+                MIN(temperature) as min_temp,
+                MAX(temperature) as max_temp,
+                AVG(humidity) as avg_humidity,
+                MIN(humidity) as min_humidity,
+                MAX(humidity) as max_humidity,
+                AVG(vpd) as avg_vpd,
+                MIN(vpd) as min_vpd,
+                MAX(vpd) as max_vpd,
+                AVG(outside_temperature) as avg_outside_temp,
+                MIN(outside_temperature) as min_outside_temp,
+                MAX(outside_temperature) as max_outside_temp,
+                AVG(outside_humidity) as avg_outside_humidity,
+                AVG(target_humidity) as avg_target_humidity,
+                COUNT(*) as sample_count
+            FROM sensor_data
+            WHERE timestamp >= ? AND timestamp <= ?
+        """
+        params: List[object] = [start_timestamp, end_timestamp]
+
+        if grow_id is not None:
+            query += " AND grow_id = ?"
+            params.append(grow_id)
+
+        cursor.execute(query, params)
+        row = cursor.fetchone()
+        conn.close()
+
+        if row and row["sample_count"] > 0:
+            return {
+                "temperature": {
+                    "avg": round(row["avg_temp"], 1) if row["avg_temp"] else None,
+                    "min": round(row["min_temp"], 1) if row["min_temp"] else None,
+                    "max": round(row["max_temp"], 1) if row["max_temp"] else None,
+                },
+                "humidity": {
+                    "avg": round(row["avg_humidity"], 1) if row["avg_humidity"] else None,
+                    "min": round(row["min_humidity"], 1) if row["min_humidity"] else None,
+                    "max": round(row["max_humidity"], 1) if row["max_humidity"] else None,
+                },
+                "vpd": {
+                    "avg": round(row["avg_vpd"], 2) if row["avg_vpd"] else None,
+                    "min": round(row["min_vpd"], 2) if row["min_vpd"] else None,
+                    "max": round(row["max_vpd"], 2) if row["max_vpd"] else None,
+                },
+                "outside_temperature": {
+                    "avg": round(row["avg_outside_temp"], 1) if row["avg_outside_temp"] else None,
+                    "min": round(row["min_outside_temp"], 1) if row["min_outside_temp"] else None,
+                    "max": round(row["max_outside_temp"], 1) if row["max_outside_temp"] else None,
+                },
+                "outside_humidity": {
+                    "avg": round(row["avg_outside_humidity"], 1) if row["avg_outside_humidity"] else None,
+                },
+                "target_humidity": {
+                    "avg": round(row["avg_target_humidity"], 1) if row["avg_target_humidity"] else None,
+                },
+                "sample_count": row["sample_count"],
+                "start_timestamp": start_timestamp,
+                "end_timestamp": end_timestamp,
+            }
+        return {"sample_count": 0}
+    except Exception as e:
+        print(f"Error getting period summary: {e}")
+        return {"error": str(e)}
+
+
 def get_database_stats(grow_id: Optional[int] = None) -> Dict:
     """
     Get statistics about the database.
