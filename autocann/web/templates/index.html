@@ -2684,10 +2684,21 @@
         // Anomalies Functions
         // ===============================
 
-        let anomaliesDismissed = false;
+        const ANOMALIES_DISMISS_KEY = 'anomalies_dismissed_until';
+        const ANOMALIES_DISMISS_DURATION = 5 * 60 * 1000; // 5 minutes
+
+        function isAnomaliesDismissed() {
+            const dismissedUntil = localStorage.getItem(ANOMALIES_DISMISS_KEY);
+            if (!dismissedUntil) return false;
+            const until = parseInt(dismissedUntil, 10);
+            if (Date.now() < until) return true;
+            // Expired, clean up
+            localStorage.removeItem(ANOMALIES_DISMISS_KEY);
+            return false;
+        }
 
         function updateAnomalies(data) {
-            if (data.error || anomaliesDismissed) return;
+            if (data.error || isAnomaliesDismissed()) return;
 
             const alertEl = document.getElementById('anomalies-alert');
             const listEl = document.getElementById('anomalies-list');
@@ -2734,15 +2745,15 @@
         }
 
         function dismissAnomalies() {
-            anomaliesDismissed = true;
+            // Save dismiss timestamp in localStorage (persists across page reloads)
+            const dismissUntil = Date.now() + ANOMALIES_DISMISS_DURATION;
+            localStorage.setItem(ANOMALIES_DISMISS_KEY, dismissUntil.toString());
             const alertEl = document.getElementById('anomalies-alert');
             alertEl.classList.remove('show');
-            // Reset after 5 minutes
-            setTimeout(() => { anomaliesDismissed = false; }, 5 * 60 * 1000);
         }
 
         function fetchAnomalies() {
-            if (anomaliesDismissed) return;
+            if (isAnomaliesDismissed()) return;
             
             fetch('/api/anomalies?hours=24')
                 .then(response => response.json())
