@@ -2190,6 +2190,7 @@
 
         function updateSummaryPeriodLabel() {
             const label = document.getElementById('summary-period-label');
+            if (!label) return;  // Element doesn't exist, skip update
             if (currentHours !== null) {
                 if (currentHours < 1) {
                     label.textContent = `Últimos ${Math.round(currentHours * 60)} minutos`;
