@@ -8,22 +8,13 @@ import redis
 from flask import Flask, jsonify, render_template, request
 
 from autocann.config import redis_config_from_env
-from autocann.db import (
-    create_grow,
-    detect_anomalies,
-    end_grow,
-    get_active_grow,
-    get_aggregated_data,
-    get_all_grows,
-    get_database_stats,
-    get_latest_sensor_data,
-    get_period_summary,
-    get_sensor_data_range,
-    get_vpd_score,
-    get_weekly_report,
-    set_active_grow,
-    update_grow_stage,
-)
+from autocann.control.vpd_math import calculate_vpd
+from autocann.db import (create_grow, detect_anomalies, end_grow,
+                         get_active_grow, get_aggregated_data, get_all_grows,
+                         get_database_stats, get_latest_sensor_data,
+                         get_period_summary, get_sensor_data_range,
+                         get_vpd_score, get_weekly_report, set_active_grow,
+                         update_grow_stage)
 from autocann.hardware.outputs import OUTPUTS
 from autocann.paths import TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
@@ -197,6 +188,102 @@ def create_app() -> Flask:
                 },
             }
         )
+
+    @app.route("/api/sensor/indoor", methods=["POST"])
+    def receive_indoor_sensor():
+        """
+        Endpoint to receive indoor sensor data from ESP32.
+
+        Body (JSON):
+        - temperature: float (°C)
+        - humidity: float (%)
+
+        The endpoint calculates VPD and stores data in Redis with timestamp.
+        """
+        data = request.get_json(silent=True) or {}
+        temperature = data.get("temperature")
+        humidity = data.get("humidity")
+
+        # Validate required fields
+        if temperature is None:
+            return jsonify({"error": "Missing 'temperature' field"}), 400
+        if humidity is None:
+            return jsonify({"error": "Missing 'humidity' field"}), 400
+
+        # Validate types and ranges
+        try:
+            temperature = float(temperature)
+            humidity = float(humidity)
+        except (TypeError, ValueError):
+            return jsonify({"error": "temperature and humidity must be numbers"}), 400
+
+        if temperature < -40 or temperature > 80:
+            return jsonify({"error": f"Invalid temperature: {temperature}°C (expected -40 to 80)"}), 400
+        if humidity < 0 or humidity > 100:
+            return jsonify({"error": f"Invalid humidity: {humidity}% (expected 0 to 100)"}), 400
+
+        # Calculate VPD
+        vpd = calculate_vpd(temperature, humidity)
+
+        # Get current timestamp
+        current_time = datetime.now(ARGENTINA_TZ)
+        timestamp = int(current_time.timestamp())
+
+        # Build sensor data payload
+        sensor_data = {
+            "temperature": round(temperature, 2),
+            "humidity": round(humidity, 2),
+            "vpd": vpd,
+            "timestamp": timestamp,
+            "datetime": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "esp32",
+        }
+
+        # Store in Redis
+        try:
+            redis_client.set("esp32_indoor", json.dumps(sensor_data))
+
+            # Update sensor status
+            sensor_status_raw = redis_client.get("sensor_status")
+            if sensor_status_raw:
+                sensor_status = json.loads(sensor_status_raw)
+            else:
+                sensor_status = {"indoor": {}, "outdoor": {}}
+
+            sensor_status["indoor"] = {
+                "ok": True,
+                "error": None,
+                "source": "esp32",
+                "last_update": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            redis_client.set("sensor_status", json.dumps(sensor_status))
+
+        except Exception as e:
+            return jsonify({"error": f"Failed to store data in Redis: {e}"}), 500
+
+        return jsonify({
+            "success": True,
+            "data": sensor_data,
+        })
+
+    @app.route("/api/sensor/indoor", methods=["GET"])
+    def get_indoor_sensor():
+        """
+        Endpoint to get the latest indoor sensor data from ESP32.
+        """
+        data = redis_client.get("esp32_indoor")
+        if data:
+            sensor_data = json.loads(data)
+            # Check if data is stale (older than 5 minutes)
+            timestamp = sensor_data.get("timestamp", 0)
+            current_time = int(datetime.now(ARGENTINA_TZ).timestamp())
+            age_seconds = current_time - timestamp
+
+            sensor_data["age_seconds"] = age_seconds
+            sensor_data["is_stale"] = age_seconds > 300  # 5 minutes
+
+            return jsonify(sensor_data)
+        return jsonify({"error": "No indoor sensor data available"}), 404
 
     @app.route("/api/sensor-history", methods=["GET"])
     def get_sensor_history():
