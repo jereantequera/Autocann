@@ -523,31 +523,6 @@ def main(stage_override: str | None = None, use_esp32_indoor: bool = True) -> No
                 target_humidity = calculate_target_humidity(STAGE, temperature)
                 sensors_data["target_humidity"] = target_humidity
                 sensors_data["vpd_in_range"] = vpd_is_in_range(leaf_vpd, STAGE)
-
-                if humidity_control_mode == "raising":
-                    if humidity >= target_humidity:
-                        print(f"✅ Target humidity reached ({humidity:.1f}% >= {target_humidity}%), stopping humidifier")
-                        humidity_up_off()
-                        humidity_down_off()
-                        humidity_control_mode = None
-                        redis_client.set("sensors", json.dumps(sensors_data))
-                        sleep(3)
-                        continue
-                elif humidity_control_mode == "lowering":
-                    if humidity <= target_humidity:
-                        print(f"✅ Target humidity reached ({humidity:.1f}% <= {target_humidity}%), stopping dehumidifier")
-                        humidity_up_off()
-                        humidity_down_off()
-                        humidity_control_mode = None
-                        redis_client.set("sensors", json.dumps(sensors_data))
-                        sleep(3)
-                        continue
-                elif sensors_data["vpd_in_range"]:
-                    humidity_up_off()
-                    humidity_down_off()
-                    redis_client.set("sensors", json.dumps(sensors_data))
-                    sleep(3)
-                    continue
             else:
                 sensors_data["vpd_in_range"] = False
                 if 60 <= humidity <= 65:
@@ -567,6 +542,29 @@ def main(stage_override: str | None = None, use_esp32_indoor: bool = True) -> No
                 store_sensor_sample(sensors_data)
                 last_db_save_time = current_time
                 print("💾 Sample saved to database (next save in 5 minutes)")
+
+            if STAGE != "dry":
+                if humidity_control_mode == "raising":
+                    if humidity >= target_humidity:
+                        print(f"✅ Target humidity reached ({humidity:.1f}% >= {target_humidity}%), stopping humidifier")
+                        humidity_up_off()
+                        humidity_down_off()
+                        humidity_control_mode = None
+                        sleep(3)
+                        continue
+                elif humidity_control_mode == "lowering":
+                    if humidity <= target_humidity:
+                        print(f"✅ Target humidity reached ({humidity:.1f}% <= {target_humidity}%), stopping dehumidifier")
+                        humidity_up_off()
+                        humidity_down_off()
+                        humidity_control_mode = None
+                        sleep(3)
+                        continue
+                elif sensors_data["vpd_in_range"]:
+                    humidity_up_off()
+                    humidity_down_off()
+                    sleep(3)
+                    continue
 
             if humidity_is_in_range:
                 humidity_up_off()
