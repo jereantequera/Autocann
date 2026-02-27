@@ -832,8 +832,8 @@ def get_vpd_score(
 
         return {
             "overall_score": overall_score,
-            "samples_total": total,
-            "samples_in_range": in_range,
+            "period_samples_total": total,
+            "period_samples_in_range": in_range,
             "vpd_range": {"min": vpd_min, "max": vpd_max},
             "stage": stage,
             "days": days,

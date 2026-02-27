@@ -442,9 +442,9 @@
             height: 100%;
         }
 
-        .vpd-zone.low { background: var(--humidity-high); flex: 0.6; }
-        .vpd-zone.optimal { background: var(--vpd-optimal); flex: 0.9; }
-        .vpd-zone.high { background: var(--vpd-danger); flex: 0.5; }
+        .vpd-zone.low { background: var(--humidity-high); }
+        .vpd-zone.optimal { background: var(--vpd-optimal); }
+        .vpd-zone.high { background: var(--vpd-danger); }
 
         .vpd-gauge-marker {
             position: absolute;
@@ -1355,7 +1355,7 @@
             <!-- VPD Card -->
             <div class="hero-card hero-vpd" id="vpd-card">
                 <div class="hero-header">
-                    <div class="hero-label">🎯 VPD Interior</div>
+                    <div class="hero-label" title="VPD de hoja (leaf VPD): valor relevante para las plantas">🎯 VPD Hoja</div>
                     <span class="sensor-badge" id="sensor-status-indoor">⏳</span>
                 </div>
                 <div class="hero-value" id="current-vpd">--<span class="hero-unit">kPa</span></div>
@@ -2060,10 +2060,33 @@
 
         function updateVpdGauge(vpd) {
             const marker = document.getElementById('vpd-marker');
-            if (!marker || vpd === null || vpd === undefined) return;
-            
-            // Scale VPD 0-2 to 0-100%
-            const position = Math.min(Math.max((vpd / 2) * 100, 0), 100);
+            if (!marker) return;
+
+            const vpdAbsMax = 2.0;
+            const range = VPD_RANGES[currentStage] || { min: 0.8, max: 1.2 };
+            const vpdMin = range.min;
+            const vpdMax = range.max;
+
+            // Update zone widths dynamically from current stage range
+            const lowPct  = (vpdMin / vpdAbsMax) * 100;
+            const optPct  = ((vpdMax - vpdMin) / vpdAbsMax) * 100;
+            const highPct = ((vpdAbsMax - vpdMax) / vpdAbsMax) * 100;
+            document.querySelector('.vpd-zone.low').style.width     = lowPct  + '%';
+            document.querySelector('.vpd-zone.optimal').style.width = optPct  + '%';
+            document.querySelector('.vpd-zone.high').style.width    = highPct + '%';
+
+            // Update gauge labels
+            const labels = document.querySelectorAll('.vpd-gauge-labels span');
+            if (labels.length === 4) {
+                labels[0].textContent = '0.0';
+                labels[1].textContent = vpdMin.toFixed(1);
+                labels[2].textContent = vpdMax.toFixed(1);
+                labels[3].textContent = vpdAbsMax.toFixed(1);
+            }
+
+            // Position marker; skip if no value
+            if (vpd === null || vpd === undefined) return;
+            const position = Math.min(Math.max((vpd / vpdAbsMax) * 100, 0), 100);
             marker.style.left = `${position}%`;
         }
 
@@ -2105,8 +2128,8 @@
                 (data.humidity?.toFixed(1) || '--') + '<span class="hero-unit">%</span>';
             document.getElementById('current-target-humidity').innerHTML = 
                 (data.target_humidity ? data.target_humidity.toFixed(1) : '--') + '<span class="hero-unit">%</span>';
-            document.getElementById('current-vpd').innerHTML = 
-                (data.vpd?.toFixed(2) || '--') + '<span class="hero-unit">kPa</span>';
+            document.getElementById('current-vpd').innerHTML =
+                (data.leaf_vpd?.toFixed(2) || '--') + '<span class="hero-unit">kPa</span>';
             document.getElementById('current-leaf-temp').textContent = 
                 data.leaf_temperature ? data.leaf_temperature.toFixed(1) : '--';
             document.getElementById('current-outdoor-temp').innerHTML = 
@@ -2115,7 +2138,7 @@
                 (data.outside_humidity?.toFixed(1) || '--') + '<span class="metric-unit">%</span>';
             
             // Update VPD gauge
-            updateVpdGauge(data.vpd);
+            updateVpdGauge(data.leaf_vpd);
             
             // Update humidity bar
             updateHumidityBar(data.humidity, data.target_humidity);
@@ -2146,7 +2169,7 @@
             }
             
             document.getElementById('last-update').textContent = 
-                `Actualizado: ${new Date().toLocaleString('es-AR')}`;
+                `Actualizado: ${new Date().toLocaleString('es-AR', { hour12: false })}`;
         }
 
         function updatePeriodSummary(data) {
@@ -2254,7 +2277,7 @@
         function updateHistoricalCharts(data) {
             if (!data || !data.data || data.data.length === 0) return;
 
-            const sortedData = [...data.data].reverse();
+            const sortedData = [...data.data].sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
             
             const labels = sortedData.map(d => formatDate(d.datetime));
             const temperatures = sortedData.map(d => d.temperature);
@@ -2656,7 +2679,7 @@
                 
                 barEl.innerHTML = data.daily_scores.map(day => {
                     const height = day.score !== null ? day.score : 0;
-                    const dayDate = new Date(day.date);
+                    const dayDate = new Date(day.date + 'T12:00:00');
                     const dayName = dayNames[dayDate.getDay()];
                     return `
                         <div class="vpd-score-day" title="${day.date}: ${day.score !== null ? day.score + '%' : 'Sin datos'}">
@@ -2666,7 +2689,7 @@
                 }).join('');
 
                 labelsEl.innerHTML = data.daily_scores.map(day => {
-                    const dayDate = new Date(day.date);
+                    const dayDate = new Date(day.date + 'T12:00:00');
                     const dayName = dayNames[dayDate.getDay()];
                     return `<span>${dayName}</span>`;
                 }).join('');
@@ -2837,7 +2860,7 @@
             const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
             
             dailyEl.innerHTML = dailyScores.map(day => {
-                const dayDate = new Date(day.date);
+                const dayDate = new Date(day.date + 'T12:00:00');
                 const dayName = dayNames[dayDate.getDay()];
                 const score = day.score;
                 const scoreClass = getScoreClass(score);
