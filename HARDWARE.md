@@ -2,6 +2,73 @@
 
 Para armar esto de cero y dejar de renegar con interferencias y lecturas malas.
 
+## ⚠️ Revisión con datos reales (2026-10-02)
+
+Todo lo que sigue más abajo se escribió **antes** de mirar el histórico. Después
+de analizar 123 días de operación real (26.312 muestras, dic-2025 a abr-2026),
+el orden de prioridades cambia. Lo de abajo sigue siendo correcto; deja de ser lo
+primero.
+
+### Lo que dicen los datos
+
+**La carpa no aísla.** Correlación entre temperatura interior y exterior:
+**0.95**. Interior 26.0 °C de media, exterior 26.2 °C. La temperatura de la carpa
+la decide la pieza, no el equipamiento. El desvío interior (3.2 °C) es incluso
+mayor que el exterior (2.1 °C).
+
+**Los equipos casi no mueven la aguja.** Midiendo el cambio de humedad durante
+encendidos de más de 15 minutos:
+
+| Equipo | Autoridad real | Períodos con efecto claro |
+|---|---|---|
+| Humidificador | **+0.4 %HR/hora** (mediana) | 94 de 218 (43%) |
+| Deshumidificador | **−0.7 %HR/hora** (mediana) | 7 de 17 (41%) |
+
+Un deshumidificador que saca 0.7 puntos por hora no gana contra una pieza que
+está más húmeda que la carpa.
+
+**Y la pieza está más húmeda el 74% del tiempo** (73.9% exterior contra 64.4%
+interior de media). Ventilar no baja la humedad acá: mete más.
+
+**El resultado:** sólo **19%** del tiempo a menos de 3 puntos del objetivo, y
+**40%** a más de 10 puntos.
+
+**Estacionalidad:** en enero, 43.6% del tiempo por encima de 30 °C; en abril, 0%.
+El sistema está dominado por la estación.
+
+### Qué implica para la compra
+
+**Cambiar el sensor no arregla nada de esto.** Un SHT41 mediría con más precisión
+exactamente el mismo problema. La recomendación de abajo sigue siendo buena para
+la *calidad del dato*, pero no es lo primero.
+
+El orden que sugieren los datos:
+
+1. **Cerrar el ambiente.** Mientras la carpa siga el ambiente con correlación
+   0.95, cualquier equipo adentro está peleando contra el volumen de la pieza.
+   Sellar, o tratar la pieza entera como el espacio a controlar y dimensionar
+   para ese volumen.
+2. **Dimensionar el deshumidificador para el ambiente real,** no para el volumen
+   de la carpa. Con la pieza más húmeda que la carpa el 74% del tiempo, hay un
+   ingreso constante de humedad que el equipo tiene que poder sacar. 0.7 %HR/h no
+   alcanza.
+3. **Revisar la capacidad del humidificador** con el mismo criterio (0.4 %HR/h).
+4. **Control del clima de la pieza** antes que de la carpa: si en enero la pieza
+   está a 30 °C, ningún extractor va a bajar la carpa por debajo de eso.
+5. **Recién entonces, los sensores y el ESP32** de la sección siguiente. Con el
+   ambiente bajo control, la precisión del sensor empieza a importar.
+
+**Lo que sí se confirmó de la recomendación original:** el deshumidificador tenía
+el 75% de sus ciclos por debajo del minuto (54% por debajo de 30 segundos). Eso
+es durísimo para un compresor, y es exactamente lo que ataca la protección de
+ciclado del software — ya está corregido, sin comprar nada.
+
+**Lo que no se confirmó:** que faltara control de ventilación. La salida estuvo
+encendida 0 horas en 123 días, pero con el aire exterior más húmedo el 74% del
+tiempo, prenderla a ciegas habría empeorado las cosas.
+
+---
+
 ## El diagnóstico
 
 Tres cosas del diseño actual generan la mayoría de los problemas:
