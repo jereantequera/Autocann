@@ -1,0 +1,138 @@
+    <!-- Modals -->
+    <div id="newGrowModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Crear Nuevo Cultivo</div>
+            <div class="form-group">
+                <label class="form-label">Nombre del Cultivo</label>
+                <input type="text" id="newGrowName" class="form-control" placeholder="Ej: Cultivo #2 - OG Kush">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Etapa Inicial</label>
+                <select id="newGrowStage" class="form-control">
+                    <option value="early_veg">Vegetativo Temprano</option>
+                    <option value="late_veg">Vegetativo Tardío</option>
+                    <option value="flowering">Floración</option>
+                    <option value="dry">Secado</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notas (opcional)</label>
+                <textarea id="newGrowNotes" class="form-control" placeholder="Ej: Semillas feminizadas..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" data-action="close-modal" data-modal="newGrowModal">Cancelar</button>
+                <button class="btn btn-primary" data-action="create-grow">Crear Cultivo</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="stageModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Cambiar Etapa</div>
+            <div class="form-group">
+                <label class="form-label">Nueva Etapa</label>
+                <select id="newStage" class="form-control">
+                    <option value="early_veg">Vegetativo Temprano</option>
+                    <option value="late_veg">Vegetativo Tardío</option>
+                    <option value="flowering">Floración</option>
+                    <option value="dry">Secado</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" data-action="close-modal" data-modal="stageModal">Cancelar</button>
+                <button class="btn btn-primary" data-action="update-stage">Actualizar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="growsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">Todos los Cultivos</div>
+            <div class="grow-list" id="growList">
+                <div class="loading">Cargando cultivos...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" data-action="close-modal" data-modal="growsModal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Report Modal -->
+    <div id="weeklyReportModal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                📊 Reporte Semanal
+                <span id="report-period" style="font-size: 0.6em; color: var(--text-muted); display: block; margin-top: 4px;"></span>
+            </div>
+            
+            <div id="report-loading" class="loading">Generando reporte</div>
+            
+            <div id="report-content" style="display: none;">
+                <!-- Summary Stats -->
+                <div class="report-grid">
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-vpd-score" style="color: #a855f7;">--%</div>
+                        <div class="report-stat-label">VPD Score</div>
+                        <div class="report-trend neutral" id="report-vpd-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-temp-avg" style="color: var(--temp-hot);">--°C</div>
+                        <div class="report-stat-label">Temp. Promedio</div>
+                        <div class="report-trend neutral" id="report-temp-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value" id="report-humidity-avg" style="color: var(--humidity-high);">--%</div>
+                        <div class="report-stat-label">Hum. Promedio</div>
+                        <div class="report-trend neutral" id="report-humidity-trend">--</div>
+                    </div>
+                </div>
+
+                <!-- Insights -->
+                <div class="report-section">
+                    <div class="report-section-title">💡 Insights</div>
+                    <div class="insights-grid">
+                        <div class="insight-card">
+                            <div class="insight-icon">🌟</div>
+                            <div class="insight-label">Mejor hora</div>
+                            <div class="insight-value" id="report-best-hour">--:00</div>
+                            <div style="font-size: 0.8em; color: var(--accent-green);" id="report-best-score">-- score</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">⚠️</div>
+                            <div class="insight-label">Peor hora</div>
+                            <div class="insight-value" id="report-worst-hour">--:00</div>
+                            <div style="font-size: 0.8em; color: var(--vpd-danger);" id="report-worst-score">-- score</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hourly Distribution -->
+                <div class="report-section">
+                    <div class="report-section-title">📈 VPD Score por Hora</div>
+                    <div class="hourly-chart" id="report-hourly-chart">
+                        <!-- Bars will be inserted here -->
+                    </div>
+                    <div class="hourly-labels" id="report-hourly-labels">
+                        <!-- Labels will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Daily Scores -->
+                <div class="report-section">
+                    <div class="report-section-title">📅 Score Diario</div>
+                    <div id="report-daily-scores" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Daily scores will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Sample Count -->
+                <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; margin-top: 16px;">
+                    Basado en <strong id="report-samples">--</strong> muestras
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" data-action="close-modal" data-modal="weeklyReportModal">Cerrar</button>
+            </div>
+        </div>
+    </div>
