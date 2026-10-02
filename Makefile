@@ -1,4 +1,4 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data compact-remote compact-remote-dry compact-local ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
@@ -50,6 +50,9 @@ help:
 	@echo "  Datos de producción:"
 	@echo "    make pull-data     - Trae una copia de la base de la Raspberry"
 	@echo "    make inspect-data  - Reporte sobre una base traída (DB=archivo)"
+	@echo "    make compact-remote-dry - Qué se compactaría en la Raspberry (no ejecuta)"
+	@echo "    make compact-remote     - Compacta la base de producción"
+	@echo "    make compact-local      - Compacta una copia local (DB=archivo)"
 	@echo ""
 	@echo "  Raspberry Pi remota:"
 	@echo "    make ssh-setup     - Configura SSH key (solo primera vez)"
@@ -162,6 +165,47 @@ inspect-data:
 	@test -f "$(DB)" || { echo "No existe $(DB)"; exit 1; }
 	uv run python -m autocann.cli.inspect_db "$(DB)"
 
+
+# Compactar la base EN LA RASPBERRY.
+#
+# El script no depende del paquete (sólo stdlib + redis opcional), así que se
+# manda solo. No hace falta desplegar la rama entera para limpiar la base.
+#
+# Destructivo sobre producción, así que:
+#   1. para los servicios (compactar con el loop escribiendo puede corromper)
+#   2. el script hace su propia copia de seguridad antes de tocar nada
+#   3. verifica integridad y que sensor_data no haya cambiado
+#   4. vuelve a levantar los servicios
+COMPACT_SCRIPT = autocann/cli/compact_db.py
+COMPACT_REMOTE_PATH = /tmp/compact_db.py
+
+compact-remote-dry:
+	@scp -q $(COMPACT_SCRIPT) $(RPI_USER)@$(RPI_HOST):$(COMPACT_REMOTE_PATH)
+	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && \
+	  .venv/bin/python $(COMPACT_REMOTE_PATH) data/autocann.db"
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f $(COMPACT_REMOTE_PATH)"
+
+compact-remote:
+	@echo "⚠️  Esto modifica la base de producción en $(RPI_HOST)."
+	@echo "    Antes conviene tener una copia local: make pull-data"
+	@printf "    Escribí 'si' para continuar: " && read r && [ "$$r" = "si" ]
+	@scp -q $(COMPACT_SCRIPT) $(RPI_USER)@$(RPI_HOST):$(COMPACT_REMOTE_PATH)
+	@echo "1. Parando servicios..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
+	@sleep 3
+	@echo "2. Compactando..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && \
+	  .venv/bin/python $(COMPACT_REMOTE_PATH) data/autocann.db --apply --redis"
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f $(COMPACT_REMOTE_PATH)"
+	@echo "3. Levantando servicios..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &"
+	@sleep 3
+	@$(MAKE) --no-print-directory ssh-status
+
+# Compactar una copia local (la que trajiste con pull-data).
+compact-local:
+	@test -n "$(DB)" || { echo "Usá: make compact-local DB=data/produccion-....db"; exit 1; }
+	uv run python -m autocann.cli.compact_db "$(DB)" --apply
 
 # Comandos SSH para administración remota
 ssh:

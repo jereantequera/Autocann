@@ -785,10 +785,27 @@ de acá en adelante.
 
 1. **Los sensores primero.** No tiene sentido desplegar nada mientras no entre un
    dato. Hay que ver por qué el ESP32 dejó de mandar y si el DHT22 está vivo.
-2. **Purgar `control_events`** antes de migrar: 2,7 M de filas que el código
-   nuevo ya no genera. Bajaría el archivo de 174 MB a unos pocos. Las claves
-   `historical_*` de Redis se pueden borrar directamente: el código nuevo ni las
-   escribe ni las lee.
+2. **Compactar `control_events`** antes de migrar. ✅ herramienta lista.
+
+   ```bash
+   make compact-remote-dry   # qué haría, sin ejecutar
+   make compact-remote       # para servicios, compacta, levanta
+   ```
+
+   No purga: **conserva las 7.107 transiciones reales y elimina las 2.727.688
+   repeticiones** (99,74%). La historia de los relés queda intacta — es la línea
+   de base contra la que hay que comparar el loop nuevo — y lo que se va es la
+   redundancia. `sensor_data` no se toca.
+
+   Probado sobre una copia de la base real: **173,7 MB → 3,4 MB** en 14
+   segundos, `integrity_check` ok, y la línea de tiempo de los tres relés
+   idéntica bit a bit antes y después. Hace su propia copia de seguridad, se
+   niega a correr si hay servicios levantados, y verifica el resultado antes de
+   dar por buena la operación.
+
+   El script no depende del paquete, así que viaja solo por scp: no hace falta
+   desplegar la rama para limpiar la base. También borra las claves
+   `historical_*` de Redis, que el código nuevo ni escribe ni lee.
 3. **Subir `AUTOCANN_MIN_OFF_SECONDS`** a 300 para el deshumidificador, dado el
    patrón de ciclos cortos que mostró.
 4. Recién entonces desplegar y volver a medir.
