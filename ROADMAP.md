@@ -704,6 +704,86 @@ make inspect-data DB=/tmp/ensayo.db
 (`COALESCE`), pero conviene confirmarlo con la base real, que es la única con
 mezcla de los dos formatos.
 
+### 📊 Resultados de la primera lectura (2026-10-02)
+
+Base traída con `make pull-data`: 174 MB, 26.312 muestras entre el 2025-12-28 y
+el **2026-04-30**. `integrity_check` ok.
+
+**Lo primero: hace 5 meses que no entra un dato.** El loop está corriendo en la
+Raspberry, pero el ESP32 no manda hace 155 días y el DHT22 local tampoco
+responde. El sistema está vivo y ciego.
+
+#### Lo que confirmó
+
+**El logging era el problema de volumen, no el control.** 2.734.795 filas en
+`control_events` para describir **~7.100 transiciones reales**: 385 veces más
+ruido que señal, y prácticamente los 174 MB del archivo. Una Raspberry Pi 3B+
+consultando eso explica sola la lentitud.
+
+**El deshumidificador estaba golpeando de verdad.** De sus 209 ciclos:
+
+| Duración | Ciclos | |
+|---|---|---|
+| menos de 30 s | 114 | 54.5% |
+| 30–60 s | 43 | 20.6% |
+| más de 1 min | 52 | 24.9% |
+
+Tres cuartas partes de los ciclos por debajo del minuto, en un equipo que
+probablemente tiene compresor. El `min_on_seconds = 60` los elimina. El
+humidificador estaba mucho mejor: mediana de 3.7 min y sólo 4.5% por debajo del
+minuto.
+
+**Las dos salidas nunca estuvieron prendidas a la vez.** El latch del código
+viejo las mantenía excluyentes; no había equipos peleándose.
+
+#### Lo que corrigió
+
+**El −39% de la simulación no se sostiene.** La simulación suponía una carpa que
+oscila mucho más rápido que la real. El número honesto es el piso: **308 ciclos
+de menos de 60 segundos** que la protección nueva habría evitado.
+
+**Ventilar no era la solución obvia.** El aire exterior estaba **más húmedo** que
+el interior en promedio (73.9% contra 64.4%), y sólo era más seco el 25% del
+tiempo. Prender la extracción a ciegas habría empeorado las cosas. La salida de
+ventilación estuvo encendida **0 horas en 123 días**, y resulta que no era un
+olvido tan grave como parecía — pero sí confirma que el control de ventilación
+(backlog #11) necesita una regla que compare interior con exterior, no un simple
+umbral de humedad.
+
+**El "tiempo encendido" no se puede calcular con estos datos.** Un `on` sin su
+`off` porque el sistema se cayó queda contado como encendido durante todo el
+hueco: hay ciclos de 480 h que son artefactos. Con 722 h de interrupciones, el
+dato no es recuperable.
+
+#### Lo que apareció sin buscarlo
+
+**El histórico tiene 74% de completitud.** 175 interrupciones de más de 15
+minutos, 722 h en total. La más larga: **266 h seguidas** (11 días) arrancando el
+2025-12-30. Otra de 110 h en abril. Esto no se veía antes porque nada lo medía.
+
+**La humedad seguía al objetivo pero oscilando.** Desvío medio de −0.4 puntos,
+pero 33% del tiempo más de 5 puntos por arriba y 36% más de 5 por abajo. Es la
+firma clásica del control bang-bang: el promedio está bien, el recorrido no.
+
+**La etapa del histórico no es confiable.** El cultivo figura en `flowering`,
+pero el objetivo de humedad promedio fue 64.9%, que no es un objetivo de
+floración. `grows.stage` sólo guarda el valor actual, así que no hay forma de
+saber en qué etapa estuvo cada muestra. Es exactamente lo que arregla la fase 1 —
+de acá en adelante.
+
+**Condiciones:** 9.9% del tiempo por encima de 30 °C (1.7% por encima de 32), y
+25.7% con humedad por encima de 70%, que en floración es riesgo de hongos.
+
+#### Qué hacer con esto
+
+1. **Los sensores primero.** No tiene sentido desplegar nada mientras no entre un
+   dato. Hay que ver por qué el ESP32 dejó de mandar y si el DHT22 está vivo.
+2. **Purgar `control_events`** antes de migrar: 2,7 M de filas que el código
+   nuevo ya no genera. Bajaría el archivo de 174 MB a unos pocos.
+3. **Subir `AUTOCANN_MIN_OFF_SECONDS`** a 300 para el deshumidificador, dado el
+   patrón de ciclos cortos que mostró.
+4. Recién entonces desplegar y volver a medir.
+
 ### B — Dogfooding del hardware
 
 Correrlo en la carpa y dejar que la realidad opine.
@@ -720,7 +800,7 @@ Correrlo en la carpa y dejar que la realidad opine.
 
 | Qué medir | Con qué | Para qué |
 |---|---|---|
-| Conmutaciones por día | `control_events` antes vs. después | Confirmar que la protección de ciclado hace lo que dice la simulación (−39%) |
+| Ciclos de menos de 60 s | `control_events` antes vs. después | Deberían ser **cero**. Antes: 308 en 123 días, 157 de ellos del deshumidificador |
 | Intervalos marcados `degraded` | columna `quality` | **Cuánto falla realmente el DHT22.** Hasta ahora es una impresión; ahora es un número |
 | Oscilación real dentro del intervalo | `temperature_min/max` | Si la banda es ancha, el equipo está sobredimensionado o los mínimos son muy cortos |
 | Huecos en el histórico | marcadores de hueco | Cuántas veces se cayó el sistema y por qué |

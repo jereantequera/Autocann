@@ -194,6 +194,15 @@ conmutar un relé 28.800 veces por día. En una simulación de 24 h con ruido de
 ±1.8% RH, las conmutaciones bajan un 39% y el ciclo medio del relé pasa de 4.5 a
 7.4 minutos, manteniendo el mismo tiempo en rango.
 
+> **Corrección con datos reales (2026-10-02).** Ese −39% salió de una simulación
+> cuyo modelo de carpa no coincide con la real: el histórico de producción tiene
+> 3.341 ciclos del humidificador en 123 días, muy por debajo de lo que la
+> simulación suponía. El número que **sí** se sostiene es el piso: 308 ciclos
+> duraron menos de 60 segundos y el `min_on_seconds` los habría eliminado todos.
+> El caso grave es el deshumidificador, con **75% de sus ciclos por debajo del
+> minuto** y 54% por debajo de los 30 segundos. Ver la sección de validación en
+> [ROADMAP.md](./ROADMAP.md).
+
 **Filtro de mediana** de 5 muestras sobre las lecturas: rechaza picos aislados
 sin el retardo que agrega un promedio móvil.
 
