@@ -658,12 +658,21 @@ que el problema dominante es otro, mejor saberlo antes de construir tres fases m
 La base de producción vive en la Raspberry (`/home/autocann/Autocann/data/autocann.db`)
 y nunca se miró con las herramientas nuevas.
 
-**Traerla:**
+**Traerla:** ✅ listo, falta prender la Raspberry.
 
-- `make pull-data`: copiar la base de la Raspberry a `data/` local. Usar
-  `sqlite3 .backup` o `VACUUM INTO` y no `scp` del archivo vivo — copiar un
-  SQLite con WAL mientras se escribe da una base corrupta.
-- Copia de solo lectura. Nada de este flujo debería poder escribir en producción.
+```bash
+make pull-data                              # snapshot consistente + descarga
+make inspect-data DB=data/produccion-....db # reporte sobre la copia
+```
+
+`pull-data` usa la API de backup de SQLite **en la Raspberry** y no `scp` del
+archivo: la base está en WAL y el loop escribe cada 5 minutos, así que copiar el
+archivo vivo puede traer algo corrupto. Abre producción en modo lectura, deja un
+snapshot temporal y lo borra al terminar.
+
+`inspect-data` abre la copia **read-only** y nunca la migra. Reporta: cobertura y
+completitud, condiciones reales, huecos del histórico, actividad de relés como
+línea de base, calidad de lecturas y qué migraciones faltan.
 
 **Mirarla:**
 
@@ -677,9 +686,18 @@ y nunca se miró con las herramientas nuevas.
   directa de cuánto estaban golpeando los relés *antes* del cambio, y queda como
   línea de base contra la cual comparar después.
 
-**Validar que la migración no rompa nada:** correr las migraciones de las fases 1
-y 2 sobre una copia de la base real antes de tocar producción. Son idempotentes y
-hay tests, pero ninguno corrió sobre un archivo con meses de historial.
+**Validar que la migración no rompa nada:** ✅ ensayado contra una base simulada
+con el esquema viejo, 16.598 muestras y 315.449 eventos de control: las tres
+migraciones corren, `integrity_check` da `ok`, y las sumas de temperatura,
+humedad y VPD quedan idénticas fila por fila. La segunda corrida es silenciosa.
+
+Sobre la base real se repite igual, sin tocar producción:
+
+```bash
+cp data/produccion-....db /tmp/ensayo.db
+AUTOCANN_DB=/tmp/ensayo.db uv run python -c 'import autocann.db as db; db.ensure_schema()'
+make inspect-data DB=/tmp/ensayo.db
+```
 
 **Lo que el histórico viejo no tiene:** las filas anteriores a la fase 2 quedan con
 `NULL` en min/max, etapa, origen y calidad. Las consultas ya lo contemplan

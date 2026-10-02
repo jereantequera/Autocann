@@ -340,3 +340,80 @@ def test_aggregation_falls_back_to_the_average_for_rows_without_an_envelope(temp
     bucket = temp_db.get_aggregated_data(now - 3600, now, 3600)[0]
     assert (bucket["temperature_min"], bucket["temperature_max"]) == (22.0, 26.0)
     assert bucket["sample_n"] == 2        # one reading per legacy row
+
+
+def test_the_database_path_can_be_pointed_at_a_copy(monkeypatch, tmp_path):
+    """
+    Needed to rehearse migrations on a production copy without touching the
+    working database.
+    """
+    import importlib
+
+    target = tmp_path / "copia.db"
+    monkeypatch.setenv("AUTOCANN_DB", str(target))
+    paths = importlib.reload(importlib.import_module("autocann.paths"))
+    assert paths.DB_PATH == target
+
+    monkeypatch.delenv("AUTOCANN_DB")
+    paths = importlib.reload(importlib.import_module("autocann.paths"))
+    assert paths.DB_PATH.name == "autocann.db"
+    # db.py captured DB_PATH at import; reload it so later tests see the default.
+    importlib.reload(importlib.import_module("autocann.db"))
+
+
+def test_migrating_a_legacy_database_preserves_every_row(tmp_path, monkeypatch):
+    """
+    The migrations are idempotent and tested, but on an empty schema. This runs
+    them over a database in the shape production is actually in.
+    """
+    import sqlite3
+
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(legacy)
+    conn.executescript(
+        """
+        CREATE TABLE grows (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+          stage TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT,
+          is_active INTEGER DEFAULT 1, notes TEXT);
+        CREATE TABLE sensor_data (id INTEGER PRIMARY KEY AUTOINCREMENT,
+          grow_id INTEGER NOT NULL, timestamp INTEGER NOT NULL, datetime TEXT NOT NULL,
+          temperature REAL NOT NULL, humidity REAL NOT NULL, vpd REAL NOT NULL,
+          outside_temperature REAL NOT NULL, outside_humidity REAL NOT NULL,
+          leaf_temperature REAL, leaf_vpd REAL, target_humidity REAL);
+        CREATE TABLE control_events (id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL, datetime TEXT NOT NULL,
+          event_type TEXT NOT NULL, value TEXT NOT NULL);
+        INSERT INTO grows (name, stage, start_date, is_active, notes)
+          VALUES ('Produccion', 'flowering', '2026-07-15 10:00:00', 1, '');
+        """
+    )
+    for i in range(500):
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity,"
+            " vpd, outside_temperature, outside_humidity) VALUES (1, ?, '', ?, ?, 1.2, 15, 70)",
+            (1_700_000_000 + i * 300, 24.0 + i % 5, 50.0 + i % 7),
+        )
+    conn.commit()
+    before = conn.execute(
+        "SELECT COUNT(*), SUM(temperature), SUM(humidity) FROM sensor_data").fetchone()
+    conn.close()
+
+    import autocann.db as db
+    monkeypatch.setattr(db, "DB_PATH", legacy)
+    monkeypatch.setattr(db, "_schema_ready", False)
+    db.ensure_schema()
+    db.ensure_schema()                      # second run must be a no-op
+
+    conn = sqlite3.connect(legacy)
+    after = conn.execute(
+        "SELECT COUNT(*), SUM(temperature), SUM(humidity) FROM sensor_data").fetchone()
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sensor_data)")}
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    stage_events = conn.execute("SELECT COUNT(*) FROM stage_events").fetchone()[0]
+    conn.close()
+
+    assert after == before, "la migración alteró los datos"
+    assert {"temperature_min", "sample_n", "stage", "quality"} <= columns
+    assert {"stage_events", "sensor_calibration"} <= tables
+    assert stage_events == 1                # backfilled once, not twice

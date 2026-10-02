@@ -1,4 +1,4 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
@@ -46,6 +46,10 @@ help:
 	@echo "    make test          - Corre los tests (Python + JS)"
 	@echo "    make lint          - Chequea estilo con ruff"
 	@echo "    make clean         - Limpia archivos temporales"
+	@echo ""
+	@echo "  Datos de producción:"
+	@echo "    make pull-data     - Trae una copia de la base de la Raspberry"
+	@echo "    make inspect-data  - Reporte sobre una base traída (DB=archivo)"
 	@echo ""
 	@echo "  Raspberry Pi remota:"
 	@echo "    make ssh-setup     - Configura SSH key (solo primera vez)"
@@ -127,6 +131,37 @@ logs:
 	@echo ""
 	@echo "=== VPD logs (últimas 50 líneas) ==="
 	@tail -n 50 logs/vpd_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de VPD hoy"
+
+# Traer una copia consistente de la base de producción.
+#
+# Usa la API de backup de SQLite en la Raspberry en lugar de copiar el archivo:
+# la base está en modo WAL y el loop de control escribe cada 5 minutos, así que
+# un `scp` del archivo vivo puede traer una copia corrupta o a mitad de una
+# transacción.
+#
+# Es de solo lectura: no toca la base de producción, sólo deja un snapshot
+# temporal que borra al terminar.
+pull-data:
+	@echo "Generando snapshot consistente en la Raspberry..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "python3 -c \"import sqlite3; \
+	    src = sqlite3.connect('file:$(RPI_PATH)/data/autocann.db?mode=ro', uri=True); \
+	    dst = sqlite3.connect('/tmp/autocann-snapshot.db'); \
+	    src.backup(dst); dst.close(); src.close(); \
+	    print('snapshot listo')\""
+	@mkdir -p data
+	@echo "Descargando..."
+	@scp -q $(RPI_USER)@$(RPI_HOST):/tmp/autocann-snapshot.db data/produccion-$$(date +%Y%m%d-%H%M).db
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f /tmp/autocann-snapshot.db"
+	@echo "✅ Guardado en data/produccion-$$(date +%Y%m%d-%H%M).db"
+	@echo
+	@echo "Para mirarla:  make inspect-data DB=data/produccion-....db"
+
+# Reporte sobre una base traída de producción, sin tocar la local.
+inspect-data:
+	@test -n "$(DB)" || { echo "Usá: make inspect-data DB=data/produccion-....db"; exit 1; }
+	@test -f "$(DB)" || { echo "No existe $(DB)"; exit 1; }
+	uv run python -m autocann.cli.inspect_db "$(DB)"
+
 
 # Comandos SSH para administración remota
 ssh:
