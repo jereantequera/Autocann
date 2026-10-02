@@ -282,3 +282,61 @@ def test_a_stored_calibration_is_reversible_from_the_corrected_value(temp_db):
     cal = temp_db.get_calibration("dht22_outdoor")
     corrected = cal.apply(18.0, 65.0)
     assert cal.invert(*corrected) == pytest.approx((18.0, 65.0))
+
+
+def test_aggregation_reports_the_real_envelope_not_the_range_of_averages(temp_db):
+    """
+    An hourly bucket holding twelve interval summaries should report the widest
+    reading any of them saw, not the spread of their averages — which is much
+    narrower and makes the tent look calmer than it was.
+    """
+    import time
+
+    now = int(time.time())
+    grow_id = temp_db.get_active_grow()["id"]
+    conn = temp_db._open()
+    for i in range(12):
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity,"
+            " vpd, outside_temperature, outside_humidity, temperature_min, temperature_max,"
+            " humidity_min, humidity_max, sample_n)"
+            " VALUES (?, ?, '', 24.0, 50.0, 1.2, 15, 70, 20.0, 28.0, 44.0, 56.0, 100)",
+            (grow_id, now - i * 300),
+        )
+    conn.commit()
+    conn.close()
+
+    # Hourly buckets split on the hour, so the rows may land in more than one.
+    buckets = temp_db.get_aggregated_data(now - 7200, now, 3600)
+    assert buckets
+
+    for bucket in buckets:
+        assert bucket["temperature"] == 24.0
+        # Every row has the same average, so the spread of averages is nil...
+        assert (bucket["min_temperature"], bucket["max_temperature"]) == (24.0, 24.0)
+        # ...while the envelope reports what the readings behind them actually did.
+        assert (bucket["temperature_min"], bucket["temperature_max"]) == (20.0, 28.0)
+        assert (bucket["humidity_min"], bucket["humidity_max"]) == (44.0, 56.0)
+
+    # And the buckets together account for every raw reading.
+    assert sum(b["sample_n"] for b in buckets) == 12 * 100
+
+
+def test_aggregation_falls_back_to_the_average_for_rows_without_an_envelope(temp_db):
+    import time
+
+    now = int(time.time())
+    grow_id = temp_db.get_active_grow()["id"]
+    conn = temp_db._open()
+    for i, temp in enumerate([22.0, 26.0]):
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity,"
+            " vpd, outside_temperature, outside_humidity) VALUES (?, ?, '', ?, 50, 1.2, 15, 70)",
+            (grow_id, now - i * 300, temp),
+        )
+    conn.commit()
+    conn.close()
+
+    bucket = temp_db.get_aggregated_data(now - 3600, now, 3600)[0]
+    assert (bucket["temperature_min"], bucket["temperature_max"]) == (22.0, 26.0)
+    assert bucket["sample_n"] == 2        # one reading per legacy row

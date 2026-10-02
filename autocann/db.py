@@ -897,6 +897,14 @@ def get_aggregated_data(
                 MAX(temperature) as max_temperature,
                 MIN(humidity) as min_humidity,
                 MAX(humidity) as max_humidity,
+                -- True envelope of the bucket: the extremes each stored row saw,
+                -- not the extremes of their averages. COALESCE keeps rows
+                -- written before the interval summary existed usable.
+                MIN(COALESCE(temperature_min, temperature)) as envelope_temp_min,
+                MAX(COALESCE(temperature_max, temperature)) as envelope_temp_max,
+                MIN(COALESCE(humidity_min, humidity)) as envelope_humidity_min,
+                MAX(COALESCE(humidity_max, humidity)) as envelope_humidity_max,
+                SUM(COALESCE(sample_n, 1)) as readings_behind,
                 COUNT(*) as sample_count
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
@@ -931,6 +939,17 @@ def get_aggregated_data(
                 "max_temperature": round(row["max_temperature"], 2) if row["max_temperature"] is not None else None,
                 "min_humidity": round(row["min_humidity"], 2) if row["min_humidity"] is not None else None,
                 "max_humidity": round(row["max_humidity"], 2) if row["max_humidity"] is not None else None,
+                # Same key names a raw sample uses, so the charts draw the
+                # envelope identically whichever endpoint they are reading.
+                "temperature_min": round(row["envelope_temp_min"], 2)
+                if row["envelope_temp_min"] is not None else None,
+                "temperature_max": round(row["envelope_temp_max"], 2)
+                if row["envelope_temp_max"] is not None else None,
+                "humidity_min": round(row["envelope_humidity_min"], 2)
+                if row["envelope_humidity_min"] is not None else None,
+                "humidity_max": round(row["envelope_humidity_max"], 2)
+                if row["envelope_humidity_max"] is not None else None,
+                "sample_n": row["readings_behind"],
                 "sample_count": row["sample_count"],
             }
             result.append(data_point)

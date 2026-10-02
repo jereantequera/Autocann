@@ -3,7 +3,7 @@
 Plan para ir agregando features de forma incremental. Cada fase es independiente
 y deja el sistema funcionando: se puede parar entre fases.
 
-**Estado:** Fases 0, 1 y 2 completas. Fases 3–6 pendientes.
+**Estado:** Fases 0, 1 y 2 completas. Antes de seguir con la 3, [validar con el cultivo real](#validación-con-el-cultivo-real-dogfooding).
 
 | Fase | Qué | Estado |
 |---|---|---|
@@ -14,6 +14,7 @@ y deja el sistema funcionando: se puede parar entre fases.
 | 4 | Estadísticas más útiles | ⬜ |
 | 5 | Mejores filtros y visualizaciones | ⬜ |
 | 6 | Notificaciones configurables | ⬜ |
+| — | **Validación con el cultivo real** | ⬜ ← conviene hacerla ahora |
 
 ---
 
@@ -642,6 +643,88 @@ banda muerta del controlador.
 
 ---
 
+## Validación con el cultivo real (dogfooding)
+
+**Esto va antes que seguir agregando features.** Todo lo construido hasta acá se
+probó contra datos sintéticos que yo mismo generé, y los datos sintéticos siempre
+confirman lo que uno espera. El cultivo que está corriendo tiene historial real y
+hardware real: es la única fuente que puede contradecirnos.
+
+Puede además cambiar el orden de lo que falta. Si al mirar la data real resulta
+que el problema dominante es otro, mejor saberlo antes de construir tres fases más.
+
+### A — Leer la data del cultivo que hay
+
+La base de producción vive en la Raspberry (`/home/autocann/Autocann/data/autocann.db`)
+y nunca se miró con las herramientas nuevas.
+
+**Traerla:**
+
+- `make pull-data`: copiar la base de la Raspberry a `data/` local. Usar
+  `sqlite3 .backup` o `VACUUM INTO` y no `scp` del archivo vivo — copiar un
+  SQLite con WAL mientras se escribe da una base corrupta.
+- Copia de solo lectura. Nada de este flujo debería poder escribir en producción.
+
+**Mirarla:**
+
+- `python -m autocann.cli.query_db stats` y `daily 30` sobre la data real: cuántas
+  muestras hay, qué huecos tiene, desde cuándo.
+- `GET /api/anomalies?hours=720` sobre el histórico real. Las anomalías que
+  aparezcan son reales, no inventadas por mí.
+- **VPD score real.** Si da muy bajo, hay que entender si es un problema de
+  control o de que la banda por etapa no refleja cómo se cultiva acá.
+- **Cuántos eventos de control hay por día** en `control_events`. Es la medición
+  directa de cuánto estaban golpeando los relés *antes* del cambio, y queda como
+  línea de base contra la cual comparar después.
+
+**Validar que la migración no rompa nada:** correr las migraciones de las fases 1
+y 2 sobre una copia de la base real antes de tocar producción. Son idempotentes y
+hay tests, pero ninguno corrió sobre un archivo con meses de historial.
+
+**Lo que el histórico viejo no tiene:** las filas anteriores a la fase 2 quedan con
+`NULL` en min/max, etapa, origen y calidad. Las consultas ya lo contemplan
+(`COALESCE`), pero conviene confirmarlo con la base real, que es la única con
+mezcla de los dos formatos.
+
+### B — Dogfooding del hardware
+
+Correrlo en la carpa y dejar que la realidad opine.
+
+**Lo primero, con la carpa parada:**
+
+- ⚠️ **Verificar el mapa de pines contra el cableado.** El README decía
+  humidificador=25 y ventilación=7, el código usa 7 y 25 al revés. Se corrigió la
+  documentación y no el código, pero nadie miró el cable todavía.
+- `make check` en la Raspberry: ahora chequea el hardware real y avisa si hay más
+  de un loop corriendo.
+
+**Después, dejarlo correr unos días y medir:**
+
+| Qué medir | Con qué | Para qué |
+|---|---|---|
+| Conmutaciones por día | `control_events` antes vs. después | Confirmar que la protección de ciclado hace lo que dice la simulación (−39%) |
+| Intervalos marcados `degraded` | columna `quality` | **Cuánto falla realmente el DHT22.** Hasta ahora es una impresión; ahora es un número |
+| Oscilación real dentro del intervalo | `temperature_min/max` | Si la banda es ancha, el equipo está sobredimensionado o los mínimos son muy cortos |
+| Huecos en el histórico | marcadores de hueco | Cuántas veces se cayó el sistema y por qué |
+
+**Calibrar los sensores de verdad.** Hay un termómetro/higrómetro de referencia o
+no lo hay; si lo hay, `POST /api/calibration` con el offset medido. Si no, al
+menos poner los dos sensores juntos una hora y ver cuánto difieren entre sí — esa
+diferencia ya es información.
+
+**Ajustar los mínimos a cada equipo.** Los defaults (60 s encendido, 180 s apagado,
+120 s de cambio) son un punto de partida razonable, no una medición. Para un
+deshumidificador con compresor, `AUTOCANN_MIN_OFF_SECONDS=300` es más sano. Se
+cambia por variable de entorno, sin tocar código.
+
+**Recién después, decidir el hardware.** [HARDWARE.md](./HARDWARE.md) recomienda
+cambiar el DHT22 por un SHT41 y mover el control a un ESP32. Los dos son
+razonables en teoría; con el número de lecturas degradadas por día, dejan de ser
+teoría. Si el DHT22 falla el 2% de las veces, el software ya lo está tapando bien
+y no hay apuro; si falla el 30%, es la primera compra.
+
+---
+
 ## Backlog (sin orden fijo)
 
 | # | Feature | Por qué | Esfuerzo |
@@ -670,6 +753,8 @@ Fase 0 (refactor del front)        ← habilita todo lo demás
                                       └─> Fase 6 (notificaciones)
 
 Fase 7 (PIN) — en cualquier momento, antes de exponer el dashboard fuera de la LAN
+
+Validación con el cultivo real — intercalada acá, entre la fase 2 y la 3
 ```
 
 **Por qué este orden:**
