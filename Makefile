@@ -1,9 +1,29 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend clean logs check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
 RPI_HOST ?= autocann.local
 RPI_PATH ?= /home/autocann/Autocann
+
+# Patrones para encontrar los procesos. Tienen que coincidir con los módulos
+# reales: antes decían 'fix-vpd', un script que ya no existe, así que ningún
+# pkill/pgrep encontraba nada y los deploys dejaban dos loops de control vivos
+# peleándose los mismos pines GPIO.
+# Los corchetes son a propósito. `[a]utocann` matchea el texto "autocann", pero
+# el patrón escrito en la línea de comandos del propio shell dice
+# "[a]utocann" y por lo tanto NO se matchea a sí mismo. Sin eso,
+# `pkill -f autocann.cli.vpd` mata al shell que lo está ejecutando — por ssh eso
+# cortaría el comando a la mitad y el SIGKILL de respaldo nunca correría.
+VPD_PATTERN = [a]utocann\.cli\.vpd
+BACKEND_PATTERN = [a]utocann\.cli\.backend
+
+# Listado portable: `pgrep -af` es sólo de Linux (en macOS -a significa otra
+# cosa y el patrón terminaba matcheando al propio pgrep).
+LIST_SERVICES = ps -eo pid,command | grep -E '[a]utocann\.cli\.(vpd|backend)'
+
+# SIGTERM primero para que el loop apague los relés al salir; SIGKILL sólo si no
+# se fue solo.
+STOP_SERVICES = pkill -f '$(VPD_PATTERN)' || true; pkill -f '$(BACKEND_PATTERN)' || true; sleep 2; pkill -9 -f '$(VPD_PATTERN)' || true; pkill -9 -f '$(BACKEND_PATTERN)' || true
 
 # Cargar configuración local si existe (config.mk)
 -include config.mk
@@ -22,6 +42,9 @@ help:
 	@echo "    make run-vpd       - Ejecuta el control de VPD (early_veg por defecto)"
 	@echo "    make run-backend   - Ejecuta el servidor web"
 	@echo "    make logs          - Muestra los últimos logs"
+	@echo "    make status        - Muestra qué procesos están corriendo"
+	@echo "    make test          - Corre los tests (Python + JS)"
+	@echo "    make lint          - Chequea estilo con ruff"
 	@echo "    make clean         - Limpia archivos temporales"
 	@echo ""
 	@echo "  Raspberry Pi remota:"
@@ -80,6 +103,24 @@ clean:
 	find . -type f -name "*.pyo" -delete
 	find . -type f -name "*.pid" -delete
 
+status:
+	@echo "Procesos locales de Autocann:"
+	@$(LIST_SERVICES) || echo "No hay servicios corriendo"
+
+test:
+	@echo "Corriendo tests..."
+	uv run --extra dev python -m pytest tests/ -q
+
+test-js:
+	@echo "Corriendo tests de JavaScript..."
+	@command -v node > /dev/null 2>&1 \
+		&& node --test tests/js/util.test.mjs \
+		|| echo "node no está instalado, salteado"
+
+lint:
+	@echo "Chequeando estilo..."
+	uv run --extra dev ruff check autocann tests
+
 logs:
 	@echo "=== Backend logs (últimas 50 líneas) ==="
 	@tail -n 50 logs/backend_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de backend hoy"
@@ -99,12 +140,12 @@ ssh-logs:
 
 ssh-status:
 	@echo "Estado de los servicios en la Raspberry Pi..."
-	ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd)' || echo 'No hay servicios corriendo'"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(LIST_SERVICES) || echo 'No hay servicios corriendo'"
 
 ssh-restart:
 	@echo "Reiniciando servicios en la Raspberry Pi..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true"
-	@sleep 1
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
+	@sleep 2
 	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &"
 	@echo "✅ Servicios reiniciados"
 
@@ -115,12 +156,12 @@ deploy:
 	@echo "2. Actualizando código en la Raspberry Pi..."
 	@ssh $(RPI_USER)@$(RPI_HOST) 'export PATH="$$HOME/.cargo/bin:$$HOME/.local/bin:$$PATH" && cd $(RPI_PATH) && git pull && uv sync --extra rpi'
 	@echo "3. Reiniciando servicios..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true"
-	@sleep 1
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
+	@sleep 2
 	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &" || true
 	@sleep 2
 	@echo "4. Verificando estado..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd)' || echo '⚠️  Servicios no detectados (pueden tardar en iniciar)'"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(LIST_SERVICES) || echo '⚠️  Servicios no detectados (pueden tardar en iniciar)'"
 	@echo "✅ Despliegue completado"
 
 ssh-setup:

@@ -1,145 +1,226 @@
 #!/usr/bin/env python3
 """
-System check script for Autocann project.
-Verifies all dependencies and hardware connections.
+System check for Autocann.
+
+Verifies the dependencies and hardware this project actually uses. It used to
+check for two BME280 sensors on I2C, which the code stopped using: the indoor
+reading comes from an ESP32 over HTTP (or a local DHT22 on GPIO) and the outdoor
+reading from a DHT22. Checking for the wrong hardware reported failures on a
+healthy install and passed on a broken one.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from typing import List, Optional, Tuple
+
+from autocann.config import gpio_pins_from_env, redis_config_from_env
+from autocann.hardware.outputs import get_outputs
 
 
-def check_command(command: str, name: str) -> bool:
-    """Check if a command is available."""
+def _ok(message: str) -> bool:
+    print(f"✅ {message}")
+    return True
+
+
+def _fail(message: str, *hints: str) -> bool:
+    print(f"❌ {message}")
+    for hint in hints:
+        print(f"   {hint}")
+    return False
+
+
+def _warn(message: str, *hints: str) -> None:
+    print(f"⚠️  {message}")
+    for hint in hints:
+        print(f"   {hint}")
+
+
+def check_command(command: str, name: str, required: bool = True) -> bool:
     try:
         subprocess.run([command, "--version"], capture_output=True, check=True, timeout=5)
-        print(f"✅ {name} is installed")
-        return True
+        return _ok(f"{name} está instalado")
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        print(f"❌ {name} is NOT installed")
-        return False
+        if not required:
+            _warn(f"{name} no está instalado (opcional)")
+            return True
+        return _fail(f"{name} NO está instalado")
 
 
-def check_python_package(package_name: str, import_name: str | None = None) -> bool:
-    """Check if a Python package is available."""
-    if import_name is None:
-        import_name = package_name
-
+def check_python_package(package_name: str, import_name: str, required: bool = True) -> bool:
     try:
         __import__(import_name)
-        print(f"✅ {package_name} is installed")
-        return True
+        return _ok(f"{package_name} está instalado")
     except ImportError:
-        print(f"❌ {package_name} is NOT installed")
-        return False
-
-
-def check_i2c() -> bool:
-    """Check if I2C is enabled and devices are detected."""
-    try:
-        result = subprocess.run(["i2cdetect", "-y", "1"], capture_output=True, text=True, timeout=5)
-
-        if "76" in result.stdout and "77" in result.stdout:
-            print("✅ Both BME280 sensors detected (0x76 and 0x77)")
+        if not required:
+            _warn(f"{package_name} no está instalado (sólo hace falta en la Raspberry)")
             return True
-        if "76" in result.stdout or "77" in result.stdout:
-            print("⚠️  Only one BME280 sensor detected")
-            print("   Expected: 0x76 (indoor) and 0x77 (outdoor)")
-            return False
-
-        print("❌ No BME280 sensors detected on I2C bus")
-        print("   Run 'sudo raspi-config' and enable I2C")
-        return False
-    except FileNotFoundError:
-        print("❌ i2cdetect command not found")
-        print("   Install with: sudo apt-get install i2c-tools")
-        return False
-    except subprocess.TimeoutExpired:
-        print("❌ I2C detection timed out")
-        return False
+        return _fail(f"{package_name} NO está instalado", "Instalá con: uv sync --extra rpi")
 
 
 def check_redis() -> bool:
-    """Check if Redis is running."""
+    cfg = redis_config_from_env()
     try:
         import redis
 
-        client = redis.Redis(host="localhost", port=6379, db=0)
-        client.ping()
-        print("✅ Redis is running and accessible")
-        return True
+        redis.Redis(host=cfg.host, port=cfg.port, db=cfg.db, socket_connect_timeout=3).ping()
+        return _ok(f"Redis responde en {cfg.host}:{cfg.port}")
     except Exception as e:
-        print(f"❌ Redis is NOT accessible: {e}")
-        print("   Start with: docker start redis-stack-server")
-        return False
+        return _fail(
+            f"Redis NO responde en {cfg.host}:{cfg.port}: {e}",
+            "Arrancalo con: docker start redis-stack-server",
+        )
 
 
 def check_gpio() -> bool:
-    """Check if GPIO is accessible."""
     try:
         import gpiozero  # noqa: F401
-
-        print("✅ GPIO library is accessible")
-        return True
     except Exception as e:
-        print(f"❌ GPIO is NOT accessible: {e}")
-        print("   You may need to run as root or add user to gpio group")
-        return False
+        _warn(f"gpiozero no disponible: {e}", "Normal fuera de la Raspberry Pi")
+        return True
+
+    pins = gpio_pins_from_env()
+    print(
+        f"   Pines configurados — humidificador: BCM {pins.humidity_up}, "
+        f"deshumidificador: BCM {pins.humidity_down}, ventilación: BCM {pins.ventilation}"
+    )
+
+    duplicates = _duplicate_pins()
+    if duplicates:
+        return _fail(
+            f"Hay pines repetidos entre salidas: {duplicates}",
+            "Dos salidas en el mismo pin se encienden y apagan juntas.",
+            "Revisá AUTOCANN_PIN_HUMIDITY_UP / _DOWN / _VENTILATION.",
+        )
+
+    try:
+        import gpiozero
+
+        device = gpiozero.OutputDevice(pins.ventilation, active_high=False, initial_value=False)
+        device.close()
+        return _ok("GPIO accesible y los pines están libres")
+    except Exception as e:
+        return _fail(
+            f"No se pudo abrir el GPIO: {e}",
+            "Si dice 'in use', ya hay un loop de control corriendo: make status",
+            "Si es de permisos: sudo usermod -a -G gpio $USER && sudo reboot",
+        )
+
+
+def _duplicate_pins() -> List[Tuple[int, List[str]]]:
+    by_pin: dict[int, List[str]] = {}
+    for output in get_outputs():
+        by_pin.setdefault(int(output["pin_bcm"]), []).append(str(output["name"]))
+    return [(pin, names) for pin, names in by_pin.items() if len(names) > 1]
+
+
+def count_control_loops() -> Optional[int]:
+    """
+    Number of running control loops, or None if it could not be determined.
+
+    Uses `ps` rather than `pgrep -fc`, which is Linux-only: on macOS that flag
+    combination is rejected and the empty output silently read as zero.
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "pid,command"], capture_output=True, text=True, timeout=5
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+
+    own_pid = str(os.getpid())
+    count = 0
+    for line in result.stdout.splitlines()[1:]:
+        pid, _, command = line.strip().partition(" ")
+        # Match the launch form, not the bare module name, so a shell that merely
+        # mentions it (a make recipe, this check itself) is not counted.
+        if pid == own_pid or "-m autocann.cli.vpd" not in command:
+            continue
+        count += 1
+    return count
+
+
+def check_no_duplicate_processes() -> bool:
+    """Two control loops on the same pins is the classic cause of relay chatter."""
+    count = count_control_loops()
+    if count is None:
+        _warn("No se pudo contar procesos del loop de control")
+        return True
+
+    if count > 1:
+        return _fail(
+            f"Hay {count} loops de control corriendo a la vez",
+            "Dos procesos sobre los mismos relés se pelean. Pará todo y arrancá uno:",
+            "pkill -f autocann.cli.vpd && ./scripts/start_services.sh",
+        )
+    return _ok(f"Loops de control corriendo: {count}")
+
+
+def check_database() -> bool:
+    try:
+        from autocann.db import ensure_schema, get_active_grow, get_database_stats
+
+        ensure_schema()
+        stats = get_database_stats()
+        grow = get_active_grow()
+    except Exception as e:
+        return _fail(f"No se pudo abrir la base de datos: {e}")
+
+    print(f"   {stats.get('sensor_data_count', 0):,} muestras, "
+          f"{stats.get('database_size_mb', 0)} MB en {stats.get('database_path')}")
+    if not grow:
+        return _fail(
+            "No hay ningún cultivo activo",
+            "El loop de control no hace nada sin cultivo activo.",
+            "Creá uno desde el dashboard o con POST /api/grows",
+        )
+    return _ok(f"Cultivo activo: '{grow['name']}' (etapa {grow['stage']})")
 
 
 def main() -> int:
-    print("=" * 50)
+    print("=" * 56)
     print("Autocann System Check")
-    print("=" * 50)
-    print()
+    print("=" * 56)
 
     all_ok = True
 
-    print("Checking system commands...")
-    all_ok &= check_command("docker", "Docker")
+    print("\nComandos del sistema...")
     all_ok &= check_command("uv", "uv")
-    print()
+    all_ok &= check_command("docker", "Docker", required=False)
 
-    print("Checking Python packages...")
+    print("\nPaquetes Python (base)...")
     all_ok &= check_python_package("flask", "flask")
     all_ok &= check_python_package("redis", "redis")
     all_ok &= check_python_package("pytz", "pytz")
-    all_ok &= check_python_package("gpiozero", "gpiozero")
-    all_ok &= check_python_package("adafruit-blinka", "board")
-    all_ok &= check_python_package("adafruit-circuitpython-bme280", "adafruit_bme280")
-    all_ok &= check_python_package("RPi.GPIO", "RPi.GPIO")
-    print()
 
-    print("Checking hardware connections...")
-    all_ok &= check_i2c()
-    print()
+    print("\nPaquetes Python (Raspberry Pi)...")
+    all_ok &= check_python_package("gpiozero", "gpiozero", required=False)
+    all_ok &= check_python_package("RPi.GPIO", "RPi.GPIO", required=False)
+    all_ok &= check_python_package("adafruit-blinka", "board", required=False)
+    all_ok &= check_python_package("adafruit-circuitpython-dht", "adafruit_dht", required=False)
 
-    print("Checking services...")
+    print("\nServicios...")
     all_ok &= check_redis()
-    all_ok &= check_gpio()
-    print()
+    all_ok &= check_database()
 
-    print("=" * 50)
+    print("\nHardware...")
+    all_ok &= check_gpio()
+    all_ok &= check_no_duplicate_processes()
+
+    print("\n" + "=" * 56)
     if all_ok:
-        print("✅ All checks passed! System is ready.")
-        print()
-        print("Next steps:")
+        print("✅ Todo en orden.")
+        print("\nPróximo paso:")
         print("  ./scripts/start_services.sh")
-        print("  or")
-        print("  make run-vpd")
         return 0
 
-    print("⚠️  Some checks failed. Please fix the issues above.")
-    print()
-    print("Common solutions:")
-    print("  - Install dependencies: uv sync")
-    print("  - Enable I2C: sudo raspi-config")
-    print("  - Start Redis: docker start redis-stack-server")
-    print("  - Add user to gpio group: sudo usermod -a -G gpio $USER")
+    print("⚠️  Algunos chequeos fallaron. Mirá las sugerencias de arriba.")
     return 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

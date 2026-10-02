@@ -13,7 +13,9 @@ ENV/
 
 # uv
 .venv/
-uv.lock
+# uv.lock se deja fuera de .gitignore a propósito: commitearlo es lo que hace
+# que `make deploy` instale en la Raspberry exactamente las mismas versiones que
+# probaste. Corré `git add -f uv.lock` una vez para empezar a trackearlo.
 
 # IDEs
 .vscode/

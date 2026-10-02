@@ -1,34 +1,54 @@
 #!/bin/bash
+#
+# Arranca Redis, el backend web y el loop de control.
+#
+# Es idempotente: si un servicio ya está corriendo no arranca otro. Antes el
+# guard del backend buscaba "python backend.py", un proceso que ya no existe,
+# así que cada ejecución levantaba un backend más y todos peleaban por el
+# puerto 5000. El loop de control no tenía guard, y dos loops sobre los mismos
+# pines GPIO terminan en GPIOPinInUse o en relés golpeando.
 
+set -uo pipefail
+
+PROJECT_DIR="${AUTOCANN_DIR:-/home/autocann/Autocann}"
 FECHA=$(date +'%Y-%m-%d')
+# Corchetes a propósito: el patrón matchea "autocann" pero el texto escrito acá
+# dice "[a]utocann", así que pgrep no se matchea a sí mismo ni a este script.
+VPD_PATTERN='[a]utocann\.cli\.vpd'
+BACKEND_PATTERN='[a]utocann\.cli\.backend' 
 
-# Add uv to PATH (installed in user's .cargo/bin or .local/bin)
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 
-# Iniciar el contenedor de Redis (usando la ruta completa a docker y evitando error en caso de fallo)
-/usr/bin/docker start redis-stack-server || true
+cd "$PROJECT_DIR" || { echo "❌ No existe $PROJECT_DIR"; exit 1; }
 
-cd /home/autocann/Autocann
-
-# Crear directorio de logs si no existe
-mkdir -p logs
-
-# Verificar si uv está disponible
-if ! command -v uv &> /dev/null; then
-    echo "Error: uv no está instalado o no se encuentra en PATH"
-    echo "Instalá uv con: curl -LsSf https://astral.sh/uv/install.sh | sh"
+if ! command -v uv > /dev/null 2>&1; then
+    echo "❌ uv no está instalado o no está en PATH"
+    echo "   Instalalo con: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-# Verificar si el backend ya está corriendo
-if ! pgrep -f "python backend.py" > /dev/null; then
-    echo "Iniciando backend..."
-    # Iniciar el backend en segundo plano usando uv
-    uv run python -m autocann.cli.backend > "/home/autocann/Autocann/logs/backend_$FECHA.log" 2>&1 &
+mkdir -p logs
+
+# Redis es opcional para que el loop arranque, pero sin él no hay dashboard.
+if command -v docker > /dev/null 2>&1; then
+    docker start redis-stack-server > /dev/null 2>&1 \
+        || echo "⚠️  No se pudo arrancar redis-stack-server (¿existe el contenedor?)"
 else
-    echo "Backend ya está corriendo"
+    echo "⚠️  docker no encontrado, salteando Redis"
 fi
 
-# Iniciar el script de VPD usando uv (con output unbuffered para logs en tiempo real)
-# No pasamos argumento para que use el stage del cultivo activo en la base de datos
-uv run python -u -m autocann.cli.vpd >> "/home/autocann/Autocann/logs/vpd_$FECHA.log" 2>&1
+if pgrep -f "$BACKEND_PATTERN" > /dev/null 2>&1; then
+    echo "ℹ️  Backend ya está corriendo"
+else
+    echo "▶️  Iniciando backend..."
+    uv run python -m autocann.cli.backend >> "logs/backend_$FECHA.log" 2>&1 &
+fi
+
+if pgrep -f "$VPD_PATTERN" > /dev/null 2>&1; then
+    echo "ℹ️  Loop de control ya está corriendo — no arranco otro"
+    exit 0
+fi
+
+# Sin argumento de etapa: usa la del cultivo activo en la base de datos.
+echo "▶️  Iniciando loop de control de VPD..."
+exec uv run python -u -m autocann.cli.vpd >> "logs/vpd_$FECHA.log" 2>&1

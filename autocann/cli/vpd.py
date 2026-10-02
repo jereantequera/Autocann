@@ -1,631 +1,655 @@
 #!/usr/bin/env python
+"""
+VPD / humidity control loop.
+
+Reads the indoor sensor (an ESP32 posting to the web API, or a local DHT22),
+decides what the humidity outputs should do via `autocann.control.humidity`,
+and drives the relays.
+
+All interval timing uses a monotonic clock. A Raspberry Pi without a real-time
+clock gets the correct wall time from NTP only after it is online, so wall-clock
+deltas can jump by hours and must never gate control decisions.
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
+import signal
+from dataclasses import dataclass, replace
 from datetime import datetime
-from time import sleep
+from time import monotonic, sleep
+from typing import Any, Dict, Optional, Tuple
 
-import adafruit_dht
-import board
-import gpiozero
-import pytz
 import redis
 
-from autocann.config import gpio_pins_from_env, redis_config_from_env
-from autocann.control.vpd_math import (calculate_target_humidity,
-                                       calculate_vpd, vpd_is_in_range)
-from autocann.db import (get_active_grow, store_control_event,
-                         store_sensor_sample)
+from autocann.config import control_tuning_from_env, redis_config_from_env
+from autocann.control.humidity import (
+    DEHUMIDIFY,
+    HUMIDIFY,
+    IDLE,
+    ControllerConfig,
+    ControllerState,
+    MedianFilter,
+    decide,
+)
+from autocann.control.vpd_math import (
+    STAGES,
+    calculate_vpd,
+    humidity_range_bounds_for_stage,
+    humidity_range_for_stage,
+    vpd_is_in_range,
+)
+from autocann.db import ensure_schema, get_active_grow, store_control_event, store_sensor_sample
+from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
+from autocann.time import ARGENTINA_TZ
 
-_pins = gpio_pins_from_env()
-HUMIDITY_CONTROL_PIN_UP = _pins.humidity_up
-HUMIDITY_CONTROL_PIN_DOWN = _pins.humidity_down
+LOOP_INTERVAL_SECONDS = 3.0
+#: How often a sample is persisted to SQLite.
+DB_SAVE_INTERVAL_SECONDS = 300.0
+#: How often the active grow / stage is re-read from the database.
+STAGE_CHECK_INTERVAL_SECONDS = 60.0
+#: ESP32 data older than this is ignored.
+ESP32_MAX_AGE_SECONDS = 60
+#: Leaves run cooler than the air; VPD is judged at leaf temperature.
+LEAF_TEMP_OFFSET_C = 1.5
+#: Expiry on the Redis keys the dashboard reads, so a dead loop stops looking alive.
+REDIS_KEY_TTL_SECONDS = 600
+#: Minimum gap between attempts to re-create failed sensor objects.
+SENSOR_REINIT_INTERVAL_SECONDS = 30.0
+#: Recurring warnings print at most this often, so a day-long fault does not
+#: write 28,800 identical lines to the log.
+WARN_INTERVAL_SECONDS = 60.0
 
-# DHT22 sensor GPIO pins
+#: DHT22 needs ~2s between reads, so each attempt is expensive. Keep the count
+#: low: the median filter and the failsafe handle intermittent failures, and a
+#: long blocking retry would leave the relays unsupervised.
+DHT_READ_ATTEMPTS = 2
+DHT_RETRY_DELAY_SECONDS = 2.0
+
+#: DHT22 GPIO pins (BCM), used only in local-sensor mode.
 DHT22_INDOOR_PIN = 4
 DHT22_OUTDOOR_PIN = 13
 
 _redis_cfg = redis_config_from_env()
 redis_client = redis.Redis(host=_redis_cfg.host, port=_redis_cfg.port, db=_redis_cfg.db)
 
-# Sensor globals (initialized by check_and_init_sensors)
-dht22_in = None
-dht22_out = None
+
+def _now_local() -> datetime:
+    return datetime.now(ARGENTINA_TZ)
 
 
-def get_board_pin(gpio_num: int):
-    """
-    Map GPIO number to board pin object.
-    """
-    gpio_to_board = {
-        4: board.D4,
-        13: board.D13,
-    }
-    return gpio_to_board.get(gpio_num)
-
-
-def init_dht22_sensors() -> bool:
-    """
-    Initialize both DHT22 sensors.
-    Returns True if both sensors were initialized, False otherwise.
-    """
-    global dht22_in, dht22_out
-
-    ok = True
-
-    # Initialize indoor sensor (GPIO 4)
+def _set_redis(key: str, value: str, ttl: Optional[int] = REDIS_KEY_TTL_SECONDS) -> None:
+    """Best-effort Redis write. Redis being down must not stop the control loop."""
     try:
-        if dht22_in is not None:
-            try:
-                dht22_in.exit()
-            except Exception:
-                pass
-        pin = get_board_pin(DHT22_INDOOR_PIN)
-        dht22_in = adafruit_dht.DHT22(pin, use_pulseio=False)
-        print(f"✅ DHT22 indoor initialized on GPIO {DHT22_INDOOR_PIN}")
+        redis_client.set(key, value, ex=ttl)
     except Exception as e:
-        print(f"❌ DHT22 indoor init failed on GPIO {DHT22_INDOOR_PIN}: {e}")
-        dht22_in = None
-        ok = False
-
-    # Initialize outdoor sensor (GPIO 13)
-    try:
-        if dht22_out is not None:
-            try:
-                dht22_out.exit()
-            except Exception:
-                pass
-        pin = get_board_pin(DHT22_OUTDOOR_PIN)
-        dht22_out = adafruit_dht.DHT22(pin, use_pulseio=False)
-        print(f"✅ DHT22 outdoor initialized on GPIO {DHT22_OUTDOOR_PIN}")
-    except Exception as e:
-        print(f"❌ DHT22 outdoor init failed on GPIO {DHT22_OUTDOOR_PIN}: {e}")
-        dht22_out = None
-        ok = False
-
-    return ok
+        print(f"⚠️ Redis write failed for '{key}': {e}")
 
 
-def check_esp32_indoor_available() -> bool:
+# ---------------------------------------------------------------------------
+# Relays
+# ---------------------------------------------------------------------------
+
+
+class Relays:
     """
-    Check if ESP32 indoor sensor data is available and fresh.
+    Owns the humidity output pins.
+
+    This process is the only GPIO owner: gpiozero raises GPIOPinInUse if a
+    second process claims the same pin, and a pin released by `close()` reverts
+    to its default state, which silently drops the relay.
     """
-    try:
-        data = redis_client.get("esp32_indoor")
-        if data is None:
-            return False
 
-        sensor_data = json.loads(data)
-        timestamp = sensor_data.get("timestamp", 0)
-        current_time = int(datetime.now(pytz.timezone("America/Argentina/Buenos_Aires")).timestamp())
-        age = current_time - timestamp
+    def __init__(self) -> None:
+        self._specs = {o["name"]: o for o in get_outputs()}
+        self._devices: Dict[str, Any] = {name: None for name in self._specs}
+        self._state: Dict[str, bool] = {name: False for name in self._specs}
 
-        # Consider data fresh if less than 60 seconds old
-        return age <= 60
-    except Exception:
-        return False
+    def setup(self) -> None:
+        import gpiozero  # imported lazily so this module stays importable off-Pi
 
+        for name, spec in self._specs.items():
+            self._devices[name] = gpiozero.OutputDevice(
+                int(spec["pin_bcm"]),
+                active_high=bool(spec.get("active_high", True)),
+                initial_value=False,
+            )
+            print(f"🔌 {spec['label']} → BCM {spec['pin_bcm']}")
+        self.all_off(log_event=False)
 
-def check_and_init_sensors(use_esp32_indoor: bool = True) -> bool:
-    """
-    Check if sensors are connected and initialize them.
-    Returns True if required sensors are OK, False otherwise.
-    Also stores sensor status in Redis for dashboard display.
+    def apply(self, action: str, *, overrides: Optional[Dict[str, bool]] = None,
+              log_event: bool = True) -> None:
+        """
+        Drive every output to the state implied by `action`, with `overrides`
+        taking precedence.
 
-    If use_esp32_indoor is True, checks for ESP32 indoor data first,
-    falls back to local DHT22 if not available.
-    """
-    global dht22_in, dht22_out
+        The desired state is resolved first and written once. Applying the
+        automatic action and then the overrides on top would toggle an overridden
+        relay off and on again on every single iteration.
+        """
+        desired = {name: False for name in self._specs}
+        desired["humidity_up"] = action == HUMIDIFY
+        desired["humidity_down"] = action == DEHUMIDIFY
 
-    ok = True
-    sensor_status = {
-        "indoor": {"ok": False, "error": None, "source": None},
-        "outdoor": {"ok": False, "error": None},
-    }
+        for name, forced in (overrides or {}).items():
+            if name in desired:
+                desired[name] = forced
 
-    # Check ESP32 indoor sensor first
-    if use_esp32_indoor and check_esp32_indoor_available():
-        print("✅ ESP32 indoor sensor data available")
-        sensor_status["indoor"]["ok"] = True
-        sensor_status["indoor"]["source"] = "esp32"
-    else:
-        # Try local DHT22 indoor sensor
-        if dht22_in is None or dht22_out is None:
-            init_dht22_sensors()
+        for name, on in desired.items():
+            self.set_output(name, on, log_event=log_event)
 
-        if dht22_in is not None:
-            try:
-                _ = dht22_in.temperature
-                _ = dht22_in.humidity
-                print(f"✅ DHT22 indoor OK on GPIO {DHT22_INDOOR_PIN}")
-                sensor_status["indoor"]["ok"] = True
-                sensor_status["indoor"]["source"] = "dht22_local"
-            except RuntimeError as e:
-                print(f"⚠️ DHT22 indoor first read failed (normal): {e}")
-                sensor_status["indoor"]["ok"] = True
-                sensor_status["indoor"]["source"] = "dht22_local"
-            except Exception as e:
-                if use_esp32_indoor:
-                    # If ESP32 mode is enabled but no data, still consider it ok (waiting for data)
-                    sensor_status["indoor"]["ok"] = False
-                    sensor_status["indoor"]["error"] = "Waiting for ESP32 data"
-                    sensor_status["indoor"]["source"] = "esp32"
-                    print("⏳ Waiting for ESP32 indoor sensor data...")
-                else:
-                    sensor_status["indoor"]["error"] = str(e)
-                    ok = False
-        else:
-            if use_esp32_indoor:
-                # ESP32 mode enabled, local DHT22 not required
-                sensor_status["indoor"]["ok"] = False
-                sensor_status["indoor"]["error"] = "Waiting for ESP32 data"
-                sensor_status["indoor"]["source"] = "esp32"
-                print("⏳ Waiting for ESP32 indoor sensor data...")
-            else:
-                sensor_status["indoor"]["error"] = "DHT22 indoor init failed"
-                ok = False
+    def all_off(self, *, log_event: bool = True) -> None:
+        """Unconditionally de-energise everything. Overrides do not apply here."""
+        for name in self._specs:
+            self.set_output(name, False, log_event=log_event)
 
-    # Check outdoor sensor (always local DHT22)
-    if dht22_in is None or dht22_out is None:
-        init_dht22_sensors()
+    def set_output(self, name: str, on: bool, *, log_event: bool = True) -> None:
+        spec = self._specs.get(name)
+        if spec is None or self._state.get(name) == on:
+            return
 
-    if dht22_out is not None:
+        device = self._devices.get(name)
         try:
-            _ = dht22_out.temperature
-            _ = dht22_out.humidity
-            print(f"✅ DHT22 outdoor OK on GPIO {DHT22_OUTDOOR_PIN}")
-            sensor_status["outdoor"]["ok"] = True
-        except RuntimeError as e:
-            print(f"⚠️ DHT22 outdoor first read failed (normal): {e}")
-            sensor_status["outdoor"]["ok"] = True
+            if device is not None:
+                if on:
+                    device.on()
+                else:
+                    device.off()
         except Exception as e:
-            sensor_status["outdoor"]["error"] = str(e)
-            ok = False
-    else:
-        sensor_status["outdoor"]["error"] = "DHT22 outdoor init failed"
-        ok = False
+            print(f"❌ Failed to switch {name}: {e}")
+            return
 
-    try:
-        redis_client.set("sensor_status", json.dumps(sensor_status))
-    except Exception as e:
-        print(f"⚠️ No se pudo guardar estado de sensores en Redis: {e}")
+        self._state[name] = on
+        redis_key = spec.get("redis_key")
+        if redis_key:
+            _set_redis(redis_key, "true" if on else "false")
+        if log_event:
+            # Only transitions are recorded. The old loop logged an event on
+            # every iteration, which added ~29k rows per day.
+            store_control_event(name, "on" if on else "off")
 
-    return ok
-
-
-humidity_control_up = None
-humidity_control_down = None
-
-
-def setup_gpio() -> None:
-    global humidity_control_up, humidity_control_down
-    humidity_control_up = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_UP, active_high=False, initial_value=False)
-    humidity_control_down = gpiozero.OutputDevice(HUMIDITY_CONTROL_PIN_DOWN, active_high=False, initial_value=False)
+    def close(self) -> None:
+        for device in self._devices.values():
+            try:
+                if device is not None:
+                    device.off()
+                    device.close()
+            except Exception:
+                pass
 
 
-def humidity_up_on() -> None:
-    try:
-        humidity_control_up.on()
-        redis_client.set("humidity_control_up", "true")
-        store_control_event("humidity_up", "on")
-    except Exception as e:
-        print(e)
-
-
-def humidity_up_off() -> None:
-    try:
-        humidity_control_up.off()
-        redis_client.set("humidity_control_up", "false")
-        store_control_event("humidity_up", "off")
-    except Exception as e:
-        print(e)
-
-
-def humidity_down_on() -> None:
-    try:
-        humidity_control_down.on()
-        redis_client.set("humidity_control_down", "true")
-        store_control_event("humidity_down", "on")
-    except Exception as e:
-        print(e)
-
-
-def humidity_down_off() -> None:
-    try:
-        humidity_control_down.off()
-        redis_client.set("humidity_control_down", "false")
-        store_control_event("humidity_down", "off")
-    except Exception as e:
-        print(e)
-
-
-def read_dht22(sensor, sensor_name: str, max_attempts: int = 5):
+def read_manual_overrides() -> Dict[str, bool]:
     """
-    Read a DHT22 sensor with retry logic.
-    Returns tuple (temperature, humidity) or (None, None) on failure.
+    Manual overrides published by the web API, keyed by output name.
+
+    The keys carry a Redis TTL, so an override the operator forgets about lapses
+    back to automatic control on its own.
     """
-    if sensor is None:
+    overrides: Dict[str, bool] = {}
+    for spec in get_outputs():
+        name = spec["name"]
+        try:
+            raw = redis_client.get(manual_override_key(name))
+        except Exception:
+            continue
+        value = parse_bool_flag(raw)
+        if value is not None:
+            overrides[name] = value
+    return overrides
+
+
+# ---------------------------------------------------------------------------
+# Sensors
+# ---------------------------------------------------------------------------
+
+
+class Sensors:
+    """Indoor (ESP32 via Redis, or local DHT22) and outdoor (local DHT22) readings."""
+
+    def __init__(self, use_esp32_indoor: bool = True) -> None:
+        self.use_esp32_indoor = use_esp32_indoor
+        self._dht_in: Any = None
+        self._dht_out: Any = None
+        self.indoor_temp = MedianFilter(5)
+        self.indoor_humidity = MedianFilter(5)
+        self.indoor_source: Optional[str] = None
+        #: Monotonic time of the last successful raw indoor read. The median
+        #: filter keeps returning its last value when a read fails, so without
+        #: this the loop would act on old samples forever and the failsafe would
+        #: never trip.
+        self.last_reading_at: Optional[float] = None
+        self._last_warned: Dict[str, float] = {}
+
+    def _warn_throttled(self, key: str, message: str) -> None:
+        """Print a recurring warning at most once per WARN_INTERVAL_SECONDS."""
+        now = monotonic()
+        if now - self._last_warned.get(key, -WARN_INTERVAL_SECONDS) >= WARN_INTERVAL_SECONDS:
+            self._last_warned[key] = now
+            print(message)
+
+    # -- local DHT22 -------------------------------------------------------
+
+    def _board_pin(self, gpio_num: int):
+        import board
+
+        pin = getattr(board, f"D{gpio_num}", None)
+        if pin is None:
+            raise ValueError(f"GPIO {gpio_num} has no board.D{gpio_num} mapping")
+        return pin
+
+    def init_dht22(self) -> None:
+        """(Re)initialise the local DHT22 sensors that are actually needed."""
+        try:
+            import adafruit_dht
+        except Exception as e:
+            print(f"⚠️ adafruit_dht unavailable, skipping local DHT22 sensors: {e}")
+            return
+
+        wanted = [("_dht_out", DHT22_OUTDOOR_PIN, "outdoor")]
+        if not self.use_esp32_indoor:
+            wanted.append(("_dht_in", DHT22_INDOOR_PIN, "indoor"))
+
+        for attr, gpio_num, label in wanted:
+            existing = getattr(self, attr)
+            if existing is not None:
+                try:
+                    existing.exit()
+                except Exception:
+                    pass
+            try:
+                setattr(self, attr, adafruit_dht.DHT22(self._board_pin(gpio_num), use_pulseio=False))
+                print(f"✅ DHT22 {label} initialised on GPIO {gpio_num}")
+            except Exception as e:
+                setattr(self, attr, None)
+                print(f"❌ DHT22 {label} init failed on GPIO {gpio_num}: {e}")
+
+    def _read_dht22(self, sensor, name: str) -> Tuple[Optional[float], Optional[float]]:
+        if sensor is None:
+            return None, None
+
+        for attempt in range(DHT_READ_ATTEMPTS):
+            try:
+                temperature = sensor.temperature
+                humidity = sensor.humidity
+                if temperature is not None and humidity is not None:
+                    return float(temperature), float(humidity)
+            except RuntimeError:
+                pass  # a failed checksum is normal for a DHT22
+            except Exception as e:
+                self._warn_throttled(f"dht_{name}", f"⚠️ DHT22 {name} error: {e}")
+            if attempt < DHT_READ_ATTEMPTS - 1:
+                sleep(DHT_RETRY_DELAY_SECONDS)
+
         return None, None
 
-    for attempt in range(max_attempts):
+    # -- ESP32 over Redis --------------------------------------------------
+
+    def _read_esp32_indoor(self) -> Tuple[Optional[float], Optional[float]]:
         try:
-            temperature = sensor.temperature
-            humidity = sensor.humidity
-            if temperature is not None and humidity is not None:
-                return temperature, humidity
-        except RuntimeError:
-            if attempt < max_attempts - 1:
-                sleep(2)
-            continue
+            raw = redis_client.get("esp32_indoor")
+            if raw is None:
+                return None, None
+
+            payload = json.loads(raw)
+            age = int(_now_local().timestamp()) - int(payload.get("timestamp", 0))
+            if age > ESP32_MAX_AGE_SECONDS:
+                self._warn_throttled(
+                    "esp32_stale",
+                    f"⚠️ ESP32 indoor data is stale ({age}s old, max {ESP32_MAX_AGE_SECONDS}s)",
+                )
+                return None, None
+
+            temperature = payload.get("temperature")
+            humidity = payload.get("humidity")
+            if temperature is None or humidity is None:
+                return None, None
+            return float(temperature), float(humidity)
         except Exception as e:
-            print(f"⚠️ DHT22 {sensor_name} error: {e}")
-            if attempt < max_attempts - 1:
-                sleep(2)
-            continue
-
-    return None, None
-
-
-def read_indoor_from_esp32(max_age_seconds: int = 60) -> tuple[float | None, float | None]:
-    """
-    Read indoor sensor data from ESP32 via Redis.
-    Returns tuple (temperature, humidity) or (None, None) if data is stale or unavailable.
-    """
-    try:
-        data = redis_client.get("esp32_indoor")
-        if data is None:
+            print(f"⚠️ Error reading ESP32 indoor data: {e}")
             return None, None
 
-        sensor_data = json.loads(data)
-        timestamp = sensor_data.get("timestamp", 0)
-        current_time = int(datetime.now(pytz.timezone("America/Argentina/Buenos_Aires")).timestamp())
-        age = current_time - timestamp
+    # -- public ------------------------------------------------------------
 
-        if age > max_age_seconds:
-            print(f"⚠️ ESP32 indoor data is stale ({age}s old, max {max_age_seconds}s)")
-            return None, None
+    def read(self) -> Optional[dict]:
+        """
+        One reading cycle. Returns None when there is no usable indoor reading,
+        which the caller must treat as a failsafe condition.
+        """
+        temperature = humidity = None
 
-        temperature = sensor_data.get("temperature")
-        humidity = sensor_data.get("humidity")
+        if self.use_esp32_indoor:
+            temperature, humidity = self._read_esp32_indoor()
+            if temperature is not None:
+                self.indoor_source = "esp32"
+
+        if temperature is None or humidity is None:
+            if self._dht_in is None and not self.use_esp32_indoor:
+                self.init_dht22()
+            temperature, humidity = self._read_dht22(self._dht_in, "indoor")
+            if temperature is not None:
+                self.indoor_source = "dht22_local"
 
         if temperature is not None and humidity is not None:
-            return float(temperature), float(humidity)
+            self.last_reading_at = monotonic()
 
-        return None, None
-    except Exception as e:
-        print(f"⚠️ Error reading ESP32 indoor data: {e}")
-        return None, None
+        # Median-filter the indoor readings the control decision depends on.
+        temperature = self.indoor_temp.push(temperature)
+        humidity = self.indoor_humidity.push(humidity)
 
+        if temperature is None or humidity is None:
+            return None
 
-def read_sensors(max_retries: int = 3, retry_delay: int = 2, use_esp32_indoor: bool = True):
-    """
-    Read both DHT22 sensors with retry logic.
-    If use_esp32_indoor is True, reads indoor sensor from ESP32 data in Redis.
-    """
-    global dht22_in, dht22_out
+        data = {
+            "temperature": round(temperature, 2),
+            "humidity": round(humidity, 2),
+            "vpd": calculate_vpd(temperature, humidity),
+            "indoor_source": self.indoor_source,
+        }
 
-    for attempt in range(max_retries):
-        json_data = {}
-
-        # Try to read indoor sensor from ESP32 first
-        if use_esp32_indoor:
-            temperature_c, humidity = read_indoor_from_esp32(max_age_seconds=60)
-            if temperature_c is not None and humidity is not None:
-                print(f"📡 Using ESP32 indoor sensor: {temperature_c:.1f}°C, {humidity:.1f}%")
-                json_data["temperature"] = round(temperature_c, 2)
-                json_data["humidity"] = round(humidity, 2)
-                json_data["vpd"] = calculate_vpd(temperature_c, humidity)
-                json_data["indoor_source"] = "esp32"
-            else:
-                # ESP32 data not available or stale, try local DHT22
-                print(f"⚠️ ESP32 indoor data unavailable, trying local DHT22 (attempt {attempt + 1}/{max_retries})")
-                if dht22_in is None:
-                    check_and_init_sensors()
-                    sleep(retry_delay)
-                    continue
-
-                temperature_c, humidity = read_dht22(dht22_in, "indoor")
-                if temperature_c is None or humidity is None:
-                    if attempt < max_retries - 1:
-                        sleep(retry_delay)
-                    continue
-
-                json_data["temperature"] = round(temperature_c, 2)
-                json_data["humidity"] = round(humidity, 2)
-                json_data["vpd"] = calculate_vpd(temperature_c, humidity)
-                json_data["indoor_source"] = "dht22_local"
+        outside_temp, outside_humidity = self._read_dht22(self._dht_out, "outdoor")
+        if outside_temp is not None and outside_humidity is not None:
+            data["outside_temperature"] = round(outside_temp, 2)
+            data["outside_humidity"] = round(outside_humidity, 2)
         else:
-            # Original behavior: read from local DHT22
-            if dht22_in is None:
-                print(f"⚠️ Indoor sensor not initialized, attempting reinit (attempt {attempt + 1}/{max_retries})")
-                check_and_init_sensors()
-                sleep(retry_delay)
-                continue
+            # No outdoor reading. Leave the fields empty rather than copying the
+            # indoor values, which used to make the charts show a fake outdoor
+            # curve identical to the indoor one.
+            data["outside_temperature"] = None
+            data["outside_humidity"] = None
 
-            temperature_c, humidity = read_dht22(dht22_in, "indoor")
-            if temperature_c is None or humidity is None:
-                print(f"⚠️ Indoor sensor read failed (attempt {attempt + 1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    sleep(retry_delay)
-                continue
+        return data
 
-            json_data["temperature"] = round(temperature_c, 2)
-            json_data["humidity"] = round(humidity, 2)
-            json_data["vpd"] = calculate_vpd(temperature_c, humidity)
-            json_data["indoor_source"] = "dht22_local"
+    @property
+    def reading_age_seconds(self) -> float:
+        """Seconds since the last successful raw indoor read (inf if never)."""
+        if self.last_reading_at is None:
+            return float("inf")
+        return monotonic() - self.last_reading_at
 
-        # If we don't have indoor data yet, continue retrying
-        if "temperature" not in json_data:
-            if attempt < max_retries - 1:
-                sleep(retry_delay)
-            continue
+    def publish_status(self, indoor_ok: bool, indoor_error: Optional[str] = None) -> None:
+        status = {
+            "indoor": {"ok": indoor_ok, "error": indoor_error, "source": self.indoor_source},
+            "outdoor": {
+                "ok": self._dht_out is not None,
+                "error": None if self._dht_out is not None else "DHT22 outdoor not initialised",
+            },
+        }
+        _set_redis("sensor_status", json.dumps(status))
 
-        # Read outdoor sensor (always from local DHT22)
-        outside_temperature_c, outside_humidity = read_dht22(dht22_out, "outdoor")
-        if outside_temperature_c is not None and outside_humidity is not None:
-            json_data["outside_temperature"] = round(outside_temperature_c, 2)
-            json_data["outside_humidity"] = round(outside_humidity, 2)
-        else:
-            print("⚠️ Outdoor sensor read failed, using fallback values")
-            json_data["outside_temperature"] = json_data["temperature"]
-            json_data["outside_humidity"] = json_data["humidity"]
-
-        return json_data
-
-    print("❌ Failed to read sensors after maximum retries")
-    return None
+    def close(self) -> None:
+        for sensor in (self._dht_in, self._dht_out):
+            try:
+                if sensor is not None:
+                    sensor.exit()
+            except Exception:
+                pass
 
 
-def store_historical_data(sensors_data: dict) -> None:
+# ---------------------------------------------------------------------------
+# Setpoints
+# ---------------------------------------------------------------------------
+
+
+#: Floor for the control deadband, so a narrow stage band still rejects sensor noise.
+MIN_DEADBAND_PCT = 1.5
+
+
+@dataclass(frozen=True)
+class Setpoint:
+    """What the controller should aim for, derived from the stage's own band."""
+
+    target_humidity: float
+    deadband_pct: float
+    humidity_band: Tuple[float, float]
+    leaf_temperature: float
+    leaf_vpd: float
+    vpd_in_range: bool
+
+
+def resolve_setpoint(stage: str, air_temperature_c: float, humidity: float) -> Setpoint:
     """
-    Store historical temperature and humidity data in Redis with different time windows.
+    Translate a stage into a humidity setpoint and deadband.
+
+    Every stage is expressed as a humidity band: VPD stages convert their kPa
+    band at leaf temperature, `dry` has an explicit one. The setpoint is the
+    band's midpoint and the deadband is its half-width, so "inside the deadband"
+    and "inside the stage's range" are the same statement and the controller
+    never works to tighten something that is already in spec.
+
+    Both the setpoint and the in-range check are evaluated at leaf temperature.
+    They used to disagree — the setpoint came from air temperature while the
+    check used leaf temperature — which parked the tent at the wet edge of the
+    band instead of its centre.
     """
-    argentina_tz = pytz.timezone("America/Argentina/Buenos_Aires")
-    current_time = datetime.now(argentina_tz)
-    current_timestamp = int(current_time.timestamp())
+    leaf_temperature = round(air_temperature_c - LEAF_TEMP_OFFSET_C, 1)
+    leaf_vpd = calculate_vpd(leaf_temperature, humidity)
 
-    data_point = {
-        "timestamp": current_timestamp,
-        "datetime": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-        "temperature": sensors_data["temperature"],
-        "humidity": sensors_data["humidity"],
-    }
-
-    time_windows = {
-        "6h": {"duration": 6 * 3600, "interval": 3600},
-        "12h": {"duration": 12 * 3600, "interval": 6 * 3600},
-        "24h": {"duration": 24 * 3600, "interval": 12 * 3600},
-        "1w": {"duration": 7 * 24 * 3600, "interval": 24 * 3600},
-    }
-
-    for window, config in time_windows.items():
-        key = f"historical_data_{window}"
-        buffer_key = f"historical_buffer_{window}"
-
-        existing_data = redis_client.get(key)
-        data_list = json.loads(existing_data) if existing_data else []
-
-        buffer_data = redis_client.get(buffer_key)
-        buffer_list = json.loads(buffer_data) if buffer_data else []
-
-        buffer_list.append(data_point)
-
-        if buffer_list and (len(buffer_list) == 1 or current_timestamp - buffer_list[0]["timestamp"] >= config["interval"]):
-            avg_temperature = sum(point["temperature"] for point in buffer_list) / len(buffer_list)
-            avg_humidity = sum(point["humidity"] for point in buffer_list) / len(buffer_list)
-            avg_point = {
-                "timestamp": current_timestamp,
-                "datetime": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "temperature": round(avg_temperature, 2),
-                "humidity": round(avg_humidity, 2),
-            }
-            data_list.append(avg_point)
-            buffer_list = []
-
-        cutoff_time = current_timestamp - config["duration"]
-        data_list = [point for point in data_list if point["timestamp"] > cutoff_time]
-
-        redis_client.set(key, json.dumps(data_list))
-        redis_client.set(buffer_key, json.dumps(buffer_list))
-
-
-def all_outputs_off() -> None:
-    """Turn off all outputs safely."""
-    try:
-        if humidity_control_up:
-            humidity_control_up.off()
-        if humidity_control_down:
-            humidity_control_down.off()
-        redis_client.set("humidity_control_up", "false")
-        redis_client.set("humidity_control_down", "false")
-    except Exception as e:
-        print(f"⚠️ Error turning off outputs: {e}")
-
-
-def main(stage_override: str | None = None, use_esp32_indoor: bool = True) -> None:
-    setup_gpio()
-    all_outputs_off()
-
-    if use_esp32_indoor:
-        print("📡 Modo ESP32: usando sensor indoor vía HTTP/Redis")
+    explicit = humidity_range_for_stage(stage)
+    if explicit is not None:
+        low, high = explicit
+        in_range = low <= humidity <= high
     else:
-        print("🔌 Modo local: usando sensor indoor DHT22 en GPIO")
+        low, high = sorted(humidity_range_bounds_for_stage(stage, leaf_temperature))
+        in_range = vpd_is_in_range(leaf_vpd, stage)
 
-    while not check_and_init_sensors(use_esp32_indoor=use_esp32_indoor):
-        print("🔄 Sensores no detectados - reintentando en 5 segundos...")
-        sleep(5)
+    return Setpoint(
+        target_humidity=round((low + high) / 2, 1),
+        deadband_pct=max((high - low) / 2, MIN_DEADBAND_PCT),
+        humidity_band=(low, high),
+        leaf_temperature=leaf_temperature,
+        leaf_vpd=leaf_vpd,
+        vpd_in_range=in_range,
+    )
 
-    current_stage = None
-    current_grow_id = None
-    stage_check_counter = 0
-    STAGE_CHECK_INTERVAL = 20
 
-    last_db_save_time = 0
-    DB_SAVE_INTERVAL = 300
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
 
-    humidity_control_mode = None  # None, 'raising', or 'lowering'
+_shutdown = False
 
-    while True:
+
+def _request_shutdown(signum, _frame) -> None:
+    global _shutdown
+    print(f"\n🛑 Signal {signum} received, shutting down...")
+    _shutdown = True
+
+
+def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) -> int:
+    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            if stage_check_counter == 0:
-                active_grow = get_active_grow()
-                if not active_grow:
-                    print("No active grow found. Please create a grow first.")
-                    sleep(5)
+            signal.signal(sig, _request_shutdown)
+        except ValueError:
+            # Handlers can only be installed from the main thread. Running the
+            # loop from a thread (a test harness, an embedded runner) is still
+            # valid: shutdown then comes from _request_shutdown being called
+            # directly, and the `finally` block still de-energises everything.
+            pass
+
+    ensure_schema()
+
+    relays = Relays()
+    sensors = Sensors(use_esp32_indoor=use_esp32_indoor)
+    state = ControllerState()
+    tuning = control_tuning_from_env()
+    config = ControllerConfig(
+        min_on_seconds=tuning.min_on_seconds,
+        min_off_seconds=tuning.min_off_seconds,
+        min_changeover_seconds=tuning.min_changeover_seconds,
+        stale_after_seconds=tuning.stale_after_seconds,
+    )
+
+    relays.setup()
+    sensors.init_dht22()
+
+    print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
+          else "🔌 Indoor sensor: local DHT22")
+    print(f"⚙️  Min on {config.min_on_seconds:.0f}s, min off {config.min_off_seconds:.0f}s, "
+          f"changeover {config.min_changeover_seconds:.0f}s, "
+          f"failsafe at {config.stale_after_seconds:.0f}s; "
+          f"deadband derived from each stage's band")
+
+    stage: Optional[str] = None
+    grow_id: Optional[int] = None
+    last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
+    last_db_save = -DB_SAVE_INTERVAL_SECONDS
+    last_sensor_reinit = 0.0
+    unknown_stage_warned: Optional[str] = None
+
+    try:
+        while not _shutdown:
+            loop_started = monotonic()
+
+            try:
+                if loop_started - last_stage_check >= STAGE_CHECK_INTERVAL_SECONDS:
+                    last_stage_check = loop_started
+                    active_grow = get_active_grow()
+                    if not active_grow:
+                        print("⚠️ No active grow. Create one before running the control loop.")
+                        relays.all_off()
+                        sleep(LOOP_INTERVAL_SECONDS)
+                        continue
+
+                    new_stage = stage_override or active_grow["stage"]
+                    source = "override" if stage_override else f"grow '{active_grow['name']}'"
+
+                    if new_stage not in STAGES:
+                        if new_stage != unknown_stage_warned:
+                            unknown_stage_warned = new_stage
+                            print(f"❌ Grow has an unknown stage {new_stage!r}. "
+                                  f"Valid stages: {', '.join(STAGES)}. Outputs stay off.")
+                        stage = None
+                        relays.all_off()
+                        sleep(LOOP_INTERVAL_SECONDS)
+                        continue
+                    unknown_stage_warned = None
+
+                    if new_stage != stage or active_grow["id"] != grow_id:
+                        print(f"\n{'🔄 Stage changed: ' + str(stage) + ' → ' if stage else '✅ Stage: '}"
+                              f"{new_stage}  (source: {source})")
+                        stage, grow_id = new_stage, active_grow["id"]
+                        state = ControllerState()
+
+                if stage is None:
+                    sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
-                if stage_override and stage_override in ["early_veg", "late_veg", "flowering", "dry"]:
-                    new_stage = stage_override
-                    stage_source = "override"
-                else:
-                    new_stage = active_grow["stage"]
-                    stage_source = f"grow '{active_grow['name']}'"
+                sensors_data = sensors.read()
 
-                if new_stage != current_stage or active_grow["id"] != current_grow_id:
-                    if current_stage is not None:
-                        print(f"\n🔄 Stage changed: {current_stage} → {new_stage}")
-                        print(f"   Source: {stage_source}")
-                    else:
-                        print(f"\n✅ Starting with stage: {new_stage}")
-                        print(f"   Source: {stage_source}")
-
-                    current_stage = new_stage
-                    current_grow_id = active_grow["id"]
-                    humidity_control_mode = None
-
-                STAGE = current_stage
-
-            stage_check_counter = (stage_check_counter + 1) % STAGE_CHECK_INTERVAL
-
-            sensors_data = read_sensors(use_esp32_indoor=use_esp32_indoor)
-            if sensors_data is None:
-                print("⚠️ No valid sensor data - attempting sensor reinit...")
-                all_outputs_off()
-                humidity_control_mode = None
-                check_and_init_sensors(use_esp32_indoor=use_esp32_indoor)
-                sleep(3)
-                continue
-
-            temperature = float(sensors_data["temperature"])
-            humidity = float(sensors_data["humidity"])
-            leaf_temperature = round(temperature - 1.5, 1)
-            leaf_vpd = calculate_vpd(leaf_temperature, humidity)
-            humidity_is_in_range = False
-
-            store_historical_data(sensors_data)
-
-            sensors_data["leaf_temperature"] = leaf_temperature
-            sensors_data["leaf_vpd"] = leaf_vpd
-
-            if STAGE != "dry":
-                target_humidity = calculate_target_humidity(STAGE, temperature)
-                sensors_data["target_humidity"] = target_humidity
-                sensors_data["vpd_in_range"] = vpd_is_in_range(leaf_vpd, STAGE)
-            else:
-                sensors_data["vpd_in_range"] = False
-                if 60 <= humidity <= 65:
-                    target_humidity = humidity
-                    humidity_is_in_range = True
-                    humidity_control_mode = None
-                elif humidity >= 65:
-                    target_humidity = 60
-                else:
-                    target_humidity = 65
-                sensors_data["target_humidity"] = target_humidity
-
-            redis_client.set("sensors", json.dumps(sensors_data))
-
-            current_time = datetime.now().timestamp()
-            if current_time - last_db_save_time >= DB_SAVE_INTERVAL:
-                store_sensor_sample(sensors_data)
-                last_db_save_time = current_time
-                print("💾 Sample saved to database (next save in 5 minutes)")
-
-            if STAGE != "dry":
-                if humidity_control_mode == "raising":
-                    if humidity >= target_humidity:
-                        print(f"✅ Target humidity reached ({humidity:.1f}% >= {target_humidity}%), stopping humidifier")
-                        humidity_up_off()
-                        humidity_down_off()
-                        humidity_control_mode = None
-                        sleep(3)
-                        continue
-                elif humidity_control_mode == "lowering":
-                    if humidity <= target_humidity:
-                        print(f"✅ Target humidity reached ({humidity:.1f}% <= {target_humidity}%), stopping dehumidifier")
-                        humidity_up_off()
-                        humidity_down_off()
-                        humidity_control_mode = None
-                        sleep(3)
-                        continue
-                elif sensors_data["vpd_in_range"]:
-                    humidity_up_off()
-                    humidity_down_off()
-                    sleep(3)
+                if sensors_data is None:
+                    # Failsafe: no usable reading, so stop driving the tent.
+                    decision = decide(
+                        humidity=None, target_humidity=None, now=loop_started,
+                        state=state, config=config,
+                    )
+                    relays.all_off()
+                    sensors.publish_status(indoor_ok=False, indoor_error="No valid indoor reading")
+                    if decision.changed:
+                        print(f"⚠️ No valid sensor data ({decision.reason}) — all outputs off")
+                    # Re-creating the sensor objects every 3s achieves nothing and
+                    # floods the log, so back off between attempts.
+                    if loop_started - last_sensor_reinit >= SENSOR_REINIT_INTERVAL_SECONDS:
+                        last_sensor_reinit = loop_started
+                        print("🔄 Reinitialising sensors...")
+                        sensors.init_dht22()
+                    sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
-            if humidity_is_in_range:
-                humidity_up_off()
-                humidity_down_off()
-                humidity_control_mode = None
-                sleep(3)
-                continue
+                temperature = float(sensors_data["temperature"])
+                humidity = float(sensors_data["humidity"])
 
-            if target_humidity is None:
-                continue
+                setpoint = resolve_setpoint(stage, temperature, humidity)
 
-            if humidity < target_humidity:
-                if humidity_control_mode != "raising":
-                    print(f"🔼 Starting to raise humidity ({humidity:.1f}% → {target_humidity}%)")
-                    humidity_control_mode = "raising"
-                humidity_up_on()
-                humidity_down_off()
-            elif humidity > target_humidity:
-                if humidity_control_mode != "lowering":
-                    print(f"🔽 Starting to lower humidity ({humidity:.1f}% → {target_humidity}%)")
-                    humidity_control_mode = "lowering"
-                humidity_up_off()
-                humidity_down_on()
-            else:
-                humidity_control_mode = None
-                humidity_up_off()
-                humidity_down_off()
+                sensors_data["leaf_temperature"] = setpoint.leaf_temperature
+                sensors_data["leaf_vpd"] = setpoint.leaf_vpd
+                sensors_data["target_humidity"] = setpoint.target_humidity
+                sensors_data["humidity_band"] = list(setpoint.humidity_band)
+                sensors_data["vpd_in_range"] = setpoint.vpd_in_range
+                sensors_data["stage"] = stage
+                sensors_data["timestamp"] = int(_now_local().timestamp())
+                sensors_data["datetime"] = _now_local().strftime("%Y-%m-%d %H:%M:%S")
 
-            sleep(3)
+                decision = decide(
+                    humidity=humidity,
+                    target_humidity=setpoint.target_humidity,
+                    now=loop_started,
+                    state=state,
+                    config=replace(config, deadband_pct=setpoint.deadband_pct),
+                    reading_age_seconds=sensors.reading_age_seconds,
+                )
+                sensors_data["control_action"] = decision.action
+                sensors_data["control_reason"] = decision.reason
+                sensors_data["reading_age_seconds"] = round(sensors.reading_age_seconds, 1)
 
-        except Exception as e:
-            print(f"❌ Error in main loop: {e}")
-            sleep(3)
+                if decision.changed:
+                    arrow = {HUMIDIFY: "🔼 humidifying", DEHUMIDIFY: "🔽 dehumidifying", IDLE: "⏸️  idle"}
+                    print(f"{arrow[decision.action]} — {humidity:.1f}% → "
+                          f"{setpoint.target_humidity:.0f}% "
+                          f"[band {setpoint.humidity_band[0]:.0f}-{setpoint.humidity_band[1]:.0f}%] "
+                          f"({decision.reason})")
+
+                if decision.failsafe:
+                    # Stale or missing data: de-energise everything and ignore
+                    # manual overrides until a fresh reading comes back.
+                    relays.all_off()
+                    overrides = {}
+                else:
+                    overrides = read_manual_overrides()
+                    relays.apply(decision.action, overrides=overrides)
+                sensors_data["manual_overrides"] = overrides
+
+                _set_redis("sensors", json.dumps(sensors_data))
+                sensors.publish_status(indoor_ok=True)
+
+                if loop_started - last_db_save >= DB_SAVE_INTERVAL_SECONDS:
+                    if store_sensor_sample(sensors_data):
+                        last_db_save = loop_started
+
+            except Exception as e:
+                print(f"❌ Error in main loop: {e}")
+                # An unexpected failure must not leave the outputs energised.
+                try:
+                    relays.all_off()
+                except Exception:
+                    pass
+
+            elapsed = monotonic() - loop_started
+            sleep(max(0.0, LOOP_INTERVAL_SECONDS - elapsed))
+    finally:
+        print("🔻 Turning all outputs off...")
+        relays.all_off()
+        relays.close()
+        sensors.close()
+
+    return 0
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="VPD control loop")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="VPD / humidity control loop")
     parser.add_argument(
         "stage",
         nargs="?",
         choices=["early_veg", "late_veg", "flowering", "dry"],
-        help="Override stage (optional)",
+        help="Override the active grow's stage (optional)",
     )
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Use local DHT22 sensor for indoor readings instead of ESP32",
-    )
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
         "--esp32",
+        dest="use_esp32",
         action="store_true",
         default=True,
-        help="Use ESP32 sensor for indoor readings (default)",
+        help="Read the indoor sensor from the ESP32 via the web API (default)",
     )
+    source.add_argument(
+        "--local",
+        dest="use_esp32",
+        action="store_false",
+        help="Read the indoor sensor from a local DHT22 on GPIO instead",
+    )
+    return parser
 
-    args = parser.parse_args()
 
-    # --local flag disables ESP32 mode
-    use_esp32 = not args.local
-
-    main(stage_override=args.stage, use_esp32_indoor=use_esp32)
-
+if __name__ == "__main__":
+    args = build_parser().parse_args()
+    raise SystemExit(main(stage_override=args.stage, use_esp32_indoor=args.use_esp32))

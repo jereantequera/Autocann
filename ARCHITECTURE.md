@@ -15,8 +15,15 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `autocann/time.py`: timezone común.
 - `autocann/db.py`: capa de persistencia SQLite + API de “grows”.
 - `autocann/web/app.py`: Flask app + endpoints API.
-- `autocann/hardware/outputs.py`: definición de outputs (nombre/label/pin/redis_key).
-- `autocann/control/vpd_math.py`: funciones puras de cálculo (VPD/targets).
+- `autocann/hardware/outputs.py`: definición de outputs (nombre/label/pin/redis_key)
+  y helpers compartidos del canal de override manual. Libre de Flask y de
+  imports de Raspberry, así que lo pueden importar los dos lados.
+- `autocann/control/vpd_math.py`: funciones puras de cálculo (VPD/targets) y
+  **único origen de verdad** de los rangos por etapa.
+- `autocann/control/humidity.py`: la decisión de control, pura y testeable.
+  Banda muerta, tiempos mínimos de encendido/apagado/cambio de sentido y
+  failsafe por dato viejo.
+- `tests/`: suite de pytest. La lógica de control no necesita hardware ni Redis.
 
 ## Entry points
 

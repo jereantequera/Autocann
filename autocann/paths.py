@@ -8,6 +8,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 WEB_DIR = PROJECT_ROOT / "autocann" / "web"
 TEMPLATES_DIR = WEB_DIR / "templates"
+STATIC_DIR = WEB_DIR / "static"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
 DB_PATH = DATA_DIR / "autocann.db"
