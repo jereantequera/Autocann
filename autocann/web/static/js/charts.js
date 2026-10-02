@@ -36,6 +36,9 @@ const chartDefaults = {
             display: true,
             position: 'top',
             labels: {
+                // The envelope's lower bound exists only to fill against; it is
+                // not a series anyone wants to toggle.
+                filter: item => item.text !== 'Mín. temperatura',
                 color: '#8fa396',
                 padding: 16,
                 font: { size: 12, family: 'Outfit' },
@@ -117,6 +120,34 @@ function initCharts() {
                     yAxisID: 'y1',
                     pointRadius: 0,
                     pointHoverRadius: 4
+                },
+                // Min/max envelope. Each stored row summarises ~100 readings, so
+                // the average alone hides the swing — and the swing is what
+                // stresses the plants. The lower bound is drawn invisibly and
+                // the upper one fills down to it to shade the band.
+                {
+                    label: 'Mín. temperatura',
+                    data: [],
+                    borderColor: 'transparent',
+                    backgroundColor: 'transparent',
+                    borderWidth: 0,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: false,
+                    yAxisID: 'y',
+                    order: 10,
+                },
+                {
+                    label: 'Rango de temperatura',
+                    data: [],
+                    borderColor: 'transparent',
+                    backgroundColor: 'rgba(249, 115, 22, 0.13)',
+                    borderWidth: 0,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: '-1',
+                    yAxisID: 'y',
+                    order: 10,
                 }
             ]
         },
@@ -301,10 +332,20 @@ function updateHistoricalCharts(data) {
         timestamps: sortedData.map(d => Math.floor(parseLocalDatetime(d.datetime).getTime() / 1000)),
     };
 
+    // Rows written before the interval summary existed carry no min/max; the
+    // band is hidden rather than drawn as a flat line on top of the average.
+    const tempMins = sortedData.map(d => d.temperature_min ?? null);
+    const tempMaxs = sortedData.map(d => d.temperature_max ?? null);
+    const hasBand = tempMins.some(v => v !== null);
+
     tempHumidityChart.data.labels = labels;
     tempHumidityChart.data.datasets[0].data = temperatures;
     tempHumidityChart.data.datasets[1].data = humidities;
     tempHumidityChart.data.datasets[2].data = targetHumidities;
+    tempHumidityChart.data.datasets[3].data = hasBand ? tempMins : [];
+    tempHumidityChart.data.datasets[4].data = hasBand ? tempMaxs : [];
+    tempHumidityChart.data.datasets[3].hidden = !hasBand;
+    tempHumidityChart.data.datasets[4].hidden = !hasBand;
     tempHumidityChart.update();
 
     vpdChart.data.labels = labels;

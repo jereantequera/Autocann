@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
 from autocann.config import redis_config_from_env
+from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import STAGES, VPD_RANGES, calculate_vpd, humidity_range_for_stage
 from autocann.db import (
     create_grow,
@@ -15,6 +16,7 @@ from autocann.db import (
     end_grow,
     get_active_grow,
     get_aggregated_data,
+    get_all_calibrations,
     get_all_grows,
     get_database_stats,
     get_latest_sensor_data,
@@ -24,6 +26,7 @@ from autocann.db import (
     get_vpd_score,
     get_weekly_report,
     set_active_grow,
+    set_calibration,
     update_grow_stage,
 )
 from autocann.hardware.outputs import find_output, get_outputs, manual_override_key, parse_bool_flag
@@ -33,6 +36,28 @@ from autocann.time import ARGENTINA_TZ
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
 MANUAL_OVERRIDE_MAX_SECONDS = 2 * 60 * 60
+
+
+#: How often the control loop writes a sample. Used to tell a real outage from
+#: the normal spacing between points.
+SAMPLE_INTERVAL_SECONDS = 300
+
+
+def _with_gaps(points, expected_interval_seconds):
+    """
+    Insert break markers so the charts stop drawing straight lines across holes.
+
+    A six-hour outage used to join its two ends with a line, which reads as "the
+    temperature fell smoothly" rather than "there is no data here". Each marker
+    carries a datetime so it still gets an axis label, and no measurements, so
+    every series plots a gap at that point.
+    """
+    marked = insert_gaps(points, expected_interval_seconds)
+    for point in marked:
+        if point.get("gap"):
+            point["datetime"] = datetime.fromtimestamp(
+                point["timestamp"], ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return marked
 
 
 def create_app() -> Flask:
@@ -354,7 +379,7 @@ def create_app() -> Flask:
             if aggregate:
                 if aggregate < 1:
                     return jsonify({"error": "'aggregate' must be a positive number of seconds"}), 400
-                data = get_aggregated_data(start, end, aggregate)
+                data = _with_gaps(get_aggregated_data(start, end, aggregate), aggregate)
                 return jsonify(
                     {
                         "data": data,
@@ -366,11 +391,61 @@ def create_app() -> Flask:
                     }
                 )
 
-            data = get_sensor_data_range(start, end, limit)
+            # get_sensor_data_range returns newest first; the gap check needs
+            # chronological order, and so do the charts.
+            data = _with_gaps(
+                sorted(get_sensor_data_range(start, end, limit), key=lambda r: r["timestamp"]),
+                SAMPLE_INTERVAL_SECONDS,
+            )
             return jsonify({"data": data, "count": len(data), "start": start, "end": end, "aggregated": False})
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/calibration", methods=["GET"])
+    def list_calibration():
+        """Per-sensor offsets currently applied to readings."""
+        try:
+            return jsonify({"calibration": get_all_calibrations()})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/calibration", methods=["POST"])
+    def update_calibration():
+        """
+        Set a sensor's offset.
+
+        Takes effect on the control loop's next start: it reads the offsets once
+        rather than hitting the database every three seconds.
+        """
+        data = request.get_json(silent=True) or {}
+        sensor_id = data.get("sensor_id")
+        if not sensor_id or not isinstance(sensor_id, str):
+            return jsonify({"error": "Missing or invalid 'sensor_id'"}), 400
+
+        offsets = {}
+        for field in ("temperature_offset", "humidity_offset"):
+            value = data.get(field, 0)
+            try:
+                offsets[field] = float(value)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"'{field}' must be a number"}), 400
+
+        # A correction larger than this is a wiring or units problem, not drift.
+        if abs(offsets["temperature_offset"]) > 20:
+            return jsonify({"error": "'temperature_offset' fuera de rango (±20 °C)"}), 400
+        if abs(offsets["humidity_offset"]) > 50:
+            return jsonify({"error": "'humidity_offset' fuera de rango (±50 %)"}), 400
+
+        if not set_calibration(sensor_id, notes=data.get("notes"), **offsets):
+            return jsonify({"error": "Failed to store calibration"}), 500
+
+        return jsonify({
+            "success": True,
+            "sensor_id": sensor_id,
+            **offsets,
+            "note": "Se aplica cuando reinicie el loop de control.",
+        })
 
     @app.route("/api/database-stats", methods=["GET"])
     def database_stats():
@@ -423,7 +498,10 @@ def create_app() -> Flask:
             end_timestamp = int(current_time.timestamp())
             start_timestamp = end_timestamp - (days * 24 * 3600)
 
-            data = get_aggregated_data(start_timestamp, end_timestamp, interval_seconds, grow_id)
+            data = _with_gaps(
+                get_aggregated_data(start_timestamp, end_timestamp, interval_seconds, grow_id),
+                interval_seconds,
+            )
 
             return jsonify(
                 {

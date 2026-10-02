@@ -1,5 +1,41 @@
 # Changelog
 
+## Fase 2 del roadmap — data más confiable
+
+El histórico tenía huecos de información que ninguna query podía recuperar
+después. Cuatro de los cinco puntos de la fase; el cross-check entre sensores
+espera a que haya un segundo sensor interior.
+
+**Se guardaba una lectura instantánea, no el intervalo.** El loop lee cada 3
+segundos y persiste cada 5 minutos: de ~100 lecturas se guardaba 1 y se tiraban
+99. Un pico de 30 segundos podía quedar como si fuera el valor del período, o
+desaparecer. Ahora cada fila lleva avg/min/max y `sample_n`. Verificado
+end-to-end: una corrida real guardó filas de 39 lecturas con 4 °C de rango.
+
+**No se guardaba el contexto.** `stage`, `indoor_source`, `control_action` y
+`quality` por muestra, así que el histórico puede responder qué sensor produjo
+una lectura y si el control estaba actuando o en failsafe.
+
+**Calibración por sensor.** Tabla `sensor_calibration` y `GET`/`POST
+/api/calibration`. Se guardan los valores crudos además de los corregidos: la
+corrección de humedad se satura en 0 y 100, así que invertirla no siempre
+recupera lo que dijo el sensor.
+
+**Los huecos se dibujaban como línea recta.** Seis horas caído se unían con una
+recta, que se lee como "la temperatura bajó suavemente". La API ahora inserta un
+marcador cuando el salto supera 2× el intervalo esperado.
+
+**Banda min–max** sobre el gráfico de temperatura, que es el motivo visual de
+guardar min/max.
+
+**Un bug encontrado al implementarlo:** `last_db_save` arrancaba en el pasado,
+así que cada arranque escribía una fila que decía representar cinco minutos a
+partir de una sola lectura.
+
+Tests: de 369 a **409 de Python**, más los 10 de JavaScript.
+
+---
+
 ## Fases 0 y 1 del roadmap — 2026-10-02
 
 Ver [ROADMAP.md](./ROADMAP.md) para el plan completo y el detalle de cada fase.

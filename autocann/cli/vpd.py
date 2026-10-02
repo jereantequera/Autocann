@@ -33,6 +33,7 @@ from autocann.control.humidity import (
     MedianFilter,
     decide,
 )
+from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, Calibration, SampleAccumulator
 from autocann.control.vpd_math import (
     STAGES,
     calculate_vpd,
@@ -40,7 +41,7 @@ from autocann.control.vpd_math import (
     humidity_range_for_stage,
     vpd_is_in_range,
 )
-from autocann.db import ensure_schema, get_active_grow, store_control_event, store_sensor_sample
+from autocann.db import ensure_schema, get_active_grow, get_calibration, store_control_event, store_sensor_sample
 from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
 from autocann.time import ARGENTINA_TZ
 
@@ -214,6 +215,9 @@ class Sensors:
         self.indoor_temp = MedianFilter(5)
         self.indoor_humidity = MedianFilter(5)
         self.indoor_source: Optional[str] = None
+        #: Per-sensor corrections, loaded once at startup.
+        self.indoor_calibration = Calibration()
+        self.outdoor_calibration = Calibration()
         #: Monotonic time of the last successful raw indoor read. The median
         #: filter keeps returning its last value when a read fails, so without
         #: this the loop would act on old samples forever and the failsafe would
@@ -237,6 +241,23 @@ class Sensors:
         if pin is None:
             raise ValueError(f"GPIO {gpio_num} has no board.D{gpio_num} mapping")
         return pin
+
+    def load_calibration(self) -> None:
+        """
+        Read the stored offsets once.
+
+        Done at startup rather than per reading: a database round trip every
+        three seconds buys nothing, and an operator changing a calibration can
+        restart the loop.
+        """
+        self.indoor_calibration = get_calibration(
+            "esp32_indoor" if self.use_esp32_indoor else "dht22_indoor")
+        self.outdoor_calibration = get_calibration("dht22_outdoor")
+        for name, cal in (("interior", self.indoor_calibration),
+                          ("exterior", self.outdoor_calibration)):
+            if not cal.is_identity:
+                print(f"🎚️  Calibración {name}: {cal.temperature_offset:+.1f}°C, "
+                      f"{cal.humidity_offset:+.1f}%")
 
     def init_dht22(self) -> None:
         """(Re)initialise the local DHT22 sensors that are actually needed."""
@@ -340,15 +361,26 @@ class Sensors:
         if temperature is None or humidity is None:
             return None
 
+        # The raw values go into the row too: a correction can clamp humidity at
+        # 0 or 100, and then inverting it no longer recovers what the sensor said.
+        raw_temperature, raw_humidity = temperature, humidity
+        temperature, humidity = self.indoor_calibration.apply(temperature, humidity)
+
         data = {
             "temperature": round(temperature, 2),
             "humidity": round(humidity, 2),
+            "temperature_raw": round(raw_temperature, 2),
+            "humidity_raw": round(raw_humidity, 2),
             "vpd": calculate_vpd(temperature, humidity),
             "indoor_source": self.indoor_source,
         }
 
         outside_temp, outside_humidity = self._read_dht22(self._dht_out, "outdoor")
         if outside_temp is not None and outside_humidity is not None:
+            data["outside_temperature_raw"] = round(outside_temp, 2)
+            data["outside_humidity_raw"] = round(outside_humidity, 2)
+            outside_temp, outside_humidity = self.outdoor_calibration.apply(
+                outside_temp, outside_humidity)
             data["outside_temperature"] = round(outside_temp, 2)
             data["outside_humidity"] = round(outside_humidity, 2)
         else:
@@ -481,6 +513,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     )
 
     relays.setup()
+    sensors.load_calibration()
     sensors.init_dht22()
 
     print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
@@ -493,9 +526,15 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     stage: Optional[str] = None
     grow_id: Optional[int] = None
     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
-    last_db_save = -DB_SAVE_INTERVAL_SECONDS
+    # Start the clock now rather than in the past. Firing on the first iteration
+    # would store a row summarising a single reading, so every restart would add
+    # a sample that claims to represent five minutes of data from one sample.
+    last_db_save = monotonic()
     last_sensor_reinit = 0.0
     unknown_stage_warned: Optional[str] = None
+    # Every reading feeds this; one row per DB_SAVE_INTERVAL_SECONDS summarises
+    # the whole interval instead of whichever reading happened to land on it.
+    accumulator = SampleAccumulator()
 
     try:
         while not _shutdown:
@@ -544,6 +583,8 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                         state=state, config=config,
                     )
                     relays.all_off()
+                    accumulator.push(None, quality=QUALITY_FAILSAFE,
+                                     control_action=decision.action)
                     sensors.publish_status(indoor_ok=False, indoor_error="No valid indoor reading")
                     if decision.changed:
                         print(f"⚠️ No valid sensor data ({decision.reason}) — all outputs off")
@@ -602,9 +643,27 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 _set_redis("sensors", json.dumps(sensors_data))
                 sensors.publish_status(indoor_ok=True)
 
+                # A reading the median filter carried through from older
+                # samples is real data, but not fresh data; mark it so the
+                # history can be filtered on it later.
+                quality = QUALITY_OK if sensors.reading_age_seconds <= LOOP_INTERVAL_SECONDS * 3 \
+                    else QUALITY_DEGRADED
+                accumulator.push(sensors_data, quality=quality,
+                                 control_action=decision.action)
+
                 if loop_started - last_db_save >= DB_SAVE_INTERVAL_SECONDS:
-                    if store_sensor_sample(sensors_data):
+                    summary = accumulator.build()
+                    if summary is None:
+                        # Nothing usable in the whole interval. Leaving a hole is
+                        # the honest record; the charts draw it as a break.
                         last_db_save = loop_started
+                        accumulator.reset()
+                    elif store_sensor_sample(summary):
+                        print(f"💾 Muestra guardada: {summary['sample_n']} lecturas, "
+                              f"T {summary.get('temperature_min')}–{summary.get('temperature_max')}°C, "
+                              f"HR {summary.get('humidity_min')}–{summary.get('humidity_max')}%")
+                        last_db_save = loop_started
+                        accumulator.reset()
 
             except Exception as e:
                 print(f"❌ Error in main loop: {e}")

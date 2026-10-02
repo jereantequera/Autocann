@@ -3,13 +3,13 @@
 Plan para ir agregando features de forma incremental. Cada fase es independiente
 y deja el sistema funcionando: se puede parar entre fases.
 
-**Estado:** Fases 0 y 1 completas. Fases 2–6 pendientes.
+**Estado:** Fases 0, 1 y 2 completas. Fases 3–6 pendientes.
 
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | Refactor del front | ✅ |
 | 1 | Contador de días por etapa | ✅ |
-| 2 | Data más confiable | ⬜ |
+| 2 | Data más confiable | ✅ |
 | 3 | Calendario de riego | ⬜ |
 | 4 | Estadísticas más útiles | ⬜ |
 | 5 | Mejores filtros y visualizaciones | ⬜ |
@@ -346,7 +346,46 @@ cualquier umbral absoluto.
 - La corrección de calibración es reversible desde el valor crudo.
 - La detección de huecos marca un corte y no interpola.
 
----
+### ✅ Hecho
+
+Los puntos 1 a 4. El 5 (cross-check entre sensores) queda para cuando haya un
+segundo sensor interior — sin él no hay nada que comparar.
+
+**`autocann/control/sampling.py`** — las tres piezas, puras y sin I/O:
+`SampleAccumulator`, `Calibration` e `insert_gaps`.
+
+**1. Resumen del intervalo.** El loop acumula cada lectura y escribe una fila con
+avg/min/max/`sample_n`. Verificado end-to-end: una corrida real guardó filas de
+**39 lecturas** con 4 °C de rango real, donde antes se habría guardado un único
+valor instantáneo. Un intervalo sin ninguna lectura usable **no** escribe fila:
+el hueco es el dato honesto.
+
+**2. Contexto por muestra.** `stage`, `indoor_source`, `control_action` y
+`quality` van en cada fila. `quality` se queda con lo peor del intervalo
+(`ok` → `degraded` → `failsafe`), y marca `degraded` cuando el filtro de mediana
+estuvo arrastrando lecturas viejas.
+
+**3. Calibración.** Tabla `sensor_calibration`, `GET`/`POST /api/calibration`, y
+offsets que el loop lee **una vez al arrancar** — una consulta cada 3 segundos no
+compra nada. Se guardan los valores crudos además de los corregidos: la
+corrección de humedad se satura en 0 y 100, así que invertirla no siempre
+recupera lo que dijo el sensor. Hay un test que fija justamente ese caso.
+
+**4. Huecos.** `insert_gaps` mete un marcador cuando el salto supera 2× el
+intervalo esperado, y la API lo expone con `datetime` (para que tenga etiqueta en
+el eje) y sin mediciones (para que cada serie dibuje un corte). Verificado en el
+navegador con un corte de 4 h: `[26.41, null, 25.77]`.
+
+**Además:** banda min–max dibujada sobre el gráfico de temperatura, que es el
+motivo visual de guardar min/max. Se oculta sola en las filas viejas que no la
+tienen.
+
+**Un bug encontrado al implementarlo:** `last_db_save` arrancaba en el pasado
+para guardar en la primera iteración. Con agregación eso escribía una fila que
+decía representar cinco minutos a partir de una sola lectura, en cada arranque.
+
+**Tests:** 29 de `sampling.py`, 5 de la capa de base de datos, 4 de los
+marcadores de hueco en la API y 2 guards de frontend.
 
 ---
 

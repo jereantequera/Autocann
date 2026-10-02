@@ -223,3 +223,62 @@ def test_the_timeline_pairs_the_recorded_changes(temp_db):
     assert [p["stage"] for p in timeline] == ["early_veg", "late_veg", "flowering"]
     assert [p["days"] for p in timeline] == [20, 15, 6]
     assert timeline[-1]["is_current"] is True
+
+
+# ---------------------------------------------------------------------------
+# Sample detail and calibration
+# ---------------------------------------------------------------------------
+
+
+def test_an_interval_summary_round_trips_through_the_database(temp_db):
+    temp_db.store_sensor_sample({
+        "temperature": 24.5, "temperature_min": 22.0, "temperature_max": 27.0,
+        "humidity": 52.0, "humidity_min": 46.0, "humidity_max": 58.0,
+        "vpd": 1.2, "sample_n": 98, "stage": "flowering", "indoor_source": "esp32",
+        "control_action": "dehumidify", "quality": "ok",
+        "temperature_raw": 26.0, "humidity_raw": 50.0,
+        "outside_temperature": 15.0, "outside_humidity": 70.0,
+        "leaf_temperature": 23.0, "leaf_vpd": 1.1, "target_humidity": 50.5,
+    })
+    row = temp_db.get_latest_sensor_data(limit=1)[0]
+    assert row["sample_n"] == 98
+    assert (row["temperature_min"], row["temperature_max"]) == (22.0, 27.0)
+    assert (row["stage"], row["indoor_source"], row["control_action"]) == (
+        "flowering", "esp32", "dehumidify")
+    assert row["quality"] == "ok"
+    # Raw readings survive so a later recalibration does not orphan the history.
+    assert (row["temperature_raw"], row["humidity_raw"]) == (26.0, 50.0)
+
+
+def test_samples_written_before_the_richer_format_still_load(temp_db):
+    """Old rows carry NULL in the new columns; nothing should choke on that."""
+    temp_db.store_sensor_sample({
+        "temperature": 24.0, "humidity": 50.0, "vpd": 1.2,
+        "outside_temperature": 15.0, "outside_humidity": 70.0,
+    })
+    row = temp_db.get_latest_sensor_data(limit=1)[0]
+    assert row["sample_n"] is None
+    assert row["temperature_min"] is None
+    assert temp_db.get_period_summary(0, 2 ** 31)["sample_count"] == 1
+
+
+def test_a_sensor_without_calibration_gets_an_identity_correction(temp_db):
+    """Never None: the caller applies the result unconditionally."""
+    cal = temp_db.get_calibration("nunca_calibrado")
+    assert cal.is_identity
+    assert cal.apply(24.0, 50.0) == (24.0, 50.0)
+
+
+def test_setting_a_calibration_replaces_the_previous_one(temp_db):
+    temp_db.set_calibration("esp32_indoor", -1.2, 3.0, "primera")
+    temp_db.set_calibration("esp32_indoor", -0.5, 1.0, "recalibrado")
+    cal = temp_db.get_calibration("esp32_indoor")
+    assert (cal.temperature_offset, cal.humidity_offset) == (-0.5, 1.0)
+    assert len(temp_db.get_all_calibrations()) == 1
+
+
+def test_a_stored_calibration_is_reversible_from_the_corrected_value(temp_db):
+    temp_db.set_calibration("dht22_outdoor", 2.5, -4.0)
+    cal = temp_db.get_calibration("dht22_outdoor")
+    corrected = cal.apply(18.0, 65.0)
+    assert cal.invert(*corrected) == pytest.approx((18.0, 65.0))

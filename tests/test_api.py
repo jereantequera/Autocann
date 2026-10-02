@@ -146,3 +146,80 @@ def test_grow_lifecycle_through_the_api(client):
 )
 def test_grow_creation_validates_its_input(client, payload, status):
     assert client.post("/api/grows", json=payload).status_code == status
+
+
+# ---------------------------------------------------------------------------
+# Gap markers
+# ---------------------------------------------------------------------------
+
+
+def _seed(db, grow_id, timestamps, **extra):
+    conn = db._open()
+    for ts in timestamps:
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity,"
+            " vpd, outside_temperature, outside_humidity) VALUES (?, ?, '', 24, 50, 1.2, 15, 70)",
+            (grow_id, ts),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_an_outage_comes_back_as_a_break_not_as_a_straight_line(client, temp_db):
+    """
+    Without a marker the chart joins the two sides of a six-hour hole, which
+    reads as a smooth change rather than missing data.
+    """
+    import time
+
+    grow_id = temp_db.get_active_grow()["id"]
+    now = int(time.time())
+    before = [now - 3600 - i * 300 for i in range(6)]      # steady samples
+    after = [now - i * 300 for i in range(6)]              # steady samples, 1h later
+    _seed(temp_db, grow_id, before + after)
+
+    payload = client.get(f"/api/sensor-history?start={now - 7200}&end={now}").get_json()
+    gaps = [p for p in payload["data"] if p.get("gap")]
+
+    assert len(gaps) == 1
+    assert gaps[0]["gap_seconds"] > 300 * 2
+    assert "datetime" in gaps[0]                 # still gets an axis label
+    assert "temperature" not in gaps[0]          # and plots as a hole
+
+
+def test_a_continuous_series_gets_no_markers(client, temp_db):
+    import time
+
+    grow_id = temp_db.get_active_grow()["id"]
+    now = int(time.time())
+    _seed(temp_db, grow_id, [now - i * 300 for i in range(12)])
+
+    payload = client.get(f"/api/sensor-history?start={now - 3600}&end={now}").get_json()
+    assert not any(p.get("gap") for p in payload["data"])
+
+
+def test_history_comes_back_in_chronological_order(client, temp_db):
+    """The gap check needs it, and so do the charts."""
+    import time
+
+    grow_id = temp_db.get_active_grow()["id"]
+    now = int(time.time())
+    _seed(temp_db, grow_id, [now - i * 300 for i in range(10)])
+
+    data = client.get(f"/api/sensor-history?start={now - 3600}&end={now}").get_json()["data"]
+    stamps = [p["timestamp"] for p in data]
+    assert stamps == sorted(stamps)
+
+
+def test_the_aggregated_endpoint_marks_outages_too(client, temp_db):
+    import time
+
+    grow_id = temp_db.get_active_grow()["id"]
+    now = int(time.time())
+    day = 24 * 3600
+    # Two clusters a few days apart, aggregated hourly.
+    _seed(temp_db, grow_id, [now - i * 3600 for i in range(4)])
+    _seed(temp_db, grow_id, [now - 5 * day - i * 3600 for i in range(4)])
+
+    payload = client.get("/api/history/aggregated?days=7&interval=hourly").get_json()
+    assert any(p.get("gap") for p in payload["data"])

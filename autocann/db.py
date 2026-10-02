@@ -151,6 +151,46 @@ def _parse_local_datetime(value: Optional[str]) -> Optional[int]:
     return int(ARGENTINA_TZ.localize(naive).timestamp())
 
 
+#: Columns added in the "reliable data" phase, with their types. Adding a
+#: nullable column is the one schema change SQLite does in place, so this needs
+#: no table rebuild.
+_SAMPLE_DETAIL_COLUMNS = (
+    ("temperature_min", "REAL"),
+    ("temperature_max", "REAL"),
+    ("humidity_min", "REAL"),
+    ("humidity_max", "REAL"),
+    ("sample_n", "INTEGER"),
+    ("stage", "TEXT"),
+    ("indoor_source", "TEXT"),
+    ("control_action", "TEXT"),
+    ("quality", "TEXT"),
+    ("temperature_raw", "REAL"),
+    ("humidity_raw", "REAL"),
+    ("outside_temperature_raw", "REAL"),
+    ("outside_humidity_raw", "REAL"),
+)
+
+
+def _migrate_sample_detail_columns(conn: sqlite3.Connection) -> None:
+    """
+    Add the interval-summary, context and raw-reading columns.
+
+    Existing rows keep NULL in all of them: they were written one instantaneous
+    reading at a time and there is nothing to backfill them from. A NULL here
+    honestly means "this sample predates the richer format".
+    """
+    cursor = conn.cursor()
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(sensor_data)")}
+    missing = [(name, kind) for name, kind in _SAMPLE_DETAIL_COLUMNS if name not in existing]
+    if not missing:
+        return
+
+    for name, kind in missing:
+        cursor.execute(f"ALTER TABLE sensor_data ADD COLUMN {name} {kind}")
+    conn.commit()
+    print(f"🔧 sensor_data: {len(missing)} columna(s) agregada(s) para el detalle de muestra")
+
+
 def init_database() -> None:
     """
     Initialize the database and create tables if they don't exist.
@@ -195,6 +235,23 @@ def init_database() -> None:
             leaf_temperature REAL,
             leaf_vpd REAL,
             target_humidity REAL,
+            -- Interval summary: the row stands for sample_n readings, not one.
+            temperature_min REAL,
+            temperature_max REAL,
+            humidity_min REAL,
+            humidity_max REAL,
+            sample_n INTEGER,
+            -- Context, so the history can say what produced the reading.
+            stage TEXT,
+            indoor_source TEXT,
+            control_action TEXT,
+            quality TEXT,
+            -- Uncorrected readings, kept so a recalibration does not make the
+            -- existing history unreadable.
+            temperature_raw REAL,
+            humidity_raw REAL,
+            outside_temperature_raw REAL,
+            outside_humidity_raw REAL,
             FOREIGN KEY (grow_id) REFERENCES grows(id)
         )
     """
@@ -237,6 +294,20 @@ def init_database() -> None:
     """
     )
 
+    # Per-sensor correction. Two cheap sensors disagree by whole degrees, and
+    # the offset has to live somewhere the loop can read on startup.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sensor_calibration (
+            sensor_id TEXT PRIMARY KEY,
+            temperature_offset REAL NOT NULL DEFAULT 0,
+            humidity_offset REAL NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            notes TEXT
+        )
+    """
+    )
+
     # Stage history. `grows.stage` only holds the current value and is
     # overwritten on every change, so without this table there is no way to know
     # how long a grow has been in a stage.
@@ -263,6 +334,7 @@ def init_database() -> None:
     conn.commit()
 
     _migrate_nullable_outdoor_columns(conn)
+    _migrate_sample_detail_columns(conn)
     _backfill_stage_events(conn)
 
     # Create default grow if none exists
@@ -538,26 +610,28 @@ def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None) -> boo
         conn = _open()
         cursor = conn.cursor()
 
+        # Built from one list so the column order and the values cannot drift
+        # apart as fields keep being added.
+        columns = [
+            "temperature", "humidity", "vpd",
+            "outside_temperature", "outside_humidity",
+            "leaf_temperature", "leaf_vpd", "target_humidity",
+            "temperature_min", "temperature_max", "humidity_min", "humidity_max",
+            "sample_n", "stage", "indoor_source", "control_action", "quality",
+            "temperature_raw", "humidity_raw",
+            "outside_temperature_raw", "outside_humidity_raw",
+        ]
+        placeholders = ", ".join("?" * (len(columns) + 3))
         cursor.execute(
-            """
-            INSERT INTO sensor_data (
-                grow_id, timestamp, datetime, temperature, humidity, vpd,
-                outside_temperature, outside_humidity,
-                leaf_temperature, leaf_vpd, target_humidity
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+            f"""
+            INSERT INTO sensor_data (grow_id, timestamp, datetime, {", ".join(columns)})
+            VALUES ({placeholders})
+            """,
             (
                 grow_id,
                 current_timestamp,
                 current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                sensor_data.get("temperature"),
-                sensor_data.get("humidity"),
-                sensor_data.get("vpd"),
-                sensor_data.get("outside_temperature"),
-                sensor_data.get("outside_humidity"),
-                sensor_data.get("leaf_temperature"),
-                sensor_data.get("leaf_vpd"),
-                sensor_data.get("target_humidity"),
+                *(sensor_data.get(name) for name in columns),
             ),
         )
 
@@ -566,6 +640,76 @@ def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None) -> boo
         return True
     except Exception as e:
         print(f"Error storing sensor sample: {e}")
+        return False
+
+
+def get_calibration(sensor_id: str):
+    """
+    Correction stored for a sensor, or an identity calibration when there is none.
+
+    Never returns None: the caller applies the result unconditionally, so a
+    missing row has to behave like "no correction" rather than force a branch.
+    """
+    from autocann.control.sampling import Calibration
+
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        row = conn.execute(
+            "SELECT temperature_offset, humidity_offset FROM sensor_calibration WHERE sensor_id = ?",
+            (sensor_id,),
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return Calibration()
+        return Calibration(
+            temperature_offset=float(row["temperature_offset"]),
+            humidity_offset=float(row["humidity_offset"]),
+        )
+    except Exception as e:
+        print(f"Error getting calibration for {sensor_id}: {e}")
+        return Calibration()
+
+
+def get_all_calibrations() -> List[Dict]:
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        rows = conn.execute(
+            "SELECT * FROM sensor_calibration ORDER BY sensor_id"
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        print(f"Error listing calibrations: {e}")
+        return []
+
+
+def set_calibration(sensor_id: str, temperature_offset: float = 0.0,
+                    humidity_offset: float = 0.0, notes: Optional[str] = None) -> bool:
+    """Store (or replace) the correction for a sensor."""
+    try:
+        ensure_schema()
+        conn = _open()
+        conn.execute(
+            """
+            INSERT INTO sensor_calibration
+                (sensor_id, temperature_offset, humidity_offset, updated_at, notes)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(sensor_id) DO UPDATE SET
+                temperature_offset = excluded.temperature_offset,
+                humidity_offset = excluded.humidity_offset,
+                updated_at = excluded.updated_at,
+                notes = excluded.notes
+            """,
+            (sensor_id, float(temperature_offset), float(humidity_offset),
+             int(datetime.now(ARGENTINA_TZ).timestamp()), notes),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error setting calibration for {sensor_id}: {e}")
         return False
 
 

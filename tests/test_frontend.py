@@ -110,3 +110,20 @@ def test_the_stage_day_counter_is_wired_to_the_api_fields():
     grows_js = (JS_DIR / "grows.js").read_text()
     for field in ("day_in_stage", "day_of_grow", "stage_expected_days", "estimated_end"):
         assert field in grows_js, field
+
+
+def test_the_temperature_chart_draws_the_min_max_envelope():
+    """
+    Each stored row summarises ~100 readings; the average alone hides the swing,
+    which is the thing that actually stresses the plants.
+    """
+    charts_js = (JS_DIR / "charts.js").read_text()
+    assert "temperature_min" in charts_js
+    assert "temperature_max" in charts_js
+    # The upper bound fills down to the lower one to shade the band.
+    assert "fill: '-1'" in charts_js
+
+
+def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
+    charts_js = (JS_DIR / "charts.js").read_text()
+    assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
