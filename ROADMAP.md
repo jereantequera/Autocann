@@ -720,6 +720,13 @@ responde. El sistema está vivo y ciego.
 ruido que señal, y prácticamente los 174 MB del archivo. Una Raspberry Pi 3B+
 consultando eso explica sola la lentitud.
 
+**Y el bug de las series de Redis también está confirmado en producción.**
+`historical_data_1w` tiene **94.892 puntos y 9.3 MB** cuando con el promediado
+funcionando debería tener unos 7 (uno por intervalo de 24 h). Entre las cuatro
+ventanas, 11.6 MB sobre los 13.1 MB que Redis tenía ocupados: **el 89% de la
+memoria de Redis era ese bug**, releído y reescrito cada 3 segundos, para un
+endpoint que el dashboard nunca llamaba.
+
 **El deshumidificador estaba golpeando de verdad.** De sus 209 ciclos:
 
 | Duración | Ciclos | |
@@ -779,7 +786,9 @@ de acá en adelante.
 1. **Los sensores primero.** No tiene sentido desplegar nada mientras no entre un
    dato. Hay que ver por qué el ESP32 dejó de mandar y si el DHT22 está vivo.
 2. **Purgar `control_events`** antes de migrar: 2,7 M de filas que el código
-   nuevo ya no genera. Bajaría el archivo de 174 MB a unos pocos.
+   nuevo ya no genera. Bajaría el archivo de 174 MB a unos pocos. Las claves
+   `historical_*` de Redis se pueden borrar directamente: el código nuevo ni las
+   escribe ni las lee.
 3. **Subir `AUTOCANN_MIN_OFF_SECONDS`** a 300 para el deshumidificador, dado el
    patrón de ciclos cortos que mostró.
 4. Recién entonces desplegar y volver a medir.
