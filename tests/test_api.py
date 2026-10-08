@@ -293,3 +293,80 @@ def test_a_reading_can_be_read_back_per_sensor(client):
     assert client.get("/api/sensor/indoor?sensor_id=a").get_json()["temperature"] == 24.0
     assert client.get("/api/sensor/indoor?sensor_id=b").status_code == 404
     assert client.get("/api/sensor/indoor?sensor_id=a:b").status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Desired outputs, polled by the remote relay node
+# ---------------------------------------------------------------------------
+
+
+def _publish_desired(client, outputs, age_seconds=0):
+    from datetime import datetime
+
+    from autocann.time import ARGENTINA_TZ
+
+    now = int(datetime.now(ARGENTINA_TZ).timestamp())
+    client.redis.store["desired_outputs"] = json.dumps(
+        {"outputs": outputs, "ts": now - age_seconds}
+    )
+
+
+ALL_OFF = {"humidity_up": False, "humidity_down": False, "ventilation": False}
+
+
+def test_a_fresh_desired_state_is_served_as_is(client):
+    _publish_desired(client, {"humidity_up": True, "humidity_down": False, "ventilation": True})
+    body = client.get("/api/outputs/desired").get_json()
+
+    assert body["failsafe"] is False
+    assert body["outputs"] == {
+        "humidity_up": True, "humidity_down": False, "ventilation": True,
+    }
+
+
+def test_a_stale_desired_state_answers_everything_off(client):
+    """
+    The loop's own failsafe cannot help once the loop is what stopped. A node
+    faithfully applying the last command would keep a humidifier running.
+    """
+    _publish_desired(client, {"humidity_up": True}, age_seconds=600)
+    body = client.get("/api/outputs/desired").get_json()
+
+    assert body["failsafe"] is True
+    assert body["outputs"] == ALL_OFF
+    assert "stale" in body["reason"]
+
+
+def test_no_published_state_answers_everything_off(client):
+    body = client.get("/api/outputs/desired").get_json()
+    assert (body["failsafe"], body["outputs"]) == (True, ALL_OFF)
+
+
+def test_a_corrupt_desired_state_answers_everything_off(client):
+    client.redis.store["desired_outputs"] = "{not json"
+    body = client.get("/api/outputs/desired").get_json()
+    assert (body["failsafe"], body["outputs"]) == (True, ALL_OFF)
+
+
+def test_an_unreachable_redis_answers_everything_off(client, monkeypatch):
+    def boom(key):
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(client.redis, "get", boom)
+    body = client.get("/api/outputs/desired").get_json()
+    assert (body["failsafe"], body["outputs"]) == (True, ALL_OFF)
+
+
+def test_an_output_missing_from_the_payload_defaults_to_off(client):
+    """The node must never have to guess, so every name is always answered."""
+    _publish_desired(client, {"humidity_up": True})
+    body = client.get("/api/outputs/desired").get_json()
+
+    assert body["outputs"] == {
+        "humidity_up": True, "humidity_down": False, "ventilation": False,
+    }
+
+
+def test_the_answer_never_omits_an_output(client):
+    _publish_desired(client, {})
+    assert set(client.get("/api/outputs/desired").get_json()["outputs"]) == set(ALL_OFF)

@@ -24,10 +24,13 @@ from typing import Any, Dict, Optional, Tuple
 import redis
 
 from autocann.config import (
+    RELAY_MODE_GPIO,
+    RELAY_MODE_REMOTE,
     IndoorSensors,
     control_tuning_from_env,
     indoor_sensors_from_env,
     redis_config_from_env,
+    relay_mode_from_env,
 )
 from autocann.control.drift import DriftMonitor, DriftReport
 from autocann.control.humidity import (
@@ -69,6 +72,12 @@ SENSOR_REINIT_INTERVAL_SECONDS = 30.0
 #: other dashboard keys would be re-learned from the drifted sensor and the
 #: detector would never fire.
 DRIFT_BASELINE_KEY = "indoor_drift_baseline"
+
+#: Redis key holding the full desired output state. A remote relay node
+#: polls it; the poll is both the command and the keepalive, so this is
+#: rewritten every cycle even when nothing changed. Silence is the signal
+#: that tells the node the loop is gone.
+DESIRED_OUTPUTS_KEY = "desired_outputs"
 
 #: Recurring warnings print at most this often, so a day-long fault does not
 #: write 28,800 identical lines to the log.
@@ -114,12 +123,21 @@ class Relays:
     to its default state, which silently drops the relay.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, mode: str = RELAY_MODE_GPIO) -> None:
+        #: RELAY_MODE_GPIO drives local pins; RELAY_MODE_REMOTE only publishes
+        #: the desired state for a node that polls for it.
+        self.mode = mode
         self._specs = {o["name"]: o for o in get_outputs()}
         self._devices: Dict[str, Any] = {name: None for name in self._specs}
         self._state: Dict[str, bool] = {name: False for name in self._specs}
 
     def setup(self) -> None:
+        if self.mode == RELAY_MODE_REMOTE:
+            for spec in self._specs.values():
+                print(f"📡 {spec['label']} → nodo remoto")
+            self.all_off(log_event=False)
+            return
+
         import gpiozero  # imported lazily so this module stays importable off-Pi
 
         for name, spec in self._specs.items():
@@ -151,27 +169,50 @@ class Relays:
 
         for name, on in desired.items():
             self.set_output(name, on, log_event=log_event)
+        self.publish_state()
 
     def all_off(self, *, log_event: bool = True) -> None:
         """Unconditionally de-energise everything. Overrides do not apply here."""
         for name in self._specs:
             self.set_output(name, False, log_event=log_event)
+        self.publish_state()
+
+    def publish_state(self) -> None:
+        """
+        Publish the whole desired state, timestamped, on every cycle.
+
+        Deliberately uncached: `set_output` short-circuits when nothing changed,
+        which is right for logging and for a local pin, but a remote node needs
+        to hear from the loop on every cycle. Two reasons:
+
+        - the poll is also the keepalive, so a silent cycle reads as "the Pi is
+          gone" and the node de-energises;
+        - if the node ever drops the relays on its own, the loop's cached state
+          would still say "on" and it would never re-send the command. Sending
+          the full state every time makes that divergence impossible.
+        """
+        payload = {
+            "outputs": dict(self._state),
+            "ts": int(_now_local().timestamp()),
+        }
+        _set_redis(DESIRED_OUTPUTS_KEY, json.dumps(payload))
 
     def set_output(self, name: str, on: bool, *, log_event: bool = True) -> None:
         spec = self._specs.get(name)
         if spec is None or self._state.get(name) == on:
             return
 
-        device = self._devices.get(name)
-        try:
-            if device is not None:
-                if on:
-                    device.on()
-                else:
-                    device.off()
-        except Exception as e:
-            print(f"❌ Failed to switch {name}: {e}")
-            return
+        if self.mode == RELAY_MODE_GPIO:
+            device = self._devices.get(name)
+            try:
+                if device is not None:
+                    if on:
+                        device.on()
+                    else:
+                        device.off()
+            except Exception as e:
+                print(f"❌ Failed to switch {name}: {e}")
+                return
 
         self._state[name] = on
         redis_key = spec.get("redis_key")
@@ -600,7 +641,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
 
     ensure_schema()
 
-    relays = Relays()
+    relays = Relays(mode=relay_mode_from_env())
     sensors = Sensors(
         use_esp32_indoor=use_esp32_indoor, indoor_sensors=indoor_sensors_from_env()
     )
@@ -620,6 +661,8 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
 
     print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
           else "🔌 Indoor sensor: local DHT22")
+    print("🔀 Relays: remote node polling for the desired state"
+          if relays.mode == RELAY_MODE_REMOTE else "🔌 Relays: local GPIO")
     if sensors.indoor_sensors.witness:
         print(f"👁️  Cross-check: '{sensors.indoor_sensors.primary}' controls, "
               f"'{sensors.indoor_sensors.witness}' only watches it for drift")

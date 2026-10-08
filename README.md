@@ -246,6 +246,70 @@ sensor desconfiar.
 
 El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
 
+## Relés en un nodo remoto
+
+Por defecto los relés se manejan desde el GPIO de la propia Raspberry. Con
+`AUTOCANN_RELAY_MODE=remote` el lazo deja de tocar GPIO y sólo **publica el
+estado deseado**; un ESP32 al lado de los relés lo consulta y lo aplica.
+
+```bash
+AUTOCANN_RELAY_MODE=remote uv run python -m autocann.cli.vpd
+```
+
+### Por qué el nodo consulta en vez de recibir
+
+La Pi podría postearle al nodo, pero entonces tendría que conocer su IP, y con
+DHCP eso se rompe solo. Consultando, el nodo usa la misma dirección fija que ya
+usa el de sensores.
+
+Y lo más importante: **la consulta es el latido**. Una consulta fallida es un
+latido perdido, así que un solo mecanismo cubre WiFi caída, Pi colgada, backend
+muerto y cable desenchufado — sin temporizadores separados que puedan
+desincronizarse.
+
+### El estado completo, cada ciclo
+
+`Relays.publish_state()` escribe las tres salidas con timestamp en **cada**
+iteración, aunque no haya cambiado nada. No es redundancia:
+
+- el silencio es lo que le dice al nodo que el lazo murió;
+- si el nodo desenergiza por su cuenta (watchdog), el caché del lazo seguiría
+  diciendo "encendido" y `set_output` nunca volvería a mandar el comando.
+  Mandando el estado entero cada vez, esa divergencia no puede existir.
+
+### Las barreras
+
+| Falla | Qué la cubre |
+|---|---|
+| El lazo deja de publicar | `GET /api/outputs/desired` responde **todo apagado** pasados 30 s |
+| El nodo no alcanza a la Pi | watchdog local a los 60 s → todo apagado |
+| Respuesta incompleta o corrupta | el nodo la descarta entera; aplicar medio estado es peor que no aplicar |
+| ESP32 colgado, reseteado o sin alimentación | pines en alta impedancia + cargas en **NO** → relés abiertos |
+| Todo lo anterior | humidistato mecánico en serie con el humidificador |
+
+Ninguna depende de que la anterior haya funcionado.
+
+### Cableado
+
+Placa de 4 canales opto, activo-bajo, **con el jumper JD-VCC sacado**:
+
+```
+GND  → GND del ESP32  +  negativo de la fuente de 5 V (cable corto y grueso)
+IN1  → GPIO 25   humidity_up
+IN2  → GPIO 26   humidity_down
+IN3  → GPIO 27   ventilation
+IN4  → libre
+VCC  → 3V3 del ESP32          ⚠️ nunca 5 V: los pines IN reposarían en 5 V
+
+JD-VCC → +5 V de una fuente aparte
+VCC (header de 2 pines) → nada, es la misma red que el VCC de señal
+```
+
+**Las cargas van en COM + NO, nunca en NC.** Es lo que hace que desenergizado
+signifique apagado, y de eso dependen todas las barreras de arriba.
+
+El firmware está en `firmware/relay_node/relay_node.ino`.
+
 ## Administración Remota (SSH)
 
 ### Configuración SSH (Primera vez)

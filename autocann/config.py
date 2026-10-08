@@ -201,3 +201,25 @@ def indoor_sensors_from_env() -> IndoorSensors:
             "AUTOCANN_INDOOR_WITNESS needs AUTOCANN_INDOOR_PRIMARY set too"
         )
     return sensors
+
+
+# ---------------------------------------------------------------------------
+# Relay outputs
+# ---------------------------------------------------------------------------
+
+#: Relays driven from this process's own GPIO pins.
+RELAY_MODE_GPIO = "gpio"
+#: Relays driven by a remote node that polls for the desired state. The loop
+#: stops touching GPIO entirely and only publishes what it wants.
+RELAY_MODE_REMOTE = "remote"
+
+RELAY_MODES = (RELAY_MODE_GPIO, RELAY_MODE_REMOTE)
+
+
+def relay_mode_from_env() -> str:
+    mode = (os.getenv("AUTOCANN_RELAY_MODE") or RELAY_MODE_GPIO).strip().lower()
+    if mode not in RELAY_MODES:
+        raise ValueError(
+            f"AUTOCANN_RELAY_MODE={mode!r} must be one of {', '.join(RELAY_MODES)}"
+        )
+    return mode

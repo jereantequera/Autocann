@@ -119,3 +119,92 @@ def test_a_failing_relay_does_not_corrupt_the_tracked_state(relays):
     # The switch failed, so it must not be recorded as on, or a later retry
     # would be skipped as "no change".
     assert relays._state["humidity_up"] is False
+
+
+# ---------------------------------------------------------------------------
+# Remote relay node
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def published(monkeypatch):
+    """A relay set in remote mode, recording everything it publishes."""
+    import json
+
+    from autocann.config import RELAY_MODE_REMOTE
+
+    writes = []
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr(
+        "autocann.cli.vpd._set_redis",
+        lambda key, value, **k: writes.append((key, json.loads(value)))
+        if key == "desired_outputs" else None,
+    )
+    r = Relays(mode=RELAY_MODE_REMOTE)
+    r.setup()
+    writes.clear()        # drop the all_off() from setup
+    r.writes = writes
+    return r
+
+
+def test_remote_mode_never_touches_gpio(monkeypatch):
+    """setup() must not import or construct gpiozero devices off a Pi."""
+    from autocann.config import RELAY_MODE_REMOTE
+
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr("autocann.cli.vpd._set_redis", lambda *a, **k: None)
+
+    r = Relays(mode=RELAY_MODE_REMOTE)
+    r.setup()
+    r.apply(HUMIDIFY)
+
+    assert all(device is None for device in r._devices.values())
+
+
+def test_every_cycle_publishes_the_full_state_even_when_nothing_changed(published):
+    """
+    The poll is also the keepalive, so a cycle that changes nothing still has
+    to be published. Silence is what tells the node the loop is gone.
+    """
+    published.apply(HUMIDIFY)
+    published.apply(HUMIDIFY)
+    published.apply(HUMIDIFY)
+
+    assert len(published.writes) == 3
+    for _, payload in published.writes:
+        assert payload["outputs"] == {
+            "humidity_up": True, "humidity_down": False, "ventilation": False,
+        }
+        assert payload["ts"] > 0
+
+
+def test_a_relay_the_node_dropped_on_its_own_is_re_sent(published):
+    """
+    The node's watchdog can de-energise without telling the loop. The loop's
+    cached state would then still say 'on' and set_output would short-circuit
+    forever, so the output must come back from the published state, not from
+    a change event.
+    """
+    published.apply(HUMIDIFY)
+    published.writes.clear()
+
+    # The node drops everything on its own; the loop is none the wiser and
+    # keeps asking for the same thing.
+    published.apply(HUMIDIFY)
+
+    assert published.writes[-1][1]["outputs"]["humidity_up"] is True
+
+
+def test_all_off_is_published_too(published):
+    published.apply(DEHUMIDIFY)
+    published.all_off()
+    assert published.writes[-1][1]["outputs"] == {
+        "humidity_up": False, "humidity_down": False, "ventilation": False,
+    }
+
+
+def test_the_published_state_carries_every_output(published):
+    """A node must never have to guess what to do with an output."""
+    published.apply(IDLE)
+    outputs = published.writes[-1][1]["outputs"]
+    assert set(outputs) == set(published._specs)

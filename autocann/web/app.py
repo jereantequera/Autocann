@@ -29,9 +29,20 @@ from autocann.db import (
     set_calibration,
     update_grow_stage,
 )
-from autocann.hardware.outputs import find_output, get_outputs, manual_override_key, parse_bool_flag
+from autocann.hardware.outputs import (
+    find_output,
+    get_outputs,
+    manual_override_key,
+    output_names,
+    parse_bool_flag,
+)
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
+
+#: A desired-output state older than this means the control loop is not
+#: running. Roughly ten of its cycles: long enough that a slow iteration or
+#: a blocked sensor read never trips it, short enough to matter.
+DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
 
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
@@ -230,6 +241,55 @@ def create_app() -> Flask:
                 else "Output handed back to automatic control.",
             }
         )
+
+    @app.route("/api/outputs/desired", methods=["GET"])
+    def get_desired_outputs():
+        """
+        The full desired output state, for a remote relay node to poll.
+
+        Every output is always named, so the node never has to merge a partial
+        update against its own idea of the current state.
+
+        When the control loop's last write is too old, the answer is everything
+        off with `failsafe` set. A node that kept applying a stale command would
+        leave a humidifier running long after the loop died, and the loop's own
+        failsafe cannot help once the loop is what stopped.
+        """
+        off = {name: False for name in output_names()}
+
+        def failsafe(reason):
+            return jsonify({
+                "outputs": off,
+                "failsafe": True,
+                "reason": reason,
+                "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+            })
+
+        try:
+            raw = redis_client.get("desired_outputs")
+        except Exception as e:
+            return failsafe(f"redis unavailable: {e}")
+        if not raw:
+            return failsafe("no desired state published")
+
+        try:
+            payload = json.loads(raw)
+            outputs = payload["outputs"]
+            age = int(datetime.now(ARGENTINA_TZ).timestamp()) - int(payload["ts"])
+        except Exception as e:
+            return failsafe(f"unreadable desired state: {e}")
+
+        if age > DESIRED_OUTPUTS_MAX_AGE_SECONDS:
+            return failsafe(f"stale desired state ({age}s old)")
+
+        # Names the loop did not publish default to off rather than being
+        # omitted: a node must never have to guess what to do with an output.
+        return jsonify({
+            "outputs": {name: bool(outputs.get(name, False)) for name in off},
+            "failsafe": False,
+            "age_seconds": age,
+            "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+        })
 
     @app.route("/api/sensor/indoor", methods=["POST"])
     def receive_indoor_sensor():
