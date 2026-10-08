@@ -140,6 +140,11 @@ def count_control_loops() -> Optional[int]:
         # mentions it (a make recipe, this check itself) is not counted.
         if pid == own_pid or "-m autocann.cli.vpd" not in command:
             continue
+        # `uv run python -m autocann.cli.vpd` shows up twice: the uv wrapper and
+        # the interpreter it spawns. Counting both reports two loops where there
+        # is one, which is a false alarm about the exact problem this checks for.
+        if command.lstrip().startswith("uv ") or " uv run " in command:
+            continue
         count += 1
     return count
 

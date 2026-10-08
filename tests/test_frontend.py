@@ -127,3 +127,41 @@ def test_the_temperature_chart_draws_the_min_max_envelope():
 def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
     charts_js = (JS_DIR / "charts.js").read_text()
     assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
+
+
+def test_the_uv_wrapper_is_not_counted_as_a_second_control_loop(monkeypatch):
+    """
+    Production launches the loop as `uv run python -m autocann.cli.vpd`, which
+    appears in `ps` twice: the uv wrapper and the interpreter it spawns.
+    Counting both raises a false alarm about the very problem this detects.
+    """
+    import subprocess
+
+    from autocann.cli import check_system
+
+    fake = (
+        "  PID COMMAND\n"
+        " 1657 uv run python -u -m autocann.cli.vpd\n"
+        " 1662 /home/autocann/Autocann/.venv/bin/python3 -u -m autocann.cli.vpd\n"
+        " 1656 uv run python -m autocann.cli.backend\n"
+    )
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=fake, stderr=""))
+    assert check_system.count_control_loops() == 1
+
+
+def test_two_real_control_loops_are_still_reported(monkeypatch):
+    import subprocess
+
+    from autocann.cli import check_system
+
+    fake = (
+        "  PID COMMAND\n"
+        " 100 /home/autocann/Autocann/.venv/bin/python3 -u -m autocann.cli.vpd\n"
+        " 200 /home/autocann/Autocann/.venv/bin/python3 -u -m autocann.cli.vpd\n"
+    )
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=fake, stderr=""))
+    assert check_system.count_control_loops() == 2
