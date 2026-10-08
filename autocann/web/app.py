@@ -7,7 +7,7 @@ import redis
 from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
-from autocann.config import redis_config_from_env
+from autocann.config import indoor_sensor_key, is_valid_sensor_id, redis_config_from_env
 from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import STAGES, VPD_RANGES, calculate_vpd, humidity_range_for_stage
 from autocann.db import (
@@ -234,23 +234,36 @@ def create_app() -> Flask:
     @app.route("/api/sensor/indoor", methods=["POST"])
     def receive_indoor_sensor():
         """
-        Endpoint to receive indoor sensor data from ESP32.
+        Endpoint to receive indoor sensor data from an ESP32.
 
         Body (JSON):
         - temperature: float (°C)
         - humidity: float (%)
+        - sensor_id: str, optional. Identifies which indoor sensor posted, so
+          two of them can coexist. Omitted, the reading lands on the key the
+          single-sensor installation has always used, which is what keeps
+          existing firmware working unchanged.
 
         The endpoint calculates VPD and stores data in Redis with timestamp.
         """
         data = request.get_json(silent=True) or {}
         temperature = data.get("temperature")
         humidity = data.get("humidity")
+        sensor_id = data.get("sensor_id")
 
         # Validate required fields
         if temperature is None:
             return jsonify({"error": "Missing 'temperature' field"}), 400
         if humidity is None:
             return jsonify({"error": "Missing 'humidity' field"}), 400
+
+        if sensor_id is not None:
+            if not isinstance(sensor_id, str) or not is_valid_sensor_id(sensor_id.strip().lower()):
+                # The id becomes part of a Redis key and this endpoint has no
+                # authentication, so anything unexpected is refused rather than
+                # sanitised.
+                return jsonify({"error": f"Invalid sensor_id: {sensor_id!r}"}), 400
+            sensor_id = sensor_id.strip().lower()
 
         # Validate types and ranges
         try:
@@ -279,20 +292,23 @@ def create_app() -> Flask:
             "timestamp": timestamp,
             "datetime": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "source": "esp32",
+            "sensor_id": sensor_id,
         }
 
         # Store in Redis
         try:
-            redis_client.set("esp32_indoor", json.dumps(sensor_data))
+            redis_client.set(indoor_sensor_key(sensor_id), json.dumps(sensor_data))
 
-            # Update sensor status
+            # Update sensor status. Identified sensors get their own entry: the
+            # control loop also writes "indoor" here, and two posters fighting
+            # over one entry would make the dashboard show whichever wrote last.
             sensor_status_raw = redis_client.get("sensor_status")
             if sensor_status_raw:
                 sensor_status = json.loads(sensor_status_raw)
             else:
                 sensor_status = {"indoor": {}, "outdoor": {}}
 
-            sensor_status["indoor"] = {
+            sensor_status["indoor" if sensor_id is None else f"indoor:{sensor_id}"] = {
                 "ok": True,
                 "error": None,
                 "source": "esp32",
@@ -311,9 +327,16 @@ def create_app() -> Flask:
     @app.route("/api/sensor/indoor", methods=["GET"])
     def get_indoor_sensor():
         """
-        Endpoint to get the latest indoor sensor data from ESP32.
+        Endpoint to get the latest indoor sensor data from an ESP32.
+
+        `?sensor_id=` selects one of several; omitted, it returns the reading
+        posted without an id.
         """
-        data = redis_client.get("esp32_indoor")
+        sensor_id = (request.args.get("sensor_id") or "").strip().lower() or None
+        if sensor_id is not None and not is_valid_sensor_id(sensor_id):
+            return jsonify({"error": f"Invalid sensor_id: {sensor_id!r}"}), 400
+
+        data = redis_client.get(indoor_sensor_key(sensor_id))
         if data:
             sensor_data = json.loads(data)
             # Check if data is stale (older than 5 minutes)

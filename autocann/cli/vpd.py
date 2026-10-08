@@ -23,7 +23,13 @@ from typing import Any, Dict, Optional, Tuple
 
 import redis
 
-from autocann.config import control_tuning_from_env, redis_config_from_env
+from autocann.config import (
+    IndoorSensors,
+    control_tuning_from_env,
+    indoor_sensors_from_env,
+    redis_config_from_env,
+)
+from autocann.control.drift import DriftMonitor, DriftReport
 from autocann.control.humidity import (
     DEHUMIDIFY,
     HUMIDIFY,
@@ -58,6 +64,12 @@ LEAF_TEMP_OFFSET_C = 1.5
 REDIS_KEY_TTL_SECONDS = 600
 #: Minimum gap between attempts to re-create failed sensor objects.
 SENSOR_REINIT_INTERVAL_SECONDS = 30.0
+#: Redis key holding the learned drift baseline. Written without a TTL on
+#: purpose: a sensor drifts over weeks, so a baseline that expired with the
+#: other dashboard keys would be re-learned from the drifted sensor and the
+#: detector would never fire.
+DRIFT_BASELINE_KEY = "indoor_drift_baseline"
+
 #: Recurring warnings print at most this often, so a day-long fault does not
 #: write 28,800 identical lines to the log.
 WARN_INTERVAL_SECONDS = 60.0
@@ -208,8 +220,19 @@ def read_manual_overrides() -> Dict[str, bool]:
 class Sensors:
     """Indoor (ESP32 via Redis, or local DHT22) and outdoor (local DHT22) readings."""
 
-    def __init__(self, use_esp32_indoor: bool = True) -> None:
+    def __init__(
+        self,
+        use_esp32_indoor: bool = True,
+        indoor_sensors: Optional[IndoorSensors] = None,
+    ) -> None:
         self.use_esp32_indoor = use_esp32_indoor
+        #: Which Redis keys hold the indoor readings. Defaults to the legacy
+        #: single-key installation, so nothing changes until a witness is
+        #: configured.
+        self.indoor_sensors = indoor_sensors or IndoorSensors()
+        self.drift = DriftMonitor()
+        #: Last verdict from the drift monitor, published for the dashboard.
+        self.drift_report: Optional[DriftReport] = None
         self._dht_in: Any = None
         self._dht_out: Any = None
         self.indoor_temp = MedianFilter(5)
@@ -306,9 +329,9 @@ class Sensors:
 
     # -- ESP32 over Redis --------------------------------------------------
 
-    def _read_esp32_indoor(self) -> Tuple[Optional[float], Optional[float]]:
+    def _read_esp32_key(self, key: str, label: str) -> Tuple[Optional[float], Optional[float]]:
         try:
-            raw = redis_client.get("esp32_indoor")
+            raw = redis_client.get(key)
             if raw is None:
                 return None, None
 
@@ -316,8 +339,8 @@ class Sensors:
             age = int(_now_local().timestamp()) - int(payload.get("timestamp", 0))
             if age > ESP32_MAX_AGE_SECONDS:
                 self._warn_throttled(
-                    "esp32_stale",
-                    f"⚠️ ESP32 indoor data is stale ({age}s old, max {ESP32_MAX_AGE_SECONDS}s)",
+                    f"esp32_stale_{key}",
+                    f"⚠️ ESP32 {label} data is stale ({age}s old, max {ESP32_MAX_AGE_SECONDS}s)",
                 )
                 return None, None
 
@@ -327,8 +350,73 @@ class Sensors:
                 return None, None
             return float(temperature), float(humidity)
         except Exception as e:
-            print(f"⚠️ Error reading ESP32 indoor data: {e}")
+            print(f"⚠️ Error reading ESP32 {label} data: {e}")
             return None, None
+
+    def _read_esp32_indoor(self) -> Tuple[Optional[float], Optional[float]]:
+        """The reading the control decision is made on."""
+        return self._read_esp32_key(self.indoor_sensors.primary_key, "indoor")
+
+    def _read_witness(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        The cross-check reading. Never used for control.
+
+        A failure here is not a control failure: it must not touch
+        `last_reading_at`, or a dead witness would hold the failsafe open on a
+        sensor the loop does not even act on.
+        """
+        key = self.indoor_sensors.witness_key
+        if key is None:
+            return None, None
+        return self._read_esp32_key(key, "witness")
+
+    # -- drift -------------------------------------------------------------
+
+    def load_drift_baseline(self) -> None:
+        """Adopt the persisted baseline, if there is one."""
+        try:
+            raw = redis_client.get(DRIFT_BASELINE_KEY)
+            stored = json.loads(raw) if raw else None
+        except Exception as e:
+            # Redis down, or a corrupt value. Neither is a reason to refuse to
+            # start: the monitor simply learns a new baseline.
+            print(f"⚠️ Could not read the drift baseline: {e}")
+            return
+        if self.drift.load(stored):
+            baseline = self.drift.baseline
+            print(f"📐 Drift baseline: {baseline.temperature:+.2f}°C, "
+                  f"{baseline.humidity:+.2f}% (witness - primary)")
+
+    def _record_drift(self, primary, witness) -> None:
+        """Feed the monitor, persist a newly learned baseline, warn on faults."""
+        had_baseline = self.drift.baseline is not None
+        def _usable(reading):
+            return reading if None not in reading else None
+
+        report = self.drift.update(primary=_usable(primary), witness=_usable(witness))
+        self.drift_report = report
+
+        if not had_baseline and self.drift.baseline is not None:
+            # No TTL: see DRIFT_BASELINE_KEY.
+            _set_redis(DRIFT_BASELINE_KEY, json.dumps(self.drift.to_dict()), ttl=None)
+            baseline = self.drift.baseline
+            print(f"📐 Drift baseline learned: {baseline.temperature:+.2f}°C, "
+                  f"{baseline.humidity:+.2f}% (witness - primary)")
+
+        for message in report.messages:
+            self._warn_throttled(f"drift_{message[:32]}", f"⚠️ {message}")
+
+    def _read_esp32_indoor_pair(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Read the primary and, when configured, the witness.
+
+        Returns the primary; the witness only feeds the drift monitor.
+        """
+        primary = self._read_esp32_indoor()
+        if self.indoor_sensors.witness_key is None:
+            return primary
+        self._record_drift(primary, self._read_witness())
+        return primary
 
     # -- public ------------------------------------------------------------
 
@@ -340,7 +428,7 @@ class Sensors:
         temperature = humidity = None
 
         if self.use_esp32_indoor:
-            temperature, humidity = self._read_esp32_indoor()
+            temperature, humidity = self._read_esp32_indoor_pair()
             if temperature is not None:
                 self.indoor_source = "esp32"
 
@@ -407,6 +495,17 @@ class Sensors:
                 "error": None if self._dht_out is not None else "DHT22 outdoor not initialised",
             },
         }
+        if self.drift_report is not None:
+            # A drifting sensor still reads "ok": it answers, in range, on time.
+            # That is the whole point of the detector, so it gets its own entry
+            # rather than flipping a flag nothing else would set.
+            report = self.drift_report
+            status["drift"] = {
+                "ok": report.ok,
+                "suspects": list(report.suspects),
+                "messages": report.messages,
+                "flags": {name: list(flags) for name, flags in report.flags.items()},
+            }
         _set_redis("sensor_status", json.dumps(status))
 
     def close(self) -> None:
@@ -502,7 +601,9 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     ensure_schema()
 
     relays = Relays()
-    sensors = Sensors(use_esp32_indoor=use_esp32_indoor)
+    sensors = Sensors(
+        use_esp32_indoor=use_esp32_indoor, indoor_sensors=indoor_sensors_from_env()
+    )
     state = ControllerState()
     tuning = control_tuning_from_env()
     config = ControllerConfig(
@@ -514,10 +615,14 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
 
     relays.setup()
     sensors.load_calibration()
+    sensors.load_drift_baseline()
     sensors.init_dht22()
 
     print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
           else "🔌 Indoor sensor: local DHT22")
+    if sensors.indoor_sensors.witness:
+        print(f"👁️  Cross-check: '{sensors.indoor_sensors.primary}' controls, "
+              f"'{sensors.indoor_sensors.witness}' only watches it for drift")
     print(f"⚙️  Min on {config.min_on_seconds:.0f}s, min off {config.min_off_seconds:.0f}s, "
           f"changeover {config.min_changeover_seconds:.0f}s, "
           f"failsafe at {config.stale_after_seconds:.0f}s; "

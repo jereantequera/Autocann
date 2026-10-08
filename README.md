@@ -204,6 +204,48 @@ Ejemplo:
 AUTOCANN_PIN_HUMIDITY_DOWN=7 uv run python -m autocann.cli.vpd early_veg
 ```
 
+## Sensores interiores y detección de deriva
+
+Una instalación con un solo sensor no necesita configurar nada: el ESP32 postea
+a `/api/sensor/indoor` sin `sensor_id` y el lazo lee la clave de siempre.
+
+Con **dos sensores** se puede detectar la falla que ni el filtro de mediana ni
+el failsafe por dato viejo ven: un sensor degradado que sigue informando un
+número plausible, estable y en rango, que el control obedece.
+
+```bash
+AUTOCANN_INDOOR_PRIMARY=a    # decide: es el que controla la carpa
+AUTOCANN_INDOOR_WITNESS=b    # testigo: no controla nada, solo vigila al primario
+```
+
+Cada ESP32 postea con su `sensor_id` y cada lectura va a su propia clave
+(`esp32_indoor:a`, `esp32_indoor:b`).
+
+**Qué detecta** (`autocann/control/drift.py`):
+
+- **Divergencia.** Dos sensores en distintas partes de la carpa leen distinto
+  por motivos reales — posición, flujo de aire, gradiente — así que un offset
+  entre ellos no prueba nada. Un **cambio** en ese offset sí. El monitor aprende
+  el offset base mientras los dos están sanos y alarma cuando se mueve.
+- **Valor congelado.** Cero variación durante una ventana larga.
+- **Pegado al tope de escala.** Humedad clavada en 0 % o 100 % sostenido.
+
+El offset base se persiste en Redis sin TTL, a propósito: un sensor deriva en
+semanas, así que uno que se reaprendiera en cada reinicio adoptaría en silencio
+lo que diga el sensor ya desviado y nunca dispararía. Después de cambiar un
+sensor hay que borrarlo:
+
+```bash
+redis-cli DEL indoor_drift_baseline
+```
+
+El veredicto sale en `sensor_status` bajo la clave `drift`. **Ninguna de las
+tres condiciones apaga nada**: un sensor que deriva no es motivo para
+desenergizar la carpa — para eso está el failsafe — es motivo para avisarte cuál
+sensor desconfiar.
+
+El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
+
 ## Administración Remota (SSH)
 
 ### Configuración SSH (Primera vez)

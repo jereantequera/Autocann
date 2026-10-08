@@ -43,3 +43,6 @@ dump.rdb
 # Project specific
 *.pid
 config.mk
+
+# Firmware: credenciales de WiFi e IP de la instalación
+firmware/*/secrets.h

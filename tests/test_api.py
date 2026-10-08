@@ -223,3 +223,73 @@ def test_the_aggregated_endpoint_marks_outages_too(client, temp_db):
 
     payload = client.get("/api/history/aggregated?days=7&interval=hourly").get_json()
     assert any(p.get("gap") for p in payload["data"])
+
+
+def test_two_indoor_sensors_do_not_overwrite_each_other(client):
+    """
+    Before sensor_id existed, both sensors wrote one key and the loop saw
+    whichever posted last, alternating between two tents' worth of readings.
+    """
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0, "sensor_id": "a"})
+    client.post("/api/sensor/indoor", json={"temperature": 26.0, "humidity": 55.0, "sensor_id": "b"})
+
+    assert json.loads(client.redis.store["esp32_indoor:a"])["temperature"] == 24.0
+    assert json.loads(client.redis.store["esp32_indoor:b"])["temperature"] == 26.0
+    # The unidentified key stays untouched, so existing firmware is unaffected.
+    assert "esp32_indoor" not in client.redis.store
+
+
+def test_an_unidentified_post_still_lands_on_the_legacy_key(client):
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0})
+    stored = json.loads(client.redis.store["esp32_indoor"])
+    assert stored["sensor_id"] is None
+
+
+def test_each_identified_sensor_gets_its_own_status_entry(client):
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0, "sensor_id": "a"})
+    status = json.loads(client.redis.store["sensor_status"])
+    assert status["indoor:a"]["ok"] is True
+    # The control loop owns plain "indoor"; the endpoint must not fight it for it.
+    assert status["indoor"] == {}
+
+
+@pytest.mark.parametrize(
+    "sensor_id",
+    [
+        "a:b",            # a ':' would let a poster reach outside its namespace
+        "../x",
+        "a b",
+        "",
+        "A" * 20,
+        7,
+    ],
+)
+def test_the_endpoint_refuses_sensor_ids_it_cannot_put_in_a_key(client, sensor_id):
+    """This endpoint has no authentication, so the id is validated, not sanitised."""
+    response = client.post(
+        "/api/sensor/indoor",
+        json={"temperature": 24.0, "humidity": 60.0, "sensor_id": sensor_id},
+    )
+    assert response.status_code == 400
+    assert client.redis.store == {}
+
+
+def test_an_innocuous_looking_id_cannot_collide_with_another_key(client):
+    """
+    The 'esp32_indoor:' prefix is what makes ids safe, not the id itself: even
+    naming a sensor after a key the dashboard trusts lands inside the namespace.
+    """
+    client.post(
+        "/api/sensor/indoor",
+        json={"temperature": 24.0, "humidity": 60.0, "sensor_id": "sensor_status"},
+    )
+    assert "esp32_indoor:sensor_status" in client.redis.store
+    assert json.loads(client.redis.store["sensor_status"])["indoor:sensor_status"]["ok"] is True
+
+
+def test_a_reading_can_be_read_back_per_sensor(client):
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0, "sensor_id": "a"})
+
+    assert client.get("/api/sensor/indoor?sensor_id=a").get_json()["temperature"] == 24.0
+    assert client.get("/api/sensor/indoor?sensor_id=b").status_code == 404
+    assert client.get("/api/sensor/indoor?sensor_id=a:b").status_code == 400
