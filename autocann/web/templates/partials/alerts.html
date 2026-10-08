@@ -1,0 +1,34 @@
+        <!-- Connection Alert -->
+        <div id="connection-alert" class="sensor-alert" role="status" aria-live="polite">
+            <div class="sensor-alert-icon">📡</div>
+            <div class="sensor-alert-content">
+                <div class="sensor-alert-title">Sin conexión al backend</div>
+                <div class="sensor-alert-message">
+                    Los valores en pantalla son los últimos recibidos y pueden estar viejos.
+                    Revisá que el servicio esté corriendo: <code>make status</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sensor Alert -->
+        <div id="sensor-alert" class="sensor-alert" role="status" aria-live="polite">
+            <div class="sensor-alert-icon">⚠️</div>
+            <div class="sensor-alert-content">
+                <div class="sensor-alert-title">Problema con sensores</div>
+                <div class="sensor-alert-message" id="sensor-alert-message">--</div>
+            </div>
+        </div>
+
+        <!-- Anomalies Alert -->
+        <div id="anomalies-alert" class="anomalies-alert" role="status" aria-live="polite">
+            <div class="anomalies-header">
+                <div class="anomalies-title">
+                    <span id="anomalies-icon">⚠️</span>
+                    <span id="anomalies-title-text">Anomalías Detectadas</span>
+                </div>
+                <button class="btn btn-ghost" data-action="dismiss-anomalies" style="padding: 4px 12px; font-size: 0.8em;">Descartar</button>
+            </div>
+            <div class="anomalies-list" id="anomalies-list">
+                <!-- Anomalies will be inserted here -->
+            </div>
+        </div>

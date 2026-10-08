@@ -20,8 +20,30 @@ rpi = [
 ]
 dev = [
     "ruff>=0.1.0",
+    "pytest>=8.0.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The control logic is pure, so the suite stays fast enough to run on every edit.
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # import sorting
+    "B",    # bugbear: likely bugs, including the mutable-default and
+            # loop-variable traps this codebase had
+]
+ignore = [
+    "E501",  # long lines are handled by the formatter, not the linter
+]
 

@@ -10,11 +10,8 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 
-import pytz
-
 from autocann.db import cleanup_old_data, get_aggregated_data, get_database_stats, get_latest_sensor_data
-
-ARGENTINA_TZ = pytz.timezone("America/Argentina/Cordoba")
+from autocann.time import ARGENTINA_TZ
 
 
 def print_header(title: str) -> None:
@@ -37,8 +34,8 @@ def show_stats() -> None:
     print(f"Database size:    {stats['database_size_mb']} MB")
     print(f"Sensor records:   {stats['sensor_data_count']:,}")
     print(f"Control events:   {stats['control_events_count']:,}")
-    print(f"Oldest record:    {stats['oldest_record']}")
-    print(f"Newest record:    {stats['newest_record']}")
+    print(f"Oldest record:    {stats['oldest_record'] or '--'}")
+    print(f"Newest record:    {stats['newest_record'] or '--'}")
 
     if stats.get("sensor_data_count", 0) and stats.get("oldest_record") and stats.get("newest_record"):
         oldest = datetime.strptime(stats["oldest_record"], "%Y-%m-%d %H:%M:%S")
@@ -61,10 +58,13 @@ def show_latest(count: int = 10) -> None:
     print(f"{'Datetime':<20} {'Temp (°C)':<10} {'Humidity (%)':<12} {'VPD (kPa)':<10}")
     print("-" * 60)
 
+    def num(value, width, places):
+        return f"{value:<{width}.{places}f}" if value is not None else f"{'--':<{width}}"
+
     for record in data:
         print(
-            f"{record['datetime']:<20} {record['temperature']:<10.1f} "
-            f"{record['humidity']:<12.1f} {record['vpd']:<10.2f}"
+            f"{record['datetime']:<20} {num(record['temperature'], 10, 1)} "
+            f"{num(record['humidity'], 12, 1)} {num(record['vpd'], 10, 2)}"
         )
 
 
@@ -90,12 +90,12 @@ def show_daily_summary(days: int = 7) -> None:
 
     for record in data:
         date = record["datetime"].split()[0]
-        avg_temp = record["temperature"] or 0
-        min_temp = record["min_temperature"] or 0
-        max_temp = record["max_temperature"] or 0
-        avg_hum = record["humidity"] or 0
-        min_hum = record["min_humidity"] or 0
-        max_hum = record["max_humidity"] or 0
+        avg_temp = record["temperature"] if record["temperature"] is not None else 0
+        min_temp = record["min_temperature"] if record["min_temperature"] is not None else 0
+        max_temp = record["max_temperature"] if record["max_temperature"] is not None else 0
+        avg_hum = record["humidity"] if record["humidity"] is not None else 0
+        min_hum = record["min_humidity"] if record["min_humidity"] is not None else 0
+        max_hum = record["max_humidity"] if record["max_humidity"] is not None else 0
         samples = record["sample_count"]
 
         print(
@@ -124,9 +124,9 @@ def show_hourly_today() -> None:
 
     for record in data:
         hour = record["datetime"].split()[1][:5]
-        avg_temp = record["temperature"] or 0
-        avg_hum = record["humidity"] or 0
-        avg_vpd = record["vpd"] or 0
+        avg_temp = record["temperature"] if record["temperature"] is not None else 0
+        avg_hum = record["humidity"] if record["humidity"] is not None else 0
+        avg_vpd = record["vpd"] if record["vpd"] is not None else 0
         samples = record["sample_count"]
         print(f"{hour:<15} {avg_temp:<15.1f} {avg_hum:<18.1f} {avg_vpd:<12.2f} {samples:<10,}")
 
@@ -167,9 +167,9 @@ def search_by_date(date_str: str) -> None:
 
         for record in data:
             hour = record["datetime"].split()[1][:5]
-            avg_temp = record["temperature"] or 0
-            avg_hum = record["humidity"] or 0
-            avg_vpd = record["vpd"] or 0
+            avg_temp = record["temperature"] if record["temperature"] is not None else 0
+            avg_hum = record["humidity"] if record["humidity"] is not None else 0
+            avg_vpd = record["vpd"] if record["vpd"] is not None else 0
             print(f"{hour:<15} {avg_temp:<15.1f} {avg_hum:<18.1f} {avg_vpd:<12.2f}")
 
     except ValueError:
