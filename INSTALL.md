@@ -268,6 +268,27 @@ find ~ -name "uv" -type f 2>/dev/null
 **Nota:** El script `start_services.sh` ya configura el PATH, pero necesitás que
 `~/.bashrc` también lo tenga para usar `uv` a mano.
 
+### Los servicios corren bajo systemd (`fix-vpd.service`)
+
+La Raspberry ya tiene un unit de systemd instalado y habilitado:
+
+```bash
+systemctl status fix-vpd.service
+sudo systemctl restart fix-vpd.service
+journalctl -u fix-vpd.service -f
+```
+
+Con `Restart=always` y `RestartSec=5`. **Esto importa para cualquier deploy:**
+matar los procesos con `pkill` no sirve — systemd los revive cinco segundos
+después, y lo hace con el código que haya en disco en ese momento, que durante
+un deploy puede ser todavía el viejo. Hay que parar y arrancar el unit.
+
+De ahí viene el nombre `fix-vpd` que aparecía en los patrones viejos del
+Makefile: apuntaban al unit, no al proceso, así que nunca matchearon nada.
+
+`make ssh-restart`, `make deploy` y `make compact-remote` ya usan systemd cuando
+el unit existe, y caen a `pkill` si no.
+
 ### Arrancar con systemd en lugar de start_services.sh
 
 Recomendado: systemd garantiza una sola instancia y reinicia solo, lo que elimina

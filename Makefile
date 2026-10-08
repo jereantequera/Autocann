@@ -21,9 +21,32 @@ BACKEND_PATTERN = [a]utocann\.cli\.backend
 # cosa y el patrón terminaba matcheando al propio pgrep).
 LIST_SERVICES = ps -eo pid,command | grep -E '[a]utocann\.cli\.(vpd|backend)'
 
-# SIGTERM primero para que el loop apague los relés al salir; SIGKILL sólo si no
-# se fue solo.
-STOP_SERVICES = pkill -f '$(VPD_PATTERN)' || true; pkill -f '$(BACKEND_PATTERN)' || true; sleep 2; pkill -9 -f '$(VPD_PATTERN)' || true; pkill -9 -f '$(BACKEND_PATTERN)' || true
+# La Raspberry corre los servicios bajo systemd (unit `fix-vpd`, Restart=always,
+# RestartSec=5). Matar con pkill no sirve: systemd los revive a los 5 segundos,
+# y lo hace con el código que haya en disco en ese momento — que durante un
+# deploy puede ser todavía el viejo. Hay que pasar por systemd.
+#
+# Si el unit no existe (instalación sin systemd), cae al pkill de antes.
+SYSTEMD_UNIT = fix-vpd.service
+
+STOP_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl stop $(SYSTEMD_UNIT); \
+	else \
+	  pkill -f '$(VPD_PATTERN)' || true; pkill -f '$(BACKEND_PATTERN)' || true; \
+	  sleep 2; pkill -9 -f '$(VPD_PATTERN)' || true; pkill -9 -f '$(BACKEND_PATTERN)' || true; \
+	fi
+
+START_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl start $(SYSTEMD_UNIT); \
+	else \
+	  cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null & \
+	fi
+
+RESTART_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl restart $(SYSTEMD_UNIT); \
+	else \
+	  $(STOP_SERVICES); sleep 2; $(START_SERVICES); \
+	fi
 
 # Cargar configuración local si existe (config.mk)
 -include config.mk
@@ -193,13 +216,15 @@ compact-remote:
 	@echo "1. Parando servicios..."
 	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
 	@sleep 3
+	@ssh $(RPI_USER)@$(RPI_HOST) "ps -eo command | grep -qE '[a]utocann\.cli\.vpd' && \
+	  { echo '❌ El loop sigue vivo; abortando para no compactar con escrituras encima'; exit 1; } || true"
 	@echo "2. Compactando..."
 	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && \
 	  .venv/bin/python $(COMPACT_REMOTE_PATH) data/autocann.db --apply --redis"
 	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f $(COMPACT_REMOTE_PATH)"
 	@echo "3. Levantando servicios..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &"
-	@sleep 3
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(START_SERVICES)"
+	@sleep 8
 	@$(MAKE) --no-print-directory ssh-status
 
 # Compactar una copia local (la que trajiste con pull-data).
@@ -223,10 +248,9 @@ ssh-status:
 
 ssh-restart:
 	@echo "Reiniciando servicios en la Raspberry Pi..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
-	@sleep 2
-	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &"
-	@echo "✅ Servicios reiniciados"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(RESTART_SERVICES)"
+	@sleep 8
+	@$(MAKE) --no-print-directory ssh-status
 
 deploy:
 	@echo "Desplegando cambios en la Raspberry Pi..."
@@ -235,10 +259,8 @@ deploy:
 	@echo "2. Actualizando código en la Raspberry Pi..."
 	@ssh $(RPI_USER)@$(RPI_HOST) 'export PATH="$$HOME/.cargo/bin:$$HOME/.local/bin:$$PATH" && cd $(RPI_PATH) && git pull && uv sync --extra rpi'
 	@echo "3. Reiniciando servicios..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
-	@sleep 2
-	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &" || true
-	@sleep 2
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(RESTART_SERVICES)"
+	@sleep 8
 	@echo "4. Verificando estado..."
 	@ssh $(RPI_USER)@$(RPI_HOST) "$(LIST_SERVICES) || echo '⚠️  Servicios no detectados (pueden tardar en iniciar)'"
 	@echo "✅ Despliegue completado"
