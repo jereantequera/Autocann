@@ -289,6 +289,22 @@ Makefile: apuntaban al unit, no al proceso, así que nunca matchearon nada.
 `make ssh-restart`, `make deploy` y `make compact-remote` ya usan systemd cuando
 el unit existe, y caen a `pkill` si no.
 
+**Arrancar los servicios a mano por SSH deja huérfanos.** Si corrés
+`./scripts/start_services.sh` directamente, los procesos quedan en el cgroup de
+la sesión SSH (`user.slice/.../session-N.scope`) en lugar del cgroup del unit, y
+`systemctl stop` **no los mata**. Después `systemctl start` levanta otro backend
+al lado del que quedó vivo.
+
+Si sospechás que pasó:
+
+```bash
+pgrep -af '[a]utocann\.cli\.(vpd|backend)'
+for p in $(pgrep -f '[a]utocann\.cli'); do tail -1 /proc/$p/cgroup; done
+```
+
+Todo lo que no cuelgue de `system.slice/fix-vpd.service` es huérfano. Matalo con
+`pkill` y volvé a arrancar con `sudo systemctl restart fix-vpd.service`.
+
 ### Arrancar con systemd en lugar de start_services.sh
 
 Recomendado: systemd garantiza una sola instancia y reinicia solo, lo que elimina
