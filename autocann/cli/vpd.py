@@ -381,7 +381,9 @@ class Sensors:
             if age > ESP32_MAX_AGE_SECONDS:
                 self._warn_throttled(
                     f"esp32_stale_{key}",
-                    f"⚠️ ESP32 {label} data is stale ({age}s old, max {ESP32_MAX_AGE_SECONDS}s)",
+                    f"⚠️ ESP32 {label} data is stale: '{key}' is {age}s old "
+                    f"(max {ESP32_MAX_AGE_SECONDS}s). A key nobody writes any more "
+                    f"looks exactly like a dead sensor, so the key is named here.",
                 )
                 return None, None
 

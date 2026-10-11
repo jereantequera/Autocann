@@ -49,6 +49,19 @@ if pgrep -f "$VPD_PATTERN" > /dev/null 2>&1; then
     exit 0
 fi
 
+# Configuración de esta instalación. Ver README.
+#
+#   INDOOR_PRIMARY / INDOOR_WITNESS: los dos sensores del nodo interior. El
+#   primario controla; el testigo sólo lo vigila por deriva. Sin esto el lazo
+#   lee la clave antigua `esp32_indoor`, que ya nadie escribe desde que el
+#   firmware postea con sensor_id — y se queda en failsafe para siempre.
+#
+#   RELAY_MODE=remote: los relés los maneja el nodo ESP32, no el GPIO de la Pi.
+export AUTOCANN_INDOOR_PRIMARY="${AUTOCANN_INDOOR_PRIMARY:-a}"
+export AUTOCANN_INDOOR_WITNESS="${AUTOCANN_INDOOR_WITNESS:-b}"
+export AUTOCANN_RELAY_MODE="${AUTOCANN_RELAY_MODE:-remote}"
+
 # Sin argumento de etapa: usa la del cultivo activo en la base de datos.
 echo "▶️  Iniciando loop de control de VPD..."
+echo "    sensores: primario=$AUTOCANN_INDOOR_PRIMARY testigo=$AUTOCANN_INDOOR_WITNESS · relés: $AUTOCANN_RELAY_MODE"
 exec uv run python -u -m autocann.cli.vpd >> "logs/vpd_$FECHA.log" 2>&1
