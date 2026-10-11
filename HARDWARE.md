@@ -69,6 +69,65 @@ tiempo, prenderla a ciegas habría empeorado las cosas.
 
 ---
 
+## Cómo quedó instalado (2026-10-11)
+
+Todo lo que sigue en este documento es **recomendación**. Esto es lo que está
+efectivamente montado y verificado de punta a punta.
+
+```
+┌──────────────────────┐   ┌──────────────────────┐   ┌─────────────────────┐
+│ ESP32 sensores       │   │ ESP32 relés          │   │ Raspberry Pi        │
+│ 192.168.100.76       │   │ 192.168.100.77       │   │ 192.168.100.37      │
+│                      │   │                      │   │                     │
+│ GPIO 32 → DHT22 "a"  │   │ GPIO 25 → IN1 hum+   │   │ decide · dashboard  │
+│          primario    │   │ GPIO 26 → IN2 hum−   │   │ SQLite · Redis      │
+│ GPIO 33 → DHT22 "b"  │   │ GPIO 27 → IN3 vent   │   │ DHT22 exterior      │
+│          testigo     │   │                      │   │                     │
+│ postea cada 10 s     │   │ consulta cada 2 s    │   │ publica cada ciclo  │
+└──────────────────────┘   └──────────────────────┘   └─────────────────────┘
+```
+
+Las dos placas son **NodeMCU ESP-32S V1.1** (38 pines, CP2102).
+
+### La placa de relés, y por qué importa el detalle
+
+Placa genérica de 4 canales con relés SONGLE **SRD-05VDC-SL-C** y
+optoacopladores **EL817**. Dos particularidades de *esta* variante:
+
+- **El header de potencia tiene 2 pines (`VCC` / `JD-VCC`), no los 3 habituales.**
+  No hay masa de potencia dedicada, así que el retorno de las bobinas comparte
+  sí o sí el plano de masa de señal: **la aislación galvánica es imposible en
+  esta placa**. Sacar el jumper igual vale, porque lo importante —que la
+  corriente de bobina no salga del rail de lógica— se consigue igual.
+- **`COM` es el borne del medio y `NO` el de su derecha.** Las cargas van en
+  COM + NO. De eso depende que desenergizado signifique apagado, y con eso
+  todas las barreras de seguridad.
+
+El `VCC` de señal se alimenta de los **3V3 del ESP32, nunca de 5 V**: con 5 V
+los pines IN reposarían en 5 V y los GPIO del ESP32 no son tolerantes. En esta
+placa se midió que 3,3 V alcanzan para manejar los EL817, cosa que no está
+garantizada en general.
+
+### Failsafes verificados contra fallas reales
+
+| Falla | Qué la cubre | Probado |
+|---|---|---|
+| El lazo deja de publicar | el endpoint responde todo apagado pasados 30 s | ✅ |
+| El nodo no alcanza a la Pi | watchdog local, desenergiza a los 60 s | ✅ matando el backend con un relé encendido |
+| Respuesta incompleta | el nodo la descarta entera | ✅ en tests |
+| Nodo reseteado o sin alimentación | pines en alta impedancia + cargas en NO | ✅ |
+| Todo lo anterior | humidistato mecánico | ❌ **sin instalar** |
+
+### Lo que falta
+
+1. **El 220 V no está cableado.** El deshumidificador va por contactor, no
+   directo al contacto del relé: los 10 A del SRD-05VDC son resistivos y un
+   compresor suelda el contacto. Snubber RC más MOV en cada carga inductiva.
+2. **Borrar la base de deriva** ahora que los sensores están en posición
+   definitiva, y dejar que la reaprenda:
+   `docker exec redis-stack-server redis-cli DEL indoor_drift_baseline`
+3. **El humidistato mecánico**, que es el único que sobrevive a todo lo demás.
+
 ## El diagnóstico
 
 Tres cosas del diseño actual generan la mayoría de los problemas:
