@@ -1,0 +1,47 @@
+        <!-- Charts Section -->
+        <div class="charts-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">📈</span>
+                    Gráficos Históricos
+                </h2>
+                <div class="time-selector" id="time-selector-bottom">
+                    <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
+                    <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
+                    <button class="time-btn" data-hours="4" data-interval="raw">4h</button>
+                    <button class="time-btn" data-hours="8" data-interval="raw">8h</button>
+                    <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
+                    <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
+                    <button class="time-btn" data-period="3" data-interval="hourly">3d</button>
+                    <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
+                    <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">🌡️ Temperatura y Humedad Interior</div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="tempHumidityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">🎯 VPD (Vapor Pressure Deficit)</div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="vpdChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">🔄 Interior vs Exterior</div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+            </div>
+        </div>

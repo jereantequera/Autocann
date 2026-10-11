@@ -1,0 +1,99 @@
+        <!-- Period Summary -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <span class="section-title-icon">📊</span>
+                Resumen del Período
+            </h2>
+            <div class="time-selector" id="time-selector-top">
+                <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
+                <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
+                <button class="time-btn" data-hours="4" data-interval="raw">4h</button>
+                <button class="time-btn" data-hours="8" data-interval="raw">8h</button>
+                <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
+                <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
+                <button class="time-btn" data-period="3" data-interval="hourly">3d</button>
+                <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
+                <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
+            </div>
+        </div>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-card-header">
+                    <div class="summary-card-title">
+                        <span class="icon">🌡️</span>
+                        Temperatura Interior
+                    </div>
+                </div>
+                <div class="summary-avg" id="summary-temp-avg">--<span class="hero-unit">°C</span></div>
+                <div class="summary-minmax">
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Mínima</span>
+                        <span class="summary-stat-value min" id="summary-temp-min">--°C</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Máxima</span>
+                        <span class="summary-stat-value max" id="summary-temp-max">--°C</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Muestras</span>
+                        <span class="summary-stat-value" id="summary-samples" style="color: var(--text-secondary);">--</span>
+                    </div>
+                </div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-header">
+                    <div class="summary-card-title">
+                        <span class="icon">💧</span>
+                        Humedad Interior
+                    </div>
+                </div>
+                <div class="summary-avg" id="summary-humidity-avg">--<span class="hero-unit">%</span></div>
+                <div class="summary-minmax">
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Mínima</span>
+                        <span class="summary-stat-value min" id="summary-humidity-min">--%</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Máxima</span>
+                        <span class="summary-stat-value max" id="summary-humidity-max">--%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-header">
+                    <div class="summary-card-title">
+                        <span class="icon">🎯</span>
+                        VPD Promedio
+                    </div>
+                </div>
+                <div class="summary-avg" id="summary-vpd-avg">--<span class="hero-unit">kPa</span></div>
+                <div class="summary-minmax">
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Mínimo</span>
+                        <span class="summary-stat-value min" id="summary-vpd-min">-- kPa</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Máximo</span>
+                        <span class="summary-stat-value max" id="summary-vpd-max">-- kPa</span>
+                    </div>
+                </div>
+            </div>
+            <!-- VPD Score Card -->
+            <div class="vpd-score-card">
+                <div class="vpd-score-header">
+                    <div class="vpd-score-title">
+                        <span>🏆</span>
+                        VPD Score (7 días)
+                    </div>
+                    <span style="font-size: 0.8em; color: var(--text-muted);" id="vpd-score-range">--</span>
+                </div>
+                <div class="vpd-score-value" id="vpd-score-value">--%</div>
+                <div class="vpd-score-label" id="vpd-score-label">% del tiempo en rango óptimo</div>
+                <div class="vpd-score-bar" id="vpd-score-bar">
+                    <!-- Daily bars will be inserted here -->
+                </div>
+                <div class="vpd-score-days-labels" id="vpd-score-days-labels">
+                    <!-- Day labels will be inserted here -->
+                </div>
+            </div>
+        </div>

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autocann-web",
+      "runtimeExecutable": "./.venv/bin/python",
+      "runtimeArgs": ["-m", "autocann.cli.backend"],
+      "port": 5000,
+      "autoPort": true
+    }
+  ]
+}

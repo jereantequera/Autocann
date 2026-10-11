@@ -1,0 +1,73 @@
+        <!-- Hero Section - Main Metrics -->
+        <div class="hero-grid">
+            <!-- VPD Card -->
+            <div class="hero-card hero-vpd" id="vpd-card">
+                <div class="hero-header">
+                    <div class="hero-label" title="VPD de hoja (leaf VPD): valor relevante para las plantas">🎯 VPD Hoja</div>
+                    <span class="sensor-badge" id="sensor-status-indoor">⏳</span>
+                </div>
+                <div class="hero-value" id="current-vpd">--<span class="hero-unit">kPa</span></div>
+                <div class="hero-subtitle">
+                    <span class="vpd-badge" id="vpd-status"></span>
+                    <span id="vpd-target-hint"></span>
+                </div>
+                <div class="vpd-gauge">
+                    <div class="vpd-gauge-bar">
+                        <div class="vpd-gauge-zones">
+                            <div class="vpd-zone low"></div>
+                            <div class="vpd-zone optimal"></div>
+                            <div class="vpd-zone high"></div>
+                        </div>
+                        <div class="vpd-gauge-marker" id="vpd-marker" style="left: 50%"></div>
+                    </div>
+                    <div class="vpd-gauge-labels">
+                        <span>0.0</span>
+                        <span>0.6</span>
+                        <span>1.5</span>
+                        <span>2.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Temperature Card -->
+            <div class="hero-card hero-temp">
+                <div class="hero-header">
+                    <div class="hero-label">🌡️ Temperatura</div>
+                </div>
+                <div class="hero-value temp-value" id="current-temp">--<span class="hero-unit">°C</span></div>
+                <div class="hero-subtitle">
+                    <span style="color: var(--text-muted);">Temp. Hoja:</span>
+                    <strong id="current-leaf-temp">--</strong>°C
+                </div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div class="hero-card hero-humidity">
+                <div class="hero-header">
+                    <div class="hero-label">💧 Humedad Actual</div>
+                </div>
+                <div class="hero-value humidity-value" id="current-humidity">--<span class="hero-unit">%</span></div>
+                <div class="humidity-bar-container">
+                    <div class="humidity-bar">
+                        <div class="humidity-bar-fill" id="humidity-bar-fill" style="width: 0%"></div>
+                        <div class="humidity-bar-target" id="humidity-bar-target" style="left: 50%"></div>
+                    </div>
+                    <div class="humidity-bar-labels">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target Humidity Card -->
+            <div class="hero-card hero-target">
+                <div class="hero-header">
+                    <div class="hero-label">🎯 Humedad Objetivo</div>
+                </div>
+                <div class="hero-value target-value" id="current-target-humidity">--<span class="hero-unit">%</span></div>
+                <div class="hero-subtitle">
+                    <span class="humidity-diff" id="humidity-diff"></span>
+                </div>
+            </div>
+        </div>

@@ -3,25 +3,87 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-import pytz
 import redis
 from flask import Flask, jsonify, render_template, request
 
-from autocann.config import redis_config_from_env
-from autocann.control.vpd_math import calculate_vpd
-from autocann.db import (create_grow, detect_anomalies, end_grow,
-                         get_active_grow, get_aggregated_data, get_all_grows,
-                         get_database_stats, get_latest_sensor_data,
-                         get_period_summary, get_sensor_data_range,
-                         get_vpd_score, get_weekly_report, set_active_grow,
-                         update_grow_stage)
-from autocann.hardware.outputs import OUTPUTS
-from autocann.paths import TEMPLATES_DIR
+from autocann import __version__
+from autocann.config import indoor_sensor_key, is_valid_sensor_id, redis_config_from_env
+from autocann.control.sampling import insert_gaps
+from autocann.control.vpd_math import STAGES, VPD_RANGES, calculate_vpd, humidity_range_for_stage
+from autocann.db import (
+    create_grow,
+    detect_anomalies,
+    end_grow,
+    get_active_grow,
+    get_aggregated_data,
+    get_all_calibrations,
+    get_all_grows,
+    get_database_stats,
+    get_latest_sensor_data,
+    get_period_summary,
+    get_sensor_data_range,
+    get_stage_timeline,
+    get_vpd_score,
+    get_weekly_report,
+    set_active_grow,
+    set_calibration,
+    update_grow_stage,
+)
+from autocann.hardware.outputs import (
+    find_output,
+    get_outputs,
+    manual_override_key,
+    output_names,
+    parse_bool_flag,
+)
+from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
+
+#: A desired-output state older than this means the control loop is not
+#: running. Roughly ten of its cycles: long enough that a slow iteration or
+#: a blocked sensor read never trips it, short enough to matter.
+DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
+
+#: Default and maximum lifetime of a manual output override.
+MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
+MANUAL_OVERRIDE_MAX_SECONDS = 2 * 60 * 60
+
+
+#: How often the control loop writes a sample. Used to tell a real outage from
+#: the normal spacing between points.
+SAMPLE_INTERVAL_SECONDS = 300
+
+
+def _with_gaps(points, expected_interval_seconds):
+    """
+    Insert break markers so the charts stop drawing straight lines across holes.
+
+    A six-hour outage used to join its two ends with a line, which reads as "the
+    temperature fell smoothly" rather than "there is no data here". Each marker
+    carries a datetime so it still gets an axis label, and no measurements, so
+    every series plots a gap at that point.
+    """
+    marked = insert_gaps(points, expected_interval_seconds)
+    for point in marked:
+        if point.get("gap"):
+            point["datetime"] = datetime.fromtimestamp(
+                point["timestamp"], ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return marked
 
 
 def create_app() -> Flask:
-    app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
+    app = Flask(
+        __name__,
+        template_folder=str(TEMPLATES_DIR),
+        static_folder=str(STATIC_DIR),
+        static_url_path="/static",
+    )
+
+    @app.context_processor
+    def inject_version():
+        # Appended to static URLs so a deploy busts the browser cache without
+        # having to serve the assets with no-cache.
+        return {"asset_version": __version__}
     redis_cfg = redis_config_from_env()
     redis_client = redis.Redis(host=redis_cfg.host, port=redis_cfg.port, db=redis_cfg.db)
 
@@ -32,24 +94,33 @@ def create_app() -> Flask:
         """
         return render_template("index.html")
 
-    @app.route("/api/historical-data", methods=["GET"])
-    def get_historical_data():
+    @app.route("/api/config", methods=["GET"])
+    def get_config():
         """
-        Endpoint to get all historical data from Redis.
-        Returns data for all time windows (6h, 12h, 24h, 1w).
+        Stage configuration for the dashboard.
+
+        The ranges used to be a hardcoded copy in the template, which is how the
+        template and vpd_math.py drifted apart. Serving them keeps one source.
         """
-        time_windows = ["6h", "12h", "24h", "1w"]
-        response_data = {}
-
-        for window in time_windows:
-            key = f"historical_data_{window}"
-            data = redis_client.get(key)
-            if data:
-                response_data[window] = json.loads(data)
-            else:
-                response_data[window] = []
-
-        return jsonify(response_data)
+        return jsonify(
+            {
+                "stages": list(STAGES),
+                "vpd_ranges": {
+                    stage: {"min": low, "max": high} for stage, (low, high) in VPD_RANGES.items()
+                },
+                "humidity_ranges": {
+                    stage: ({"min": band[0], "max": band[1]} if band else None)
+                    for stage in STAGES
+                    for band in [humidity_range_for_stage(stage)]
+                },
+                "stage_names": {
+                    "early_veg": "Vegetativo Temprano",
+                    "late_veg": "Vegetativo Tardío",
+                    "flowering": "Floración",
+                    "dry": "Secado",
+                },
+            }
+        )
 
     @app.route("/api/current-data", methods=["GET"])
     def get_current_data():
@@ -82,23 +153,11 @@ def create_app() -> Flask:
         Endpoint to get current output/relay status from Redis plus BCM pin mapping.
         """
         outputs = []
-        for o in OUTPUTS:
+        for o in get_outputs():
             redis_key = o.get("redis_key")
-            raw = redis_client.get(redis_key) if redis_key else None
-            if raw is None:
-                state = None
-            else:
-                try:
-                    val = raw.decode("utf-8").strip().lower()
-                except Exception:
-                    val = str(raw).strip().lower()
-                if val in ("true", "1", "on", "yes"):
-                    state = True
-                elif val in ("false", "0", "off", "no"):
-                    state = False
-                else:
-                    state = None
+            state = parse_bool_flag(redis_client.get(redis_key) if redis_key else None)
 
+            override_raw = redis_client.get(manual_override_key(o.get("name", "")))
             outputs.append(
                 {
                     "name": o.get("name"),
@@ -106,6 +165,7 @@ def create_app() -> Flask:
                     "pin_bcm": o.get("pin_bcm"),
                     "redis_key": redis_key,
                     "state": state,
+                    "manual_override": parse_bool_flag(override_raw),
                 }
             )
 
@@ -114,67 +174,56 @@ def create_app() -> Flask:
     @app.route("/api/output-control", methods=["POST"])
     def set_output_control():
         """
-        Endpoint to manually turn an output/relay ON/OFF.
+        Request a manual override of an output.
 
         Body (JSON):
-        - name: output name (one of autocann.hardware.outputs.OUTPUTS[*].name)
-        - state: boolean (true=on, false=off)
+        - name: output name (see autocann.hardware.outputs.get_outputs())
+        - state: boolean (true=on, false=off), or null to hand the output back
+          to automatic control
+        - duration_seconds: optional, how long the override lasts
+          (default MANUAL_OVERRIDE_DEFAULT_SECONDS, max MANUAL_OVERRIDE_MAX_SECONDS)
+
+        The override is published to Redis; the control loop applies it. This
+        process deliberately does not touch the GPIO: only one process may own a
+        pin, and the previous implementation opened a device and closed it again
+        straight away, which released the pin and dropped the relay the moment
+        the request returned.
+
+        Overrides expire. A forgotten manual command must not leave a
+        humidifier running indefinitely.
         """
         data = request.get_json(silent=True) or {}
         name = data.get("name")
         state = data.get("state")
+        duration = data.get("duration_seconds", MANUAL_OVERRIDE_DEFAULT_SECONDS)
 
         if not name or not isinstance(name, str):
             return jsonify({"error": "Missing or invalid 'name'"}), 400
-        if not isinstance(state, bool):
-            return jsonify({"error": "Missing or invalid 'state' (must be boolean)"}), 400
+        if state is not None and not isinstance(state, bool):
+            return jsonify({"error": "Invalid 'state' (must be boolean, or null to clear)"}), 400
 
-        output = None
-        for o in OUTPUTS:
-            if o.get("name") == name:
-                output = o
-                break
-
+        output = find_output(name)
         if not output:
-            return jsonify({"error": f"Unknown output name '{name}'"}), 404
-
-        pin_bcm = output.get("pin_bcm")
-        redis_key = output.get("redis_key")
-        active_high = bool(output.get("active_high", True))
-
-        if pin_bcm is None:
-            return jsonify({"error": f"Output '{name}' has no pin configured"}), 500
-
-        # 1) Try to control the real GPIO (on Raspberry Pi).
-        try:
-            import gpiozero  # type: ignore
-        except Exception:
-            return (
-                jsonify(
-                    {
-                        "error": "gpiozero is not available on this machine. "
-                        "This endpoint must run on the Raspberry Pi with '--extra rpi' deps installed."
-                    }
-                ),
-                501,
-            )
+            valid = ", ".join(o["name"] for o in get_outputs())
+            return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
 
         try:
-            dev = gpiozero.OutputDevice(int(pin_bcm), active_high=active_high, initial_value=False)
-            if state:
-                dev.on()
+            duration = int(duration)
+        except (TypeError, ValueError):
+            return jsonify({"error": "'duration_seconds' must be an integer"}), 400
+        if duration < 1 or duration > MANUAL_OVERRIDE_MAX_SECONDS:
+            return jsonify(
+                {"error": f"'duration_seconds' must be between 1 and {MANUAL_OVERRIDE_MAX_SECONDS}"}
+            ), 400
+
+        key = manual_override_key(name)
+        try:
+            if state is None:
+                redis_client.delete(key)
             else:
-                dev.off()
-            dev.close()
+                redis_client.set(key, "true" if state else "false", ex=duration)
         except Exception as e:
-            return jsonify({"error": f"Failed to control GPIO BCM {pin_bcm}: {e}"}), 500
-
-        # 2) Mirror state in Redis so the dashboard can show it.
-        try:
-            if redis_key:
-                redis_client.set(redis_key, "true" if state else "false")
-        except Exception as e:
-            return jsonify({"error": f"GPIO set, but failed updating Redis: {e}"}), 500
+            return jsonify({"error": f"Failed to publish the override: {e}"}), 500
 
         return jsonify(
             {
@@ -182,33 +231,99 @@ def create_app() -> Flask:
                 "output": {
                     "name": output.get("name"),
                     "label": output.get("label"),
-                    "pin_bcm": pin_bcm,
-                    "redis_key": redis_key,
-                    "state": state,
+                    "pin_bcm": output.get("pin_bcm"),
+                    "redis_key": output.get("redis_key"),
+                    "requested_state": state,
+                    "expires_in_seconds": None if state is None else duration,
                 },
+                "note": "The control loop applies the override; it expires on its own."
+                if state is not None
+                else "Output handed back to automatic control.",
             }
         )
+
+    @app.route("/api/outputs/desired", methods=["GET"])
+    def get_desired_outputs():
+        """
+        The full desired output state, for a remote relay node to poll.
+
+        Every output is always named, so the node never has to merge a partial
+        update against its own idea of the current state.
+
+        When the control loop's last write is too old, the answer is everything
+        off with `failsafe` set. A node that kept applying a stale command would
+        leave a humidifier running long after the loop died, and the loop's own
+        failsafe cannot help once the loop is what stopped.
+        """
+        off = {name: False for name in output_names()}
+
+        def failsafe(reason):
+            return jsonify({
+                "outputs": off,
+                "failsafe": True,
+                "reason": reason,
+                "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+            })
+
+        try:
+            raw = redis_client.get("desired_outputs")
+        except Exception as e:
+            return failsafe(f"redis unavailable: {e}")
+        if not raw:
+            return failsafe("no desired state published")
+
+        try:
+            payload = json.loads(raw)
+            outputs = payload["outputs"]
+            age = int(datetime.now(ARGENTINA_TZ).timestamp()) - int(payload["ts"])
+        except Exception as e:
+            return failsafe(f"unreadable desired state: {e}")
+
+        if age > DESIRED_OUTPUTS_MAX_AGE_SECONDS:
+            return failsafe(f"stale desired state ({age}s old)")
+
+        # Names the loop did not publish default to off rather than being
+        # omitted: a node must never have to guess what to do with an output.
+        return jsonify({
+            "outputs": {name: bool(outputs.get(name, False)) for name in off},
+            "failsafe": False,
+            "age_seconds": age,
+            "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+        })
 
     @app.route("/api/sensor/indoor", methods=["POST"])
     def receive_indoor_sensor():
         """
-        Endpoint to receive indoor sensor data from ESP32.
+        Endpoint to receive indoor sensor data from an ESP32.
 
         Body (JSON):
         - temperature: float (°C)
         - humidity: float (%)
+        - sensor_id: str, optional. Identifies which indoor sensor posted, so
+          two of them can coexist. Omitted, the reading lands on the key the
+          single-sensor installation has always used, which is what keeps
+          existing firmware working unchanged.
 
         The endpoint calculates VPD and stores data in Redis with timestamp.
         """
         data = request.get_json(silent=True) or {}
         temperature = data.get("temperature")
         humidity = data.get("humidity")
+        sensor_id = data.get("sensor_id")
 
         # Validate required fields
         if temperature is None:
             return jsonify({"error": "Missing 'temperature' field"}), 400
         if humidity is None:
             return jsonify({"error": "Missing 'humidity' field"}), 400
+
+        if sensor_id is not None:
+            if not isinstance(sensor_id, str) or not is_valid_sensor_id(sensor_id.strip().lower()):
+                # The id becomes part of a Redis key and this endpoint has no
+                # authentication, so anything unexpected is refused rather than
+                # sanitised.
+                return jsonify({"error": f"Invalid sensor_id: {sensor_id!r}"}), 400
+            sensor_id = sensor_id.strip().lower()
 
         # Validate types and ranges
         try:
@@ -237,20 +352,23 @@ def create_app() -> Flask:
             "timestamp": timestamp,
             "datetime": current_time.strftime("%Y-%m-%d %H:%M:%S"),
             "source": "esp32",
+            "sensor_id": sensor_id,
         }
 
         # Store in Redis
         try:
-            redis_client.set("esp32_indoor", json.dumps(sensor_data))
+            redis_client.set(indoor_sensor_key(sensor_id), json.dumps(sensor_data))
 
-            # Update sensor status
+            # Update sensor status. Identified sensors get their own entry: the
+            # control loop also writes "indoor" here, and two posters fighting
+            # over one entry would make the dashboard show whichever wrote last.
             sensor_status_raw = redis_client.get("sensor_status")
             if sensor_status_raw:
                 sensor_status = json.loads(sensor_status_raw)
             else:
                 sensor_status = {"indoor": {}, "outdoor": {}}
 
-            sensor_status["indoor"] = {
+            sensor_status["indoor" if sensor_id is None else f"indoor:{sensor_id}"] = {
                 "ok": True,
                 "error": None,
                 "source": "esp32",
@@ -269,9 +387,16 @@ def create_app() -> Flask:
     @app.route("/api/sensor/indoor", methods=["GET"])
     def get_indoor_sensor():
         """
-        Endpoint to get the latest indoor sensor data from ESP32.
+        Endpoint to get the latest indoor sensor data from an ESP32.
+
+        `?sensor_id=` selects one of several; omitted, it returns the reading
+        posted without an id.
         """
-        data = redis_client.get("esp32_indoor")
+        sensor_id = (request.args.get("sensor_id") or "").strip().lower() or None
+        if sensor_id is not None and not is_valid_sensor_id(sensor_id):
+            return jsonify({"error": f"Invalid sensor_id: {sensor_id!r}"}), 400
+
+        data = redis_client.get(indoor_sensor_key(sensor_id))
         if data:
             sensor_data = json.loads(data)
             # Check if data is stale (older than 5 minutes)
@@ -323,8 +448,21 @@ def create_app() -> Flask:
                 data = get_latest_sensor_data(limit=limit)
                 return jsonify({"data": data, "count": len(data), "aggregated": False})
 
+            # Fill in whichever bound is missing: a None would reach the SQL
+            # comparison and silently match nothing.
+            now = int(datetime.now(ARGENTINA_TZ).timestamp())
+            if end is None:
+                end = now
+            if start is None:
+                start = end - 24 * 3600
+
+            if start > end:
+                return jsonify({"error": "'start' must be earlier than 'end'"}), 400
+
             if aggregate:
-                data = get_aggregated_data(start, end, aggregate)
+                if aggregate < 1:
+                    return jsonify({"error": "'aggregate' must be a positive number of seconds"}), 400
+                data = _with_gaps(get_aggregated_data(start, end, aggregate), aggregate)
                 return jsonify(
                     {
                         "data": data,
@@ -336,11 +474,61 @@ def create_app() -> Flask:
                     }
                 )
 
-            data = get_sensor_data_range(start, end, limit)
+            # get_sensor_data_range returns newest first; the gap check needs
+            # chronological order, and so do the charts.
+            data = _with_gaps(
+                sorted(get_sensor_data_range(start, end, limit), key=lambda r: r["timestamp"]),
+                SAMPLE_INTERVAL_SECONDS,
+            )
             return jsonify({"data": data, "count": len(data), "start": start, "end": end, "aggregated": False})
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/calibration", methods=["GET"])
+    def list_calibration():
+        """Per-sensor offsets currently applied to readings."""
+        try:
+            return jsonify({"calibration": get_all_calibrations()})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/calibration", methods=["POST"])
+    def update_calibration():
+        """
+        Set a sensor's offset.
+
+        Takes effect on the control loop's next start: it reads the offsets once
+        rather than hitting the database every three seconds.
+        """
+        data = request.get_json(silent=True) or {}
+        sensor_id = data.get("sensor_id")
+        if not sensor_id or not isinstance(sensor_id, str):
+            return jsonify({"error": "Missing or invalid 'sensor_id'"}), 400
+
+        offsets = {}
+        for field in ("temperature_offset", "humidity_offset"):
+            value = data.get(field, 0)
+            try:
+                offsets[field] = float(value)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"'{field}' must be a number"}), 400
+
+        # A correction larger than this is a wiring or units problem, not drift.
+        if abs(offsets["temperature_offset"]) > 20:
+            return jsonify({"error": "'temperature_offset' fuera de rango (±20 °C)"}), 400
+        if abs(offsets["humidity_offset"]) > 50:
+            return jsonify({"error": "'humidity_offset' fuera de rango (±50 %)"}), 400
+
+        if not set_calibration(sensor_id, notes=data.get("notes"), **offsets):
+            return jsonify({"error": "Failed to store calibration"}), 500
+
+        return jsonify({
+            "success": True,
+            "sensor_id": sensor_id,
+            **offsets,
+            "note": "Se aplica cuando reinicie el loop de control.",
+        })
 
     @app.route("/api/database-stats", methods=["GET"])
     def database_stats():
@@ -393,7 +581,10 @@ def create_app() -> Flask:
             end_timestamp = int(current_time.timestamp())
             start_timestamp = end_timestamp - (days * 24 * 3600)
 
-            data = get_aggregated_data(start_timestamp, end_timestamp, interval_seconds, grow_id)
+            data = _with_gaps(
+                get_aggregated_data(start_timestamp, end_timestamp, interval_seconds, grow_id),
+                interval_seconds,
+            )
 
             return jsonify(
                 {
@@ -474,6 +665,19 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/grows/<int:grow_id>/timeline", methods=["GET"])
+    def grow_timeline(grow_id: int):
+        """
+        Stage periods for a grow, with how many days each one lasted.
+
+        Days are calendar days in the local timezone, and the day a stage starts
+        is day 1.
+        """
+        try:
+            return jsonify({"grow_id": grow_id, "timeline": get_stage_timeline(grow_id)})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/api/grows/<int:grow_id>/stage", methods=["PUT"])
     def update_stage_endpoint(grow_id: int):
         try:
@@ -486,7 +690,7 @@ def create_app() -> Flask:
             if stage not in valid_stages:
                 return jsonify({"error": f'Invalid stage. Use one of: {", ".join(valid_stages)}'}), 400
 
-            success = update_grow_stage(grow_id, stage)
+            success = update_grow_stage(grow_id, stage, notes=data.get("notes"))
             if success:
                 return jsonify({"success": True, "message": f"Grow {grow_id} stage updated to {stage}"})
             return jsonify({"error": "Failed to update stage"}), 500

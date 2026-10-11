@@ -1,9 +1,52 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend clean logs check ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data compact-remote compact-remote-dry compact-local ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
 RPI_HOST ?= autocann.local
 RPI_PATH ?= /home/autocann/Autocann
+
+# Patrones para encontrar los procesos. Tienen que coincidir con los módulos
+# reales: antes decían 'fix-vpd', un script que ya no existe, así que ningún
+# pkill/pgrep encontraba nada y los deploys dejaban dos loops de control vivos
+# peleándose los mismos pines GPIO.
+# Los corchetes son a propósito. `[a]utocann` matchea el texto "autocann", pero
+# el patrón escrito en la línea de comandos del propio shell dice
+# "[a]utocann" y por lo tanto NO se matchea a sí mismo. Sin eso,
+# `pkill -f autocann.cli.vpd` mata al shell que lo está ejecutando — por ssh eso
+# cortaría el comando a la mitad y el SIGKILL de respaldo nunca correría.
+VPD_PATTERN = [a]utocann\.cli\.vpd
+BACKEND_PATTERN = [a]utocann\.cli\.backend
+
+# Listado portable: `pgrep -af` es sólo de Linux (en macOS -a significa otra
+# cosa y el patrón terminaba matcheando al propio pgrep).
+LIST_SERVICES = ps -eo pid,command | grep -E '[a]utocann\.cli\.(vpd|backend)'
+
+# La Raspberry corre los servicios bajo systemd (unit `fix-vpd`, Restart=always,
+# RestartSec=5). Matar con pkill no sirve: systemd los revive a los 5 segundos,
+# y lo hace con el código que haya en disco en ese momento — que durante un
+# deploy puede ser todavía el viejo. Hay que pasar por systemd.
+#
+# Si el unit no existe (instalación sin systemd), cae al pkill de antes.
+SYSTEMD_UNIT = fix-vpd.service
+
+STOP_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl stop $(SYSTEMD_UNIT); \
+	else \
+	  pkill -f '$(VPD_PATTERN)' || true; pkill -f '$(BACKEND_PATTERN)' || true; \
+	  sleep 2; pkill -9 -f '$(VPD_PATTERN)' || true; pkill -9 -f '$(BACKEND_PATTERN)' || true; \
+	fi
+
+START_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl start $(SYSTEMD_UNIT); \
+	else \
+	  cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null & \
+	fi
+
+RESTART_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
+	  sudo systemctl restart $(SYSTEMD_UNIT); \
+	else \
+	  $(STOP_SERVICES); sleep 2; $(START_SERVICES); \
+	fi
 
 # Cargar configuración local si existe (config.mk)
 -include config.mk
@@ -22,7 +65,17 @@ help:
 	@echo "    make run-vpd       - Ejecuta el control de VPD (early_veg por defecto)"
 	@echo "    make run-backend   - Ejecuta el servidor web"
 	@echo "    make logs          - Muestra los últimos logs"
+	@echo "    make status        - Muestra qué procesos están corriendo"
+	@echo "    make test          - Corre los tests (Python + JS)"
+	@echo "    make lint          - Chequea estilo con ruff"
 	@echo "    make clean         - Limpia archivos temporales"
+	@echo ""
+	@echo "  Datos de producción:"
+	@echo "    make pull-data     - Trae una copia de la base de la Raspberry"
+	@echo "    make inspect-data  - Reporte sobre una base traída (DB=archivo)"
+	@echo "    make compact-remote-dry - Qué se compactaría en la Raspberry (no ejecuta)"
+	@echo "    make compact-remote     - Compacta la base de producción"
+	@echo "    make compact-local      - Compacta una copia local (DB=archivo)"
 	@echo ""
 	@echo "  Raspberry Pi remota:"
 	@echo "    make ssh-setup     - Configura SSH key (solo primera vez)"
@@ -80,12 +133,104 @@ clean:
 	find . -type f -name "*.pyo" -delete
 	find . -type f -name "*.pid" -delete
 
+status:
+	@echo "Procesos locales de Autocann:"
+	@$(LIST_SERVICES) || echo "No hay servicios corriendo"
+
+test:
+	@echo "Corriendo tests..."
+	uv run --extra dev python -m pytest tests/ -q
+
+test-js:
+	@echo "Corriendo tests de JavaScript..."
+	@command -v node > /dev/null 2>&1 \
+		&& node --test tests/js/util.test.mjs \
+		|| echo "node no está instalado, salteado"
+
+lint:
+	@echo "Chequeando estilo..."
+	uv run --extra dev ruff check autocann tests
+
 logs:
 	@echo "=== Backend logs (últimas 50 líneas) ==="
 	@tail -n 50 logs/backend_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de backend hoy"
 	@echo ""
 	@echo "=== VPD logs (últimas 50 líneas) ==="
 	@tail -n 50 logs/vpd_$$(date +'%Y-%m-%d').log 2>/dev/null || echo "No hay logs de VPD hoy"
+
+# Traer una copia consistente de la base de producción.
+#
+# Usa la API de backup de SQLite en la Raspberry en lugar de copiar el archivo:
+# la base está en modo WAL y el loop de control escribe cada 5 minutos, así que
+# un `scp` del archivo vivo puede traer una copia corrupta o a mitad de una
+# transacción.
+#
+# Es de solo lectura: no toca la base de producción, sólo deja un snapshot
+# temporal que borra al terminar.
+pull-data:
+	@echo "Generando snapshot consistente en la Raspberry..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "python3 -c \"import sqlite3; \
+	    src = sqlite3.connect('file:$(RPI_PATH)/data/autocann.db?mode=ro', uri=True); \
+	    dst = sqlite3.connect('/tmp/autocann-snapshot.db'); \
+	    src.backup(dst); dst.close(); src.close(); \
+	    print('snapshot listo')\""
+	@mkdir -p data
+	@echo "Descargando..."
+	@scp -q $(RPI_USER)@$(RPI_HOST):/tmp/autocann-snapshot.db data/produccion-$$(date +%Y%m%d-%H%M).db
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f /tmp/autocann-snapshot.db"
+	@echo "✅ Guardado en data/produccion-$$(date +%Y%m%d-%H%M).db"
+	@echo
+	@echo "Para mirarla:  make inspect-data DB=data/produccion-....db"
+
+# Reporte sobre una base traída de producción, sin tocar la local.
+inspect-data:
+	@test -n "$(DB)" || { echo "Usá: make inspect-data DB=data/produccion-....db"; exit 1; }
+	@test -f "$(DB)" || { echo "No existe $(DB)"; exit 1; }
+	uv run python -m autocann.cli.inspect_db "$(DB)"
+
+
+# Compactar la base EN LA RASPBERRY.
+#
+# El script no depende del paquete (sólo stdlib + redis opcional), así que se
+# manda solo. No hace falta desplegar la rama entera para limpiar la base.
+#
+# Destructivo sobre producción, así que:
+#   1. para los servicios (compactar con el loop escribiendo puede corromper)
+#   2. el script hace su propia copia de seguridad antes de tocar nada
+#   3. verifica integridad y que sensor_data no haya cambiado
+#   4. vuelve a levantar los servicios
+COMPACT_SCRIPT = autocann/cli/compact_db.py
+COMPACT_REMOTE_PATH = /tmp/compact_db.py
+
+compact-remote-dry:
+	@scp -q $(COMPACT_SCRIPT) $(RPI_USER)@$(RPI_HOST):$(COMPACT_REMOTE_PATH)
+	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && \
+	  .venv/bin/python $(COMPACT_REMOTE_PATH) data/autocann.db"
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f $(COMPACT_REMOTE_PATH)"
+
+compact-remote:
+	@echo "⚠️  Esto modifica la base de producción en $(RPI_HOST)."
+	@echo "    Antes conviene tener una copia local: make pull-data"
+	@printf "    Escribí 'si' para continuar: " && read r && [ "$$r" = "si" ]
+	@scp -q $(COMPACT_SCRIPT) $(RPI_USER)@$(RPI_HOST):$(COMPACT_REMOTE_PATH)
+	@echo "1. Parando servicios..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(STOP_SERVICES)"
+	@sleep 3
+	@ssh $(RPI_USER)@$(RPI_HOST) "ps -eo command | grep -qE '[a]utocann\.cli\.vpd' && \
+	  { echo '❌ El loop sigue vivo; abortando para no compactar con escrituras encima'; exit 1; } || true"
+	@echo "2. Compactando..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && \
+	  .venv/bin/python $(COMPACT_REMOTE_PATH) data/autocann.db --apply --redis"
+	@ssh $(RPI_USER)@$(RPI_HOST) "rm -f $(COMPACT_REMOTE_PATH)"
+	@echo "3. Levantando servicios..."
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(START_SERVICES)"
+	@sleep 8
+	@$(MAKE) --no-print-directory ssh-status
+
+# Compactar una copia local (la que trajiste con pull-data).
+compact-local:
+	@test -n "$(DB)" || { echo "Usá: make compact-local DB=data/produccion-....db"; exit 1; }
+	uv run python -m autocann.cli.compact_db "$(DB)" --apply
 
 # Comandos SSH para administración remota
 ssh:
@@ -99,14 +244,13 @@ ssh-logs:
 
 ssh-status:
 	@echo "Estado de los servicios en la Raspberry Pi..."
-	ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd)' || echo 'No hay servicios corriendo'"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(LIST_SERVICES) || echo 'No hay servicios corriendo'"
 
 ssh-restart:
 	@echo "Reiniciando servicios en la Raspberry Pi..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true"
-	@sleep 1
-	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &"
-	@echo "✅ Servicios reiniciados"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(RESTART_SERVICES)"
+	@sleep 8
+	@$(MAKE) --no-print-directory ssh-status
 
 deploy:
 	@echo "Desplegando cambios en la Raspberry Pi..."
@@ -115,12 +259,10 @@ deploy:
 	@echo "2. Actualizando código en la Raspberry Pi..."
 	@ssh $(RPI_USER)@$(RPI_HOST) 'export PATH="$$HOME/.cargo/bin:$$HOME/.local/bin:$$PATH" && cd $(RPI_PATH) && git pull && uv sync --extra rpi'
 	@echo "3. Reiniciando servicios..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pkill -f 'python.*fix-vpd' || true; pkill -f 'python.*backend' || true"
-	@sleep 1
-	@ssh $(RPI_USER)@$(RPI_HOST) "cd $(RPI_PATH) && setsid ./scripts/start_services.sh > /dev/null 2>&1 < /dev/null &" || true
-	@sleep 2
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(RESTART_SERVICES)"
+	@sleep 8
 	@echo "4. Verificando estado..."
-	@ssh $(RPI_USER)@$(RPI_HOST) "pgrep -a python | grep -E '(backend|fix-vpd)' || echo '⚠️  Servicios no detectados (pueden tardar en iniciar)'"
+	@ssh $(RPI_USER)@$(RPI_HOST) "$(LIST_SERVICES) || echo '⚠️  Servicios no detectados (pueden tardar en iniciar)'"
 	@echo "✅ Despliegue completado"
 
 ssh-setup:

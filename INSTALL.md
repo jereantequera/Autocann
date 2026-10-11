@@ -49,7 +49,7 @@ uv sync --extra rpi
 
 Esto instalará:
 - Flask, Redis, pytz (dependencias base)
-- **adafruit-circuitpython-bme280** (sensores BME280)
+- **adafruit-circuitpython-dht** (sensores DHT22)
 - **adafruit-blinka** (capa de compatibilidad)
 - **gpiozero** (control GPIO de alto nivel)
 - **RPi.GPIO** (control GPIO de bajo nivel)
@@ -108,7 +108,7 @@ En desarrollo, **NO necesitás** las dependencias de Raspberry Pi:
 uv sync
 ```
 
-**Nota**: Las librerías de GPIO y sensores BME280 no se pueden compilar en macOS/Windows y no son necesarias para desarrollo del backend/frontend.
+**Nota**: Las librerías de GPIO y de sensores no se pueden compilar en macOS/Windows y no son necesarias para desarrollar el backend/frontend. Los tests tampoco las necesitan.
 
 ### Paso 4: Desarrollo
 
@@ -135,7 +135,7 @@ pytz        - Manejo de zonas horarias
 ### Dependencias Raspberry Pi (solo con --extra rpi)
 
 ```
-adafruit-circuitpython-bme280  - Sensores BME280
+adafruit-circuitpython-dht    - Sensores DHT22
 adafruit-blinka                - Capa de compatibilidad I2C/SPI
 gpiozero                       - Control GPIO de alto nivel
 RPi.GPIO                       - Control GPIO de bajo nivel
@@ -192,7 +192,7 @@ make run-backend      # Servidor web (funciona)
 uv sync  # Sin --extra rpi
 ```
 
-### "No module named 'adafruit_bme280'" en Raspberry Pi
+### "No module named 'adafruit_dht'" / "No module named 'gpiozero'" en Raspberry Pi
 
 ❌ Falta instalar las dependencias de hardware. Usá:
 
@@ -200,29 +200,50 @@ uv sync  # Sin --extra rpi
 uv sync --extra rpi
 ```
 
-### "i2cdetect: command not found"
+### Sensores no detectados
 
-Instalá las herramientas I2C:
+El chequeo de sistema dice qué falta, con la sugerencia concreta:
+
+```bash
+make check
+```
+
+El sensor interior por defecto es un **ESP32** que postea a
+`POST /api/sensor/indoor`; el exterior es un **DHT22 en GPIO 13**. Si el interior
+no llega:
+
+```bash
+# ¿Qué fue lo último que mandó el ESP32?
+curl -s http://localhost:5000/api/sensor/indoor | python3 -m json.tool
+
+# Probar a mano, como si fueras el ESP32
+curl -X POST http://localhost:5000/api/sensor/indoor \
+  -H 'Content-Type: application/json' \
+  -d '{"temperature": 24.0, "humidity": 60.0}'
+```
+
+Si el DHT22 falla intermitentemente, es normal: el loop filtra con mediana y
+apaga las salidas si no hay dato fresco. Ver
+[HARDWARE.md](./HARDWARE.md) para la solución de fondo.
+
+### Los relés golpean / el loop se comporta raro
+
+Casi siempre hay **más de un loop de control corriendo**:
+
+```bash
+make status
+# Si hay más de uno:
+pkill -f autocann.cli.vpd && ./scripts/start_services.sh
+```
+
+### Sensores I2C (si migrás a BME280 / SHT4x)
 
 ```bash
 sudo apt-get install i2c-tools
-```
-
-### Sensores BME280 no detectados
-
-1. Habilitar I2C:
-
-```bash
-sudo raspi-config
-# Interface Options → I2C → Enable
+sudo raspi-config          # Interface Options → I2C → Enable
 sudo reboot
-```
-
-2. Verificar conexiones:
-
-```bash
 sudo i2cdetect -y 1
-# Deberías ver 76 y 77
+./scripts/check_i2c_bme.sh 44 45
 ```
 
 ### "uv: command not found" en start_services.sh
@@ -244,7 +265,35 @@ find ~ -name "uv" -type f 2>/dev/null
 # Y agregá esa ruta específica al PATH
 ```
 
-**Nota:** El script `start_services.sh` ahora incluye el PATH automáticamente, pero necesitás que `~/.bashrc` también lo tenga para usar `uv` manualmente.
+**Nota:** El script `start_services.sh` ya configura el PATH, pero necesitás que
+`~/.bashrc` también lo tenga para usar `uv` a mano.
+
+### Los servicios corren bajo systemd (`fix-vpd.service`)
+
+La Raspberry ya tiene un unit de systemd instalado y habilitado:
+
+```bash
+systemctl status fix-vpd.service
+sudo systemctl restart fix-vpd.service
+journalctl -u fix-vpd.service -f
+```
+
+Con `Restart=always` y `RestartSec=5`. **Esto importa para cualquier deploy:**
+matar los procesos con `pkill` no sirve — systemd los revive cinco segundos
+después, y lo hace con el código que haya en disco en ese momento, que durante
+un deploy puede ser todavía el viejo. Hay que parar y arrancar el unit.
+
+De ahí viene el nombre `fix-vpd` que aparecía en los patrones viejos del
+Makefile: apuntaban al unit, no al proceso, así que nunca matchearon nada.
+
+`make ssh-restart`, `make deploy` y `make compact-remote` ya usan systemd cuando
+el unit existe, y caen a `pkill` si no.
+
+### Arrancar con systemd en lugar de start_services.sh
+
+Recomendado: systemd garantiza una sola instancia y reinicia solo, lo que elimina
+la clase de problemas de procesos duplicados. Los units están en
+[HARDWARE.md](./HARDWARE.md#systemd-en-lugar-de-start_servicessh).
 
 ---
 
@@ -341,6 +390,7 @@ make deploy RPI_HOST=autocann.local
 ## Referencias
 
 - [Documentación de uv](https://docs.astral.sh/uv/)
-- [Adafruit BME280](https://learn.adafruit.com/adafruit-bme280-humidity-barometric-pressure-temperature-sensor-breakout)
+- [Adafruit DHT22](https://learn.adafruit.com/dht/overview)
+- [HARDWARE.md](./HARDWARE.md) — por qué conviene reemplazar el DHT22 y por qué
 - [README principal](./README.md)
 
