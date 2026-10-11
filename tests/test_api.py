@@ -296,6 +296,141 @@ def test_a_reading_can_be_read_back_per_sensor(client):
 
 
 # ---------------------------------------------------------------------------
+# Every indoor sensor at once, for the dashboard
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_sensors(monkeypatch):
+    """The installed configuration: 'a' drives control, 'b' only watches it."""
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    monkeypatch.setenv("AUTOCANN_INDOOR_WITNESS", "b")
+
+
+def _store_indoor(client, key, temperature, humidity, age_seconds=0, vpd=1.0):
+    """
+    Seed a reading of a chosen age, which posting cannot do: the endpoint stamps
+    its own time.
+    """
+    from datetime import datetime
+
+    from autocann.time import ARGENTINA_TZ
+
+    now = int(datetime.now(ARGENTINA_TZ).timestamp())
+    client.redis.store[key] = json.dumps(
+        {
+            "temperature": temperature,
+            "humidity": humidity,
+            "vpd": vpd,
+            "timestamp": now - age_seconds,
+            "datetime": "2026-10-11 20:00:00",
+        }
+    )
+
+
+def test_both_indoor_sensors_are_listed_with_their_roles(client, two_sensors):
+    """
+    Which ids exist and which one controls is server-side configuration, so the
+    dashboard cannot discover the second sensor on its own.
+    """
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0, "sensor_id": "a"})
+    client.post("/api/sensor/indoor", json={"temperature": 24.4, "humidity": 58.8, "sensor_id": "b"})
+
+    body = client.get("/api/sensors/indoor").get_json()
+
+    assert [(s["role"], s["sensor_id"]) for s in body["sensors"]] == [
+        ("primary", "a"), ("witness", "b"),
+    ]
+    assert [s["temperature"] for s in body["sensors"]] == [24.0, 24.4]
+    assert all(s["has_reading"] and not s["is_stale"] for s in body["sensors"])
+
+
+def test_the_difference_is_witness_minus_primary(client, two_sensors):
+    """The direction the drift monitor measures in, so the signs agree with it."""
+    _store_indoor(client, "esp32_indoor:a", 24.0, 60.0)
+    _store_indoor(client, "esp32_indoor:b", 24.5, 58.0)
+
+    assert client.get("/api/sensors/indoor").get_json()["delta"] == {
+        "temperature": 0.5, "humidity": -2.0,
+    }
+
+
+def test_a_stale_sensor_is_flagged_and_withholds_the_difference(client, two_sensors):
+    """
+    Subtracting an hour-old reading from a live one measures the clock, not the
+    sensors, and on a dashboard that difference reads as a fault in the pair.
+    """
+    _store_indoor(client, "esp32_indoor:a", 24.0, 60.0)
+    _store_indoor(client, "esp32_indoor:b", 24.5, 58.0, age_seconds=3600)
+
+    body = client.get("/api/sensors/indoor").get_json()
+    witness = body["sensors"][1]
+
+    assert witness["is_stale"] is True
+    assert witness["age_seconds"] >= 3600
+    assert body["delta"] is None
+
+
+def test_a_sensor_that_never_posted_is_not_reported_as_fresh(client, two_sensors):
+    """Defaulting the other way would paint an empty card green."""
+    _store_indoor(client, "esp32_indoor:a", 24.0, 60.0)
+
+    witness = client.get("/api/sensors/indoor").get_json()["sensors"][1]
+
+    assert (witness["has_reading"], witness["is_stale"]) == (False, True)
+    assert witness["temperature"] is None
+
+
+def test_each_sensor_carries_its_own_drift_flags(client, two_sensors):
+    """
+    Divergence says the pair disagrees; a per-sensor flag says which one to
+    distrust. One shared alarm would throw that away.
+    """
+    _store_indoor(client, "esp32_indoor:a", 24.0, 60.0)
+    _store_indoor(client, "esp32_indoor:b", 24.5, 58.0)
+    client.redis.store["sensor_status"] = json.dumps(
+        {
+            "drift": {
+                "ok": False,
+                "suspects": ["witness"],
+                "messages": ["sensor witness: valor congelado"],
+                "flags": {"primary": [], "witness": ["stuck"]},
+            }
+        }
+    )
+
+    body = client.get("/api/sensors/indoor").get_json()
+
+    assert body["sensors"][0]["flags"] == []
+    assert body["sensors"][1]["flags"] == ["stuck"]
+    assert body["drift"]["ok"] is False
+
+
+def test_a_single_sensor_installation_answers_with_one_entry(client, monkeypatch):
+    """The legacy install is not a special case the frontend has to handle."""
+    monkeypatch.delenv("AUTOCANN_INDOOR_PRIMARY", raising=False)
+    monkeypatch.delenv("AUTOCANN_INDOOR_WITNESS", raising=False)
+    client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0})
+
+    body = client.get("/api/sensors/indoor").get_json()
+
+    assert len(body["sensors"]) == 1
+    assert body["sensors"][0]["redis_key"] == "esp32_indoor"
+    assert body["delta"] is None
+
+
+def test_a_misconfigured_pair_says_so_instead_of_dropping_a_sensor(client, monkeypatch):
+    """Answering with a plausible one-sensor list is how a witness disappears."""
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    monkeypatch.setenv("AUTOCANN_INDOOR_WITNESS", "a")
+
+    response = client.get("/api/sensors/indoor")
+
+    assert response.status_code == 500
+    assert "inválida" in response.get_json()["error"]
+
+
+# ---------------------------------------------------------------------------
 # Desired outputs, polled by the remote relay node
 # ---------------------------------------------------------------------------
 

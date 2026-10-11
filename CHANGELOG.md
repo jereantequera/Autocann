@@ -1,5 +1,51 @@
 # Changelog
 
+## Los dos sensores interiores, visibles
+
+La carpa tiene dos DHT22 desde el armado del 11-10: `a` en GPIO 32 controla y
+`b` en GPIO 33 lo vigila. Los dos posteaban, los dos quedaban en Redis y el
+monitor de deriva comparaba los dos — pero el dashboard mostraba uno solo, así
+que el testigo no servía de nada: no se puede desconfiar de un sensor que no se
+ve.
+
+**`GET /api/sensors/indoor`** devuelve los dos a la vez, cada uno con su rol, la
+antigüedad de su lectura y sus flags de deriva. El dashboard no podía armar esto
+pidiendo `/api/sensor/indoor?sensor_id=` dos veces: qué ids existen y cuál
+controla es configuración del servidor, no algo que el front pueda adivinar. Una
+instalación de un solo sensor responde con una entrada, sin que el front tenga
+que tratarla aparte.
+
+**Sección *Sensores Interiores*** en el dashboard: una tarjeta por sensor con la
+lectura cruda — lo que posteó el nodo, antes del filtro de mediana y de la
+calibración — y una tarjeta de diferencia (testigo − primario) contra el offset
+base aprendido. Mostrar el offset base al lado de la diferencia es lo que separa
+"los dos coinciden" de "todavía no aprendió una base": sin eso, un monitor que
+nunca juntó suficientes muestras se ve idéntico a uno conforme.
+
+**La diferencia se calcula sólo entre dos lecturas frescas.** Restarle a una
+lectura viva una de hace una hora mide el reloj, no los sensores, y en una
+pantalla eso se lee como una falla del par.
+
+**El backend no veía los ids de los sensores.** `start_services.sh` exportaba
+`AUTOCANN_INDOOR_PRIMARY` / `AUTOCANN_INDOOR_WITNESS` *después* de arrancar el
+backend, así que el proceso web quedaba con la configuración de un solo sensor.
+Para el lazo alcanzaba; para esta pantalla no.
+
+**Un badge huérfano menos.** El segundo sensor se pintaba desde `data.indoor` —
+la visión que el lazo tiene del *primario* — sobre un elemento que no existía en
+ningún template. Ahora cada sensor tiene su badge, alimentado por su propia
+lectura.
+
+Los nombres de rol (`primary` / `witness`) y el máximo de 60 s de antigüedad
+viven ahora en `autocann/config.py`: un dashboard que llame fresca una lectura
+que el lazo está descartando es peor que cualquiera de las dos respuestas sola.
+
+Pendiente, a propósito: **los gráficos históricos siguen siendo del primario**.
+SQLite guarda las muestras del lazo, y el testigo no pasa por ahí — mostrarlo en
+el histórico es un cambio de esquema, no de dashboard.
+
+---
+
 ## Fase 2 del roadmap — data más confiable
 
 El histórico tenía huecos de información que ninguna query podía recuperar

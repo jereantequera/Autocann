@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional, Tuple
 import redis
 
 from autocann.config import (
+    INDOOR_SENSOR_MAX_AGE_SECONDS,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
     IndoorSensors,
@@ -59,8 +60,11 @@ LOOP_INTERVAL_SECONDS = 3.0
 DB_SAVE_INTERVAL_SECONDS = 300.0
 #: How often the active grow / stage is re-read from the database.
 STAGE_CHECK_INTERVAL_SECONDS = 60.0
-#: ESP32 data older than this is ignored.
-ESP32_MAX_AGE_SECONDS = 60
+#: ESP32 data older than this is ignored. Defined in `autocann.config` because
+#: the dashboard marks a reading stale with the same number, and a dashboard
+#: calling a reading fresh that the loop is refusing to act on is worse than
+#: either answer on its own.
+ESP32_MAX_AGE_SECONDS = INDOOR_SENSOR_MAX_AGE_SECONDS
 #: Leaves run cooler than the air; VPD is judged at leaf temperature.
 LEAF_TEMP_OFFSET_C = 1.5
 #: Expiry on the Redis keys the dashboard reads, so a dead loop stops looking alive.
@@ -99,6 +103,13 @@ redis_client = redis.Redis(host=_redis_cfg.host, port=_redis_cfg.port, db=_redis
 
 def _now_local() -> datetime:
     return datetime.now(ARGENTINA_TZ)
+
+
+def _offset_dict(offset) -> Optional[Dict[str, float]]:
+    """A drift Offset as plain JSON, or None when there is not one yet."""
+    if offset is None:
+        return None
+    return {"temperature": round(offset.temperature, 2), "humidity": round(offset.humidity, 2)}
 
 
 def _set_redis(key: str, value: str, ttl: Optional[int] = REDIS_KEY_TTL_SECONDS) -> None:
@@ -545,9 +556,16 @@ class Sensors:
             report = self.drift_report
             status["drift"] = {
                 "ok": report.ok,
+                "diverged": report.diverged,
                 "suspects": list(report.suspects),
                 "messages": report.messages,
                 "flags": {name: list(flags) for name, flags in report.flags.items()},
+                # Both offsets, so the dashboard can tell "the pair agrees"
+                # from "no baseline has been learned yet". Without them a
+                # monitor that has never had enough paired samples looks
+                # exactly like one that is perfectly happy.
+                "baseline": _offset_dict(report.baseline),
+                "offset": _offset_dict(report.offset),
             }
         _set_redis("sensor_status", json.dumps(status))
 

@@ -62,6 +62,30 @@ function formatDate(dateString, view = {}) {
     return `${day}/${month} ${hours}:${minutes}`;
 }
 
+/**
+ * How long ago a reading was taken, in words.
+ *
+ * Takes an age in seconds rather than a timestamp, and the age is the server's:
+ * the Raspberry has no real-time clock, so it and the browser can disagree by
+ * minutes, and a browser-side subtraction renders a live sensor as "hace -3 min".
+ */
+function formatAge(seconds) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'sin datos';
+    if (seconds <= 0) return 'ahora';
+    if (seconds < 60) return `hace ${Math.round(seconds)} s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `hace ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `hace ${hours} h ${minutes % 60} min`;
+    return `hace ${Math.floor(hours / 24)} d`;
+}
+
+/** A signed difference, so "+0.4" and "-0.4" are told apart at a glance. */
+function fmtSigned(value, decimals = 1, fallback = '--') {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+    return (value >= 0 ? '+' : '') + value.toFixed(decimals);
+}
+
 function getScoreClass(score) {
     if (score >= 85) return 'excellent';
     if (score >= 70) return 'good';
@@ -76,4 +100,7 @@ function getScoreLabel(score) {
     return '❌ Necesita mejorar';
 }
 
-export { escapeHtml, fmtNum, parseLocalDatetime, formatDate, getScoreClass, getScoreLabel };
+export {
+    escapeHtml, fmtNum, fmtSigned, formatAge, parseLocalDatetime, formatDate,
+    getScoreClass, getScoreLabel,
+};

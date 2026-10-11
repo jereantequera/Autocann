@@ -40,15 +40,17 @@ from dataclasses import dataclass, field
 from statistics import median
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
+# The role names are shared with the sensor configuration: they key both
+# `IndoorSensors` and this module's per-sensor report, and a second spelling of
+# "witness" here would silently stop lining up with the configured sensor.
+from autocann.config import PRIMARY, WITNESS
+
 #: A sensor whose value has not moved at all for a full window.
 STUCK = "stuck"
 #: Humidity pinned against 0 % or 100 % for a full window.
 RAILED = "railed"
 #: The pair's offset has moved away from the baseline it was given.
 DIVERGED = "diverged"
-
-PRIMARY = "primary"
-WITNESS = "witness"
 
 Reading = Tuple[float, float]
 

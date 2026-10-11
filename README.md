@@ -140,6 +140,8 @@ http://<ip-de-tu-raspberry>:5000
 - `GET /api/history/aggregated` - Datos agregados para gráficos (SQLite)
 - `GET /api/database-stats` - Estadísticas de la base de datos
 - `GET /api/sensor-status` - Estado de conectividad de los sensores
+- `GET /api/sensors/indoor` - Todos los sensores interiores a la vez, con su rol
+  (primario/testigo), la antigüedad de cada lectura y el veredicto de deriva
 - `GET /api/output-status` - Estado de los relés y overrides activos
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
@@ -243,6 +245,19 @@ El veredicto sale en `sensor_status` bajo la clave `drift`. **Ninguna de las
 tres condiciones apaga nada**: un sensor que deriva no es motivo para
 desenergizar la carpa — para eso está el failsafe — es motivo para avisarte cuál
 sensor desconfiar.
+
+**En el dashboard**, la sección *Sensores Interiores* muestra una tarjeta por
+sensor con su lectura cruda — lo que posteó el nodo, antes del filtro de mediana
+y de la calibración — más una tarjeta de diferencia (testigo − primario) contra
+el offset base aprendido. Las tarjetas grandes de arriba siguen mostrando el
+primario ya filtrado, que es el número sobre el que decide el control, así que
+pueden diferir unas décimas y ambas estar bien.
+
+La lista sale de `GET /api/sensors/indoor`, que lee `AUTOCANN_INDOOR_PRIMARY` /
+`AUTOCANN_INDOOR_WITNESS`: **el backend también necesita esas variables**, no
+sólo el lazo. Sin ellas responde como instalación de un solo sensor y el testigo
+no aparece en pantalla. `scripts/start_services.sh` las exporta antes de arrancar
+los dos procesos.
 
 El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
 

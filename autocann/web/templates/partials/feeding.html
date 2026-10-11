@@ -1,0 +1,88 @@
+        <!-- Feeding - what the chart says to pour today, and what was poured -->
+        <!--
+             The stage and the day inside it come from the active grow, so this
+             never asks for dates the backend already knows. The chart itself
+             lives in the database: the grid below is an editor for it, not a
+             copy of a printed table.
+        -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <span class="section-title-icon">🧪</span>
+                Riego y Fertilización
+            </h2>
+            <div class="feed-header-actions">
+                <span class="sensor-badge" id="feed-last-badge">⏳</span>
+                <button class="btn btn-ghost" data-action="toggle-feed-plan"
+                        id="feed-plan-toggle">Plan</button>
+            </div>
+        </div>
+
+        <div class="feed-grid">
+            <!-- Hoy -->
+            <div class="feed-card feed-today">
+                <div class="feed-card-header">
+                    <div class="feed-card-title">Hoy</div>
+                    <div class="feed-week" id="feed-week">--</div>
+                </div>
+                <div class="feed-volume">
+                    <label for="feed-litres">Litros de solución</label>
+                    <input type="number" id="feed-litres" min="0.1" step="0.5"
+                           inputmode="decimal" value="10">
+                </div>
+                <div class="feed-doses" id="feed-doses">
+                    <div class="loading">Cargando plan</div>
+                </div>
+            </div>
+
+            <!-- Registrar -->
+            <div class="feed-card">
+                <div class="feed-card-header">
+                    <div class="feed-card-title">Registrar riego</div>
+                    <button class="btn btn-ghost btn-mini" data-action="feed-reset"
+                            title="Volver a lo que dice el plan">Plan</button>
+                </div>
+                <div class="feed-products" id="feed-products">
+                    <div class="loading">Cargando productos</div>
+                </div>
+                <div class="feed-measures">
+                    <div class="feed-field">
+                        <label for="feed-ph">pH</label>
+                        <input type="number" id="feed-ph" step="0.1" min="3" max="9"
+                               inputmode="decimal" placeholder="6.0">
+                    </div>
+                    <div class="feed-field">
+                        <label for="feed-ec">EC</label>
+                        <input type="number" id="feed-ec" step="0.1" min="0" max="5"
+                               inputmode="decimal" placeholder="1.8">
+                    </div>
+                </div>
+                <div class="feed-field">
+                    <label for="feed-notes">Nota</label>
+                    <textarea id="feed-notes" rows="2"
+                              placeholder="Puntas quemadas en la de la izquierda, bajé 25%"></textarea>
+                </div>
+                <button class="btn btn-primary feed-save" data-action="feed-save">
+                    Registrar riego
+                </button>
+            </div>
+        </div>
+
+        <!-- Plan semanal, oculto hasta que se pide -->
+        <div class="feed-plan-editor" id="feed-plan-editor" hidden>
+            <div class="feed-plan-intro">
+                Cada celda es la dosis de ese producto en esa semana de la etapa.
+                Vacío significa que no se aplica. Las columnas salen de la duración
+                típica de cada etapa.
+            </div>
+            <div class="feed-plan-scroll">
+                <table class="feed-plan-table" id="feed-plan-table"></table>
+            </div>
+            <div class="feed-plan-actions">
+                <button class="btn btn-primary" data-action="feed-plan-save">Guardar plan</button>
+                <button class="btn btn-ghost" data-action="feed-plan-add">Agregar producto</button>
+                <span class="feed-plan-state" id="feed-plan-state"></span>
+            </div>
+        </div>
+
+        <!-- Historial -->
+        <div class="feed-history" id="feed-history"></div>

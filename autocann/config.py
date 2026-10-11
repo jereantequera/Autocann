@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -127,6 +127,18 @@ def control_tuning_from_env() -> ControlTuning:
 #: an unidentified poster so existing ESP32 firmware keeps working untouched.
 LEGACY_INDOOR_KEY = "esp32_indoor"
 
+#: A reading older than this is one the control loop refuses to act on, and the
+#: dashboard marks stale. The sensor node posts every 10 s, so this tolerates
+#: several lost cycles before a sensor is treated as gone.
+INDOOR_SENSOR_MAX_AGE_SECONDS = 60
+
+#: The two roles an indoor sensor can hold. They are also the per-sensor keys of
+#: the drift monitor's report, which is why they live here rather than in either
+#: of the modules that use them: a second spelling of "witness" would stop
+#: matching the sensor the operator configured, and nothing would say so.
+PRIMARY = "primary"
+WITNESS = "witness"
+
 #: Sensor ids are interpolated into Redis key names, and `/api/sensor/indoor`
 #: has no authentication (see ROADMAP). Without this, a poster on the LAN could
 #: put a ':' in the id and write to any key the dashboard or the control loop
@@ -173,6 +185,20 @@ class IndoorSensors:
     @property
     def witness_key(self) -> Optional[str]:
         return indoor_sensor_key(self.witness) if self.witness else None
+
+    def entries(self) -> Tuple[Tuple[str, Optional[str], str], ...]:
+        """
+        `(role, sensor_id, redis_key)` for each configured sensor, primary first.
+
+        The single-sensor installation yields one entry whose id is None, so a
+        caller that wants to show or read "every indoor sensor" never has to
+        special-case the legacy key.
+        """
+        entries = [(PRIMARY, self.primary, self.primary_key)]
+        witness_key = self.witness_key
+        if witness_key is not None:
+            entries.append((WITNESS, self.witness, witness_key))
+        return tuple(entries)
 
 
 def indoor_sensors_from_env() -> IndoorSensors:

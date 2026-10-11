@@ -88,8 +88,8 @@ def test_overrunning_a_flush_week_does_not_resume_feeding():
     clamping to "the last week with doses" would send a grow on day 70 back to
     week 7 and start feeding again two weeks into the flush.
     """
-    assert plan_for_week(PLAN, "flowering", effective_week("flowering", 53)) != []
-    for day in (56, 63, 70, 90):
+    assert plan_for_week(PLAN, "flowering", effective_week("flowering", 49)) != []
+    for day in (50, 56, 63, 70, 90):
         assert effective_week("flowering", day) == 8
         assert plan_for_week(PLAN, "flowering", effective_week("flowering", day)) == []
 

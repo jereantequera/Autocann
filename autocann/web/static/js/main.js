@@ -2,9 +2,13 @@ import { apiGet } from './api.js';
 import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReportModal } from './analytics.js';
 import { initCharts } from './charts.js';
 import {
-    fetchCurrentData, fetchDatabaseStats, fetchHistoricalData, fetchOutputsStatus,
-    fetchPeriodSummary, fetchSensorStatus, updateSummaryPeriodLabel,
+    fetchCurrentData, fetchDatabaseStats, fetchHistoricalData, fetchIndoorSensors,
+    fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus, updateSummaryPeriodLabel,
 } from './dashboard.js';
+import {
+    addPlanProduct, fetchFeedPlan, fetchFeeding, resetFormToPlan, saveIrrigation,
+    savePlan, togglePlanEditor, wireFeeding,
+} from './feeding.js';
 import {
     activateGrow, createGrow, endGrow, fetchActiveGrow, showGrowModal, showNewGrowModal,
     showStageModal, updateStage, wireGrowListActions,
@@ -25,11 +29,17 @@ import { applyConfig, state } from './state.js';
 const POLLERS = [
     { fn: fetchCurrentData, every: 3000 },
     { fn: fetchOutputsStatus, every: 3000 },
+    // The node posts each sensor every 10 s, so polling faster buys nothing
+    // but load on the Raspberry.
+    { fn: fetchIndoorSensors, every: 10000 },
     { fn: fetchSensorStatus, every: 30000 },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000 },
     { fn: fetchDatabaseStats, every: 60000 },
     { fn: fetchActiveGrow, every: 60000 },
+    // Watering is a once-a-day act; this only has to notice a stage change or
+    // a log entry made from another device.
+    { fn: fetchFeeding, every: 60000 },
     { fn: fetchVpdScore, every: 5 * 60 * 1000 },
     { fn: fetchAnomalies, every: 60000 },
 ];
@@ -52,9 +62,11 @@ function stopPolling() {
 function refreshAll() {
     fetchCurrentData();
     fetchOutputsStatus();
+    fetchIndoorSensors();
     fetchSensorStatus();
     fetchDatabaseStats();
     fetchActiveGrow();
+    fetchFeeding();
     fetchHistoricalData(state.period, state.interval, state.hours);
     fetchPeriodSummary();
     fetchVpdScore();
@@ -108,6 +120,11 @@ const ACTIONS = {
     'create-grow': createGrow,
     'update-stage': updateStage,
     'dismiss-anomalies': dismissAnomalies,
+    'toggle-feed-plan': togglePlanEditor,
+    'feed-plan-save': savePlan,
+    'feed-plan-add': addPlanProduct,
+    'feed-save': saveIrrigation,
+    'feed-reset': resetFormToPlan,
 };
 
 function wireActions() {
@@ -161,7 +178,11 @@ async function start() {
     initCharts();
     wireActions();
     wireGrowListActions();
+    wireFeeding();
     updateSummaryPeriodLabel();
+    // The chart has to be in hand before the feeding panel can render a row
+    // per product, so it is fetched once here rather than on the poll.
+    await fetchFeedPlan();
     refreshAll();
     startPolling();
 }

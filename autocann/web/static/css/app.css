@@ -715,6 +715,103 @@ body {
     color: var(--accent-teal);
 }
 
+/* Indoor Sensors Section */
+.sensors-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.sensor-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--border-accent);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+/* The left edge carries the state, so a bad sensor is visible from across the
+   room without reading the badge. */
+.sensor-card.is-ok { border-left-color: var(--accent-green); }
+.sensor-card.is-stale { border-left-color: var(--vpd-adjusting); }
+.sensor-card.is-missing { border-left-color: var(--vpd-danger); }
+
+.sensor-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.sensor-card-name {
+    font-weight: 600;
+    font-size: 1.05em;
+}
+
+.sensor-card-role {
+    color: var(--text-secondary);
+    font-size: 0.8em;
+    margin-bottom: 16px;
+}
+
+.sensor-card-readings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.sensor-temp { color: var(--temp-warm); }
+.sensor-humidity { color: var(--humidity-high); }
+
+.sensor-card-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.78em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.sensor-flag {
+    margin-top: 10px;
+    color: var(--vpd-adjusting);
+    font-size: 0.8em;
+    line-height: 1.4;
+}
+
+.sensor-card-compare {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(132, 204, 22, 0.06) 100%);
+    border-left-color: var(--accent-lime);
+}
+
+.sensor-delta {
+    font-size: 1.4em;
+    color: var(--accent-lime);
+}
+
+.sensor-delta-absent {
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+.drift-verdict {
+    margin-top: 10px;
+    font-size: 0.85em;
+}
+
+.drift-verdict.ok { color: var(--accent-green); }
+
+.sensors-note {
+    margin-top: 12px;
+    color: var(--text-muted);
+    font-size: 0.78em;
+    line-height: 1.5;
+}
+
 /* Outputs Section */
 .outputs-grid {
     display: grid;
@@ -1364,4 +1461,494 @@ body {
 
 @media (max-width: 768px) {
     .stage-progress { width: 100%; min-width: 0; }
+}
+
+/* ===============================
+   Feeding: doses, log and the chart editor
+   =============================== */
+
+.btn-mini {
+    padding: 5px 11px;
+    font-size: 0.78em;
+}
+
+.feed-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sensor-badge.stale {
+    color: var(--vpd-adjusting);
+}
+
+.feed-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.feed-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+}
+
+/* Today's doses are the one thing read at a glance, so they get the accent. */
+.feed-today {
+    border-color: var(--accent-green-dim);
+}
+
+.feed-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.feed-card-title {
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.feed-week {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72em;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.feed-volume {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.feed-volume label {
+    font-size: 0.82em;
+    color: var(--text-secondary);
+}
+
+/* Specific enough to beat the full-width rule the other inputs in the card
+   get; this one sits beside its label rather than under it. */
+.feed-card .feed-volume input[type="number"] {
+    width: 92px;
+    flex: 0 0 auto;
+    text-align: right;
+}
+
+.feed-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+    min-width: 0;
+}
+
+.feed-field label {
+    font-size: 0.78em;
+    color: var(--text-secondary);
+}
+
+.feed-measures {
+    display: flex;
+    gap: 12px;
+}
+
+.feed-measures .feed-field {
+    flex: 1 1 0;
+}
+
+.feed-card input[type="number"],
+.feed-card input[type="text"],
+.feed-card textarea {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9em;
+    width: 100%;
+    min-width: 0;
+}
+
+.feed-card textarea {
+    font-family: inherit;
+    resize: vertical;
+}
+
+.feed-card input:focus,
+.feed-card textarea:focus {
+    outline: none;
+    border-color: var(--accent-green-dim);
+}
+
+/* Today's doses */
+
+.feed-doses {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.feed-dose-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.feed-dose-name {
+    font-size: 0.86em;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.feed-dose-amount {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--accent-green);
+    white-space: nowrap;
+}
+
+.feed-dose-amount small {
+    display: block;
+    font-weight: 400;
+    font-size: 0.72em;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.feed-flush,
+.feed-empty {
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.feed-empty {
+    text-align: center;
+    border: 1px dashed var(--border-color);
+    background: transparent;
+}
+
+/* The form */
+
+.feed-products {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 14px;
+}
+
+.feed-product {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 62px 62px;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.feed-product:hover {
+    background: var(--bg-card-hover);
+}
+
+.feed-product.on {
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.feed-product input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-green);
+    margin: 0;
+    cursor: pointer;
+}
+
+.feed-product-name {
+    font-size: 0.84em;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.feed-product-name small {
+    display: block;
+    font-size: 0.78em;
+    color: var(--text-muted);
+}
+
+.feed-product-dose {
+    text-align: right;
+    padding: 5px 7px !important;
+    font-size: 0.82em !important;
+}
+
+.feed-product-total {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8em;
+    text-align: right;
+    color: var(--text-muted);
+}
+
+.feed-product.on .feed-product-total {
+    color: var(--text-primary);
+}
+
+.feed-save {
+    width: 100%;
+    justify-content: center;
+}
+
+/* The chart editor */
+
+.feed-plan-editor {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.feed-plan-intro {
+    font-size: 0.82em;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 14px;
+}
+
+.feed-plan-scroll {
+    overflow-x: auto;
+}
+
+.feed-plan-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.82em;
+}
+
+.feed-plan-table th,
+.feed-plan-table td {
+    padding: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* The product column stays put while the weeks scroll under it. */
+.feed-plan-table .feed-rowh {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-card);
+    text-align: left;
+    padding: 4px 10px 4px 0;
+    min-width: 190px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.feed-plan-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-card);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    font-weight: 500;
+    color: var(--text-muted);
+    padding: 5px 4px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.feed-col.early_veg, .feed-col.late_veg { color: var(--accent-lime); }
+.feed-col.flowering { color: #c084fc; }
+.feed-col.dry { color: var(--temp-warm); }
+
+.feed-cell.stage-start,
+.feed-col.stage-start {
+    border-left: 2px solid var(--border-accent);
+}
+
+.feed-plan-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent !important;
+    border-color: transparent !important;
+    font-weight: 500;
+    font-family: inherit !important;
+}
+
+.feed-plan-name:hover,
+.feed-plan-name:focus {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.feed-plan-unit {
+    flex: 0 0 auto;
+    width: 64px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    padding: 4px;
+}
+
+.feed-plan-del {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.15em;
+    line-height: 1;
+    padding: 2px 5px;
+    cursor: pointer;
+}
+
+.feed-plan-del:hover {
+    color: var(--vpd-danger);
+}
+
+.feed-cell {
+    padding: 2px;
+}
+
+.feed-cell input {
+    width: 46px;
+    padding: 5px 3px;
+    text-align: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95em;
+}
+
+.feed-cell input:hover {
+    border-color: var(--border-color);
+}
+
+.feed-cell input:focus {
+    outline: none;
+    border-color: var(--accent-green-dim);
+    background: var(--bg-secondary);
+}
+
+.feed-cell.has input {
+    background: rgba(34, 197, 94, 0.1);
+    font-weight: 600;
+}
+
+.feed-plan-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.feed-plan-state,
+.feed-plan-empty {
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+/* The log */
+
+.feed-entry {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+}
+
+.feed-entry-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.feed-entry-date {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.feed-entry-litres {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    font-size: 0.88em;
+}
+
+.feed-entry-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.feed-tag {
+    font-size: 0.72em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.feed-entry-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.feed-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74em;
+    background: var(--bg-secondary);
+    border-radius: 7px;
+    padding: 4px 9px;
+}
+
+/* Something poured that the chart did not call for; worth seeing later. */
+.feed-pill.off {
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--vpd-adjusting);
+}
+
+.feed-entry-note {
+    margin-top: 10px;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    border-left: 2px solid var(--border-color);
+    padding-left: 10px;
+    font-style: italic;
+}
+
+.feed-entry-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
+@media (max-width: 768px) {
+    .feed-grid { grid-template-columns: 1fr; }
+    .feed-plan-table .feed-rowh { min-width: 160px; }
 }

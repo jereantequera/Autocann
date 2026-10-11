@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    escapeHtml, fmtNum, formatDate, getScoreClass, getScoreLabel, parseLocalDatetime,
+    escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, getScoreClass, getScoreLabel,
+    parseLocalDatetime,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -86,4 +87,33 @@ test('score bands are contiguous and cover the whole 0-100 range', () => {
     assert.notEqual(getScoreClass(0), getScoreClass(100));
     assert.ok(getScoreLabel(90).length > 0);
     assert.ok(getScoreLabel(10).length > 0);
+});
+
+test('formatAge speaks in units a grower reads at a glance', () => {
+    assert.equal(formatAge(4), 'hace 4 s');
+    assert.equal(formatAge(59), 'hace 59 s');
+    assert.equal(formatAge(60), 'hace 1 min');
+    assert.equal(formatAge(3600), 'hace 1 h 0 min');
+    assert.equal(formatAge(3 * 86400), 'hace 3 d');
+});
+
+test('formatAge never renders a negative age', () => {
+    // The Raspberry has no real-time clock, so its timestamps can land ahead of
+    // the browser's. "hace -3 min" is how that used to show up.
+    assert.equal(formatAge(0), 'ahora');
+    assert.equal(formatAge(-120), 'ahora');
+});
+
+test('formatAge says there is no reading rather than printing junk', () => {
+    for (const value of [null, undefined, NaN, Infinity, 'viejo']) {
+        assert.equal(formatAge(value), 'sin datos', `para ${String(value)}`);
+    }
+});
+
+test('fmtSigned keeps the sign, which is the whole point of a difference', () => {
+    assert.equal(fmtSigned(0.4), '+0.4');
+    assert.equal(fmtSigned(-0.4), '-0.4');
+    assert.equal(fmtSigned(0), '+0.0');
+    assert.equal(fmtSigned(-1.234, 2), '-1.23');
+    assert.equal(fmtSigned(null), '--');
 });

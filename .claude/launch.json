@@ -6,7 +6,11 @@
       "runtimeExecutable": "./.venv/bin/python",
       "runtimeArgs": ["-m", "autocann.cli.backend"],
       "port": 5000,
-      "autoPort": true
+      "autoPort": true,
+      "env": {
+        "AUTOCANN_INDOOR_PRIMARY": "a",
+        "AUTOCANN_INDOOR_WITNESS": "b"
+      }
     }
   ]
 }

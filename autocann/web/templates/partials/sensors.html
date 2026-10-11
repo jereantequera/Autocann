@@ -1,0 +1,26 @@
+        <!-- Indoor Sensors - one card per physical sensor -->
+        <!--
+             The hero above shows the primary after the median filter and the
+             calibration offsets, which is the number control acts on. This
+             section shows what each sensor actually posted, which is the only
+             way to see the witness at all - and the only way to notice the two
+             disagreeing before the drift detector has enough samples to say so.
+        -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <span class="section-title-icon">📍</span>
+                Sensores Interiores
+            </h2>
+            <span class="sensor-badge" id="drift-badge">⏳</span>
+        </div>
+        <div class="sensors-grid" id="indoor-sensors-grid">
+            <div class="sensor-card">
+                <div class="sensor-card-header">
+                    <div class="sensor-card-name">Cargando...</div>
+                </div>
+            </div>
+        </div>
+        <div class="sensors-note">
+            Lecturas crudas, tal como las posteó el nodo: sin filtro de mediana
+            ni calibración. Pueden diferir unas décimas de las tarjetas de arriba.
+        </div>

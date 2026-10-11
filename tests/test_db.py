@@ -175,6 +175,18 @@ def test_the_active_grow_carries_its_day_counters(temp_db):
     assert grow["estimated_end"] > grow["stage_started_at"]
 
 
+def test_the_auto_created_grow_has_a_day_counter_on_the_first_run(temp_db):
+    """
+    The default grow is inserted after the backfill has already run, so it has
+    to record its own opening stage event. Without it a fresh install shows no
+    day counter until the process is restarted.
+    """
+    grow = temp_db.get_active_grow()
+    assert grow["name"] == "Cultivo #1"
+    assert temp_db.get_stage_events(grow["id"]) != []
+    assert grow["day_in_stage"] == 1
+
+
 def test_the_backfill_gives_pre_existing_grows_a_starting_point(temp_db):
     """
     A grow created before stage_events existed has no history; the migration

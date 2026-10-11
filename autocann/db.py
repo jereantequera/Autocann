@@ -191,6 +191,103 @@ def _migrate_sample_detail_columns(conn: sqlite3.Connection) -> None:
     print(f"🔧 sensor_data: {len(missing)} columna(s) agregada(s) para el detalle de muestra")
 
 
+#: The Advanced Nutrients pH Perfect chart, mapped onto this project's stages.
+#:
+#: The printed chart runs four weeks of "crecimiento" and eight of floración,
+#: while a grow here passes through early_veg (3 weeks) and late_veg (4), so the
+#: base ramp 1-2-3-4 mL/L lands on the three early weeks and then holds at 4 for
+#: the whole of late veg. The last week of flowering is deliberately empty: that
+#: is the flush.
+#:
+#: Only a starting point. It is written once, on an empty database, and is
+#: editable from the dashboard afterwards.
+_FEED_PLAN_SEED: Tuple[Tuple[str, str, Dict[str, Dict[int, float]]], ...] = (
+    ("pH Perfect Grow", "ml/L", {
+        "early_veg": {1: 1, 2: 2, 3: 3},
+        "late_veg": {1: 4, 2: 4, 3: 4, 4: 4},
+        "flowering": {1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4},
+    }),
+    ("pH Perfect Micro", "ml/L", {
+        "early_veg": {1: 1, 2: 2, 3: 3},
+        "late_veg": {1: 4, 2: 4, 3: 4, 4: 4},
+        "flowering": {1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4},
+    }),
+    ("pH Perfect Bloom", "ml/L", {
+        "early_veg": {1: 1, 2: 2, 3: 3},
+        "late_veg": {1: 4, 2: 4, 3: 4, 4: 4},
+        "flowering": {1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4},
+    }),
+    ("B-52", "ml/L", {
+        "early_veg": {2: 2, 3: 2},
+        "late_veg": {1: 2, 2: 2, 3: 2, 4: 2},
+        "flowering": {1: 2, 2: 2, 3: 2, 4: 2},
+    }),
+    ("Bud Candy", "ml/L", {
+        "early_veg": {2: 2, 3: 2},
+        "late_veg": {1: 2, 2: 2, 3: 2, 4: 2},
+        "flowering": {1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2},
+    }),
+    ("Big Bud", "ml/L", {
+        "flowering": {2: 2, 3: 2, 4: 2},
+    }),
+    ("Overdrive", "ml/L", {
+        "flowering": {6: 2, 7: 2},
+    }),
+    ("Rhino Skin", "ml/L", {
+        "early_veg": {3: 2},
+        "late_veg": {1: 2, 2: 2, 3: 2, 4: 2},
+        "flowering": {1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2},
+    }),
+    ("Extracto de algas", "ml/L", {
+        "flowering": {2: 2, 3: 2, 4: 2, 5: 2, 6: 2},
+    }),
+    ("Micorrizas", "g/L", {
+        "early_veg": {1: 1},
+    }),
+)
+
+
+def _seed_feed_plan(conn: sqlite3.Connection) -> None:
+    """
+    Write the default feed chart, once, into an empty products table.
+
+    Skipped as soon as there is a single product, so a grower who deletes a
+    product they do not own never sees it reappear.
+
+    The count and the inserts share one BEGIN IMMEDIATE transaction because the
+    web app and the control loop both call ensure_schema() on startup and
+    systemd starts them together. Counting outside a write lock lets both read
+    an empty table on a fresh install and seed it, leaving the chart with every
+    product twice. The loser of the lock waits out busy_timeout, then sees the
+    rows and returns.
+    """
+    conn.commit()  # an earlier migration may still hold an implicit transaction
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if conn.execute("SELECT COUNT(*) FROM feed_products").fetchone()[0]:
+            conn.rollback()
+            return
+
+        for position, (name, unit, doses) in enumerate(_FEED_PLAN_SEED):
+            cursor = conn.execute(
+                "INSERT INTO feed_products (name, unit, position) VALUES (?, ?, ?)",
+                (name, unit, position),
+            )
+            product_id = cursor.lastrowid
+            conn.executemany(
+                "INSERT INTO feed_plan (product_id, stage, week, dose) VALUES (?, ?, ?, ?)",
+                [
+                    (product_id, stage, week, dose)
+                    for stage, weeks in doses.items()
+                    for week, dose in weeks.items()
+                ],
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def init_database() -> None:
     """
     Initialize the database and create tables if they don't exist.
@@ -331,17 +428,95 @@ def init_database() -> None:
     """
     )
 
+    # Feed chart. The products a grower actually owns, and how much of each
+    # goes in on a given week of a given stage. Kept editable in the database
+    # rather than written into the code: brands and doses change between grows,
+    # and the printed chart is only a starting point.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feed_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            unit TEXT NOT NULL DEFAULT 'ml/L',
+            position INTEGER NOT NULL DEFAULT 0
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feed_plan (
+            product_id INTEGER NOT NULL,
+            stage TEXT NOT NULL,
+            week INTEGER NOT NULL,
+            dose REAL NOT NULL,
+            PRIMARY KEY (product_id, stage, week),
+            FOREIGN KEY (product_id) REFERENCES feed_products(id) ON DELETE CASCADE
+        )
+    """
+    )
+
+    # What was actually poured, which is the point of the whole thing: the plan
+    # says what should happen, this says what did.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS irrigations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            grow_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            litres REAL NOT NULL,
+            ph REAL,
+            ec REAL,
+            stage TEXT,
+            week INTEGER,
+            notes TEXT,
+            FOREIGN KEY (grow_id) REFERENCES grows(id)
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_irrigations_grow
+        ON irrigations(grow_id, date DESC)
+    """
+    )
+    # The name and unit are copied in, not just referenced: renaming a product
+    # or dropping it from the plan must not rewrite what last month's log says
+    # was poured.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS irrigation_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            irrigation_id INTEGER NOT NULL,
+            product_id INTEGER,
+            name TEXT NOT NULL,
+            unit TEXT NOT NULL DEFAULT 'ml/L',
+            dose REAL NOT NULL,
+            on_plan INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (irrigation_id) REFERENCES irrigations(id) ON DELETE CASCADE
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_irrigation_items
+        ON irrigation_items(irrigation_id)
+    """
+    )
+
     conn.commit()
 
     _migrate_nullable_outdoor_columns(conn)
     _migrate_sample_detail_columns(conn)
     _backfill_stage_events(conn)
+    _seed_feed_plan(conn)
 
     # Create default grow if none exists
     cursor.execute("SELECT COUNT(*) FROM grows")
     count = cursor.fetchone()[0]
     if count == 0:
         current_time = datetime.now(ARGENTINA_TZ)
+        stamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
             """
             INSERT INTO grows (name, stage, start_date, is_active, notes)
@@ -350,9 +525,21 @@ def init_database() -> None:
             (
                 "Cultivo #1",
                 "early_veg",
-                current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                stamp,
                 "Cultivo inicial creado automáticamente",
             ),
+        )
+        # Its opening stage event, written here rather than left to the
+        # backfill: that already ran, a few lines above, when this grow did not
+        # exist yet. Without this the default grow has no day counter until the
+        # process restarts and the backfill picks it up.
+        cursor.execute(
+            """
+            INSERT INTO stage_events (grow_id, stage, started_at, datetime, notes)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (cursor.lastrowid, "early_veg", int(current_time.timestamp()), stamp,
+             "Inicio del cultivo creado automáticamente"),
         )
         conn.commit()
 
@@ -808,6 +995,269 @@ def get_stage_timeline(grow_id: int, now: Optional[int] = None) -> List[Dict]:
         now = int(datetime.now(ARGENTINA_TZ).timestamp())
     events = get_stage_events(grow_id)
     return timeline_to_dicts(build_timeline(events, now=now))
+
+
+# ===========================================================================
+# Feed chart and irrigation log
+# ===========================================================================
+
+
+def get_feed_plan() -> List[Dict]:
+    """
+    Every product with its dose grid, in display order.
+
+    Shaped for `autocann.control.feeding`: `doses[stage][week] -> dose`.
+    """
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        products = conn.execute(
+            "SELECT id, name, unit FROM feed_products ORDER BY position ASC, id ASC"
+        ).fetchall()
+        doses = conn.execute(
+            "SELECT product_id, stage, week, dose FROM feed_plan"
+        ).fetchall()
+        conn.close()
+
+        by_product: Dict[int, Dict[str, Dict[int, float]]] = {}
+        for row in doses:
+            by_product.setdefault(row["product_id"], {}).setdefault(row["stage"], {})[
+                int(row["week"])
+            ] = row["dose"]
+
+        return [
+            {
+                "id": product["id"],
+                "name": product["name"],
+                "unit": product["unit"],
+                "doses": by_product.get(product["id"], {}),
+            }
+            for product in products
+        ]
+    except Exception as e:
+        print(f"Error getting feed plan: {e}")
+        return []
+
+
+def replace_feed_plan(products: List[Dict]) -> bool:
+    """
+    Overwrite the whole chart with `products`.
+
+    A full replace rather than a diff: the editor sends the grid it is showing,
+    and renames, reorders, additions and deletions all arrive together. Ids of
+    surviving products are preserved so the irrigation log keeps pointing at
+    them; a product without an id is new.
+
+    Runs in one transaction, so a rejected row cannot leave half a chart.
+    """
+    try:
+        ensure_schema()
+        conn = _open()
+        try:
+            with conn:  # commits on success, rolls back on exception
+                keep = [int(p["id"]) for p in products if p.get("id")]
+                if keep:
+                    marks = ",".join("?" * len(keep))
+                    conn.execute(
+                        f"DELETE FROM feed_products WHERE id NOT IN ({marks})", keep
+                    )
+                else:
+                    conn.execute("DELETE FROM feed_products")
+                # No ON DELETE CASCADE without PRAGMA foreign_keys, which is off
+                # by default in sqlite; clear the orphans explicitly.
+                conn.execute(
+                    "DELETE FROM feed_plan WHERE product_id NOT IN "
+                    "(SELECT id FROM feed_products)"
+                )
+
+                for position, product in enumerate(products):
+                    name = str(product.get("name") or "").strip() or "Sin nombre"
+                    unit = product.get("unit") if product.get("unit") in ("ml/L", "g/L") else "ml/L"
+                    product_id = product.get("id")
+
+                    if product_id:
+                        conn.execute(
+                            "UPDATE feed_products SET name = ?, unit = ?, position = ? WHERE id = ?",
+                            (name, unit, position, int(product_id)),
+                        )
+                    else:
+                        cursor = conn.execute(
+                            "INSERT INTO feed_products (name, unit, position) VALUES (?, ?, ?)",
+                            (name, unit, position),
+                        )
+                        product_id = cursor.lastrowid
+
+                    conn.execute("DELETE FROM feed_plan WHERE product_id = ?", (product_id,))
+                    rows = []
+                    for stage, weeks in (product.get("doses") or {}).items():
+                        for week, dose in (weeks or {}).items():
+                            try:
+                                dose = float(dose)
+                                week = int(week)
+                            except (TypeError, ValueError):
+                                continue
+                            if dose > 0 and week > 0:
+                                rows.append((product_id, stage, week, dose))
+                    if rows:
+                        conn.executemany(
+                            "INSERT INTO feed_plan (product_id, stage, week, dose) "
+                            "VALUES (?, ?, ?, ?)",
+                            rows,
+                        )
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"Error replacing feed plan: {e}")
+        return False
+
+
+def record_irrigation(grow_id: int, litres: float, items: List[Dict],
+                      date: Optional[str] = None, ph: Optional[float] = None,
+                      ec: Optional[float] = None, stage: Optional[str] = None,
+                      week: Optional[int] = None,
+                      notes: str = "") -> Optional[int]:
+    """
+    Log one watering. Returns its id, or None if it could not be stored.
+
+    `items` are the products actually poured, each `{name, unit, dose}` and
+    optionally `product_id` and `on_plan`. An empty list is a plain-water
+    watering, which is worth recording during a flush.
+    """
+    try:
+        ensure_schema()
+        now = datetime.now(ARGENTINA_TZ)
+        if not date:
+            date = now.strftime("%Y-%m-%d")
+
+        conn = _open()
+        try:
+            with conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO irrigations
+                        (grow_id, date, timestamp, litres, ph, ec, stage, week, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (grow_id, date, int(now.timestamp()), float(litres), ph, ec,
+                     stage, week, notes or ""),
+                )
+                irrigation_id = cursor.lastrowid
+                rows = []
+                for item in items or []:
+                    try:
+                        dose = float(item.get("dose"))
+                    except (TypeError, ValueError):
+                        continue
+                    if dose <= 0:
+                        continue
+                    rows.append((
+                        irrigation_id,
+                        item.get("product_id"),
+                        str(item.get("name") or "").strip() or "Sin nombre",
+                        item.get("unit") if item.get("unit") in ("ml/L", "g/L") else "ml/L",
+                        dose,
+                        1 if item.get("on_plan", True) else 0,
+                    ))
+                if rows:
+                    conn.executemany(
+                        """
+                        INSERT INTO irrigation_items
+                            (irrigation_id, product_id, name, unit, dose, on_plan)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
+        finally:
+            conn.close()
+        return irrigation_id
+    except Exception as e:
+        print(f"Error recording irrigation: {e}")
+        return None
+
+
+def get_irrigations(grow_id: int, limit: int = 100) -> List[Dict]:
+    """Waterings for a grow, most recent first, with what went into each."""
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        rows = conn.execute(
+            """
+            SELECT id, grow_id, date, timestamp, litres, ph, ec, stage, week, notes
+            FROM irrigations
+            WHERE grow_id = ?
+            ORDER BY date DESC, id DESC
+            LIMIT ?
+            """,
+            (grow_id, int(limit)),
+        ).fetchall()
+
+        irrigations = [dict(row) for row in rows]
+        if irrigations:
+            marks = ",".join("?" * len(irrigations))
+            items = conn.execute(
+                f"""
+                SELECT irrigation_id, product_id, name, unit, dose, on_plan
+                FROM irrigation_items
+                WHERE irrigation_id IN ({marks})
+                ORDER BY id ASC
+                """,
+                [i["id"] for i in irrigations],
+            ).fetchall()
+            by_irrigation: Dict[int, List[Dict]] = {}
+            for item in items:
+                entry = dict(item)
+                entry["on_plan"] = bool(entry["on_plan"])
+                by_irrigation.setdefault(entry.pop("irrigation_id"), []).append(entry)
+            for irrigation in irrigations:
+                irrigation["items"] = by_irrigation.get(irrigation["id"], [])
+        conn.close()
+        return irrigations
+    except Exception as e:
+        print(f"Error getting irrigations: {e}")
+        return []
+
+
+def delete_irrigation(irrigation_id: int) -> bool:
+    """Remove a watering and everything that was in it."""
+    try:
+        ensure_schema()
+        conn = _open()
+        try:
+            with conn:
+                conn.execute(
+                    "DELETE FROM irrigation_items WHERE irrigation_id = ?", (irrigation_id,)
+                )
+                deleted = conn.execute(
+                    "DELETE FROM irrigations WHERE id = ?", (irrigation_id,)
+                ).rowcount
+        finally:
+            conn.close()
+        return deleted > 0
+    except Exception as e:
+        print(f"Error deleting irrigation: {e}")
+        return False
+
+
+def last_irrigation_litres(grow_id: int, default: float = 10.0) -> float:
+    """
+    How many litres were mixed last time, to pre-fill the next one.
+
+    Saves re-entering the same volume on every watering without needing a
+    settings table for it.
+    """
+    try:
+        ensure_schema()
+        conn = _open()
+        row = conn.execute(
+            "SELECT litres FROM irrigations WHERE grow_id = ? ORDER BY id DESC LIMIT 1",
+            (grow_id,),
+        ).fetchone()
+        conn.close()
+        return float(row[0]) if row and row[0] else default
+    except Exception as e:
+        print(f"Error reading last irrigation volume: {e}")
+        return default
 
 
 def get_sensor_data_range(

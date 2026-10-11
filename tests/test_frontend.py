@@ -129,6 +129,48 @@ def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
     assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
 
 
+def test_the_indoor_sensors_section_is_reachable_from_the_page():
+    """A partial nobody includes renders nothing, and fails silently."""
+    assert "partials/sensors.html" in (TEMPLATES_DIR / "index.html").read_text()
+    assert 'id="indoor-sensors-grid"' in (TEMPLATES_DIR / "partials" / "sensors.html").read_text()
+    assert "indoor-sensors-grid" in (JS_DIR / "dashboard.js").read_text()
+
+
+def test_the_second_sensor_is_rendered_from_its_own_reading():
+    """
+    Its badge used to be driven by `data.indoor` - the control loop's view of
+    the *primary* - through an element that did not exist in any template.
+    """
+    dashboard = (JS_DIR / "dashboard.js").read_text()
+    assert "sensor-status-indoor-2" not in dashboard
+    assert "/api/sensors/indoor" in dashboard
+
+
+def _js_object(name: str) -> str:
+    match = re.search(
+        rf"const {name} = \{{(.*?)\n\}};", (JS_DIR / "dashboard.js").read_text(), re.S)
+    assert match, f"{name} desapareció de dashboard.js"
+    return match.group(1)
+
+
+def test_the_sensor_role_names_match_the_backend():
+    """A renamed role loses its label, and the card just says 'primary'."""
+    from autocann.config import PRIMARY, WITNESS
+
+    roles = _js_object("SENSOR_ROLES")
+    for role in (PRIMARY, WITNESS):
+        assert f"{role}:" in roles, role
+
+
+def test_every_drift_flag_the_monitor_emits_has_a_label():
+    """Otherwise a real fault renders as its raw internal name."""
+    from autocann.control.drift import RAILED, STUCK
+
+    labels = _js_object("DRIFT_FLAG_LABELS")
+    for flag in (STUCK, RAILED):
+        assert f"{flag}:" in labels, flag
+
+
 def test_the_uv_wrapper_is_not_counted_as_a_second_control_loop(monkeypatch):
     """
     Production launches the loop as `uv run python -m autocann.cli.vpd`, which

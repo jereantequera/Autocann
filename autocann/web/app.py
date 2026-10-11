@@ -7,11 +7,33 @@ import redis
 from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
-from autocann.config import indoor_sensor_key, is_valid_sensor_id, redis_config_from_env
+from autocann.config import (
+    INDOOR_SENSOR_MAX_AGE_SECONDS,
+    PRIMARY,
+    WITNESS,
+    indoor_sensor_key,
+    indoor_sensors_from_env,
+    is_valid_sensor_id,
+    redis_config_from_env,
+)
+from autocann.control.feeding import (
+    chart_columns,
+    effective_week,
+    plan_for_week,
+    scale_to_volume,
+    weeks_in_stage,
+)
 from autocann.control.sampling import insert_gaps
-from autocann.control.vpd_math import STAGES, VPD_RANGES, calculate_vpd, humidity_range_for_stage
+from autocann.control.vpd_math import (
+    STAGE_EXPECTED_DAYS,
+    STAGES,
+    VPD_RANGES,
+    calculate_vpd,
+    humidity_range_for_stage,
+)
 from autocann.db import (
     create_grow,
+    delete_irrigation,
     detect_anomalies,
     end_grow,
     get_active_grow,
@@ -19,12 +41,17 @@ from autocann.db import (
     get_all_calibrations,
     get_all_grows,
     get_database_stats,
+    get_feed_plan,
+    get_irrigations,
     get_latest_sensor_data,
     get_period_summary,
     get_sensor_data_range,
     get_stage_timeline,
     get_vpd_score,
     get_weekly_report,
+    last_irrigation_litres,
+    record_irrigation,
+    replace_feed_plan,
     set_active_grow,
     set_calibration,
     update_grow_stage,
@@ -69,6 +96,30 @@ def _with_gaps(points, expected_interval_seconds):
             point["datetime"] = datetime.fromtimestamp(
                 point["timestamp"], ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
     return marked
+
+
+def _indoor_delta(readings):
+    """
+    Witness minus primary, the direction the drift monitor measures in.
+
+    Only computed for two fresh readings. Subtracting a stale number from a live
+    one yields a difference that is about the clock, not about the sensors, and
+    on a dashboard that difference reads as a fault in the pair.
+    """
+    primary = readings.get(PRIMARY)
+    witness = readings.get(WITNESS)
+    if primary is None or witness is None:
+        return None
+    if primary["is_stale"] or witness["is_stale"]:
+        return None
+    values = (primary["temperature"], witness["temperature"],
+              primary["humidity"], witness["humidity"])
+    if any(value is None for value in values):
+        return None
+    return {
+        "temperature": round(witness["temperature"] - primary["temperature"], 2),
+        "humidity": round(witness["humidity"] - primary["humidity"], 2),
+    }
 
 
 def create_app() -> Flask:
@@ -410,6 +461,91 @@ def create_app() -> Flask:
             return jsonify(sensor_data)
         return jsonify({"error": "No indoor sensor data available"}), 404
 
+    @app.route("/api/sensors/indoor", methods=["GET"])
+    def get_indoor_sensors():
+        """
+        Every indoor sensor at once, each with its role and the age of its reading.
+
+        The dashboard cannot assemble this from `/api/sensor/indoor?sensor_id=`:
+        which ids are installed, and which of them drives control, is
+        server-side configuration (AUTOCANN_INDOOR_PRIMARY /
+        AUTOCANN_INDOOR_WITNESS). So the list is served rather than guessed, and
+        a single-sensor installation answers with one entry rather than being a
+        special case in the frontend.
+
+        The readings are raw — exactly what the node posted. The hero cards show
+        the primary *after* the median filter and the calibration offsets, so
+        the two can differ by a couple of tenths and both be right.
+        """
+        try:
+            sensors = indoor_sensors_from_env()
+        except ValueError as e:
+            # Answering with a plausible single-sensor list would hide the
+            # second sensor for good, which is the one thing this endpoint
+            # exists to prevent.
+            return jsonify({"error": f"Configuración de sensores inválida: {e}"}), 500
+
+        now = int(datetime.now(ARGENTINA_TZ).timestamp())
+        entries = []
+        by_role = {}
+        try:
+            for role, sensor_id, key in sensors.entries():
+                raw = redis_client.get(key)
+                payload = json.loads(raw) if raw else None
+                entry = {
+                    "role": role,
+                    "sensor_id": sensor_id,
+                    "redis_key": key,
+                    "temperature": None,
+                    "humidity": None,
+                    "vpd": None,
+                    "timestamp": None,
+                    "datetime": None,
+                    "age_seconds": None,
+                    # A sensor that has never posted is not fresh. Defaulting
+                    # the other way would paint an empty card green.
+                    "is_stale": True,
+                    "has_reading": False,
+                }
+                if payload:
+                    age = now - int(payload.get("timestamp") or 0)
+                    entry.update(
+                        {
+                            "temperature": payload.get("temperature"),
+                            "humidity": payload.get("humidity"),
+                            "vpd": payload.get("vpd"),
+                            "timestamp": payload.get("timestamp"),
+                            "datetime": payload.get("datetime"),
+                            "age_seconds": age,
+                            "is_stale": age > INDOOR_SENSOR_MAX_AGE_SECONDS,
+                            "has_reading": True,
+                        }
+                    )
+                entries.append(entry)
+                by_role[role] = entry
+
+            drift = None
+            status_raw = redis_client.get("sensor_status")
+            if status_raw:
+                drift = (json.loads(status_raw) or {}).get("drift")
+        except Exception as e:
+            return jsonify({"error": f"Failed to read the indoor sensors: {e}"}), 500
+
+        # The drift report's per-sensor flags are keyed by the same role names,
+        # so each card can carry its own verdict instead of one shared alarm.
+        flags = (drift or {}).get("flags") or {}
+        for entry in entries:
+            entry["flags"] = list(flags.get(entry["role"]) or [])
+
+        return jsonify(
+            {
+                "sensors": entries,
+                "delta": _indoor_delta(by_role),
+                "drift": drift,
+                "max_age_seconds": INDOOR_SENSOR_MAX_AGE_SECONDS,
+            }
+        )
+
     @app.route("/api/sensor-history", methods=["GET"])
     def get_sensor_history():
         """
@@ -743,6 +879,153 @@ def create_app() -> Flask:
 
             anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
             return jsonify(anomalies)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ===============================
+    # Feeding Endpoints
+    # ===============================
+
+    @app.route("/api/feed-plan", methods=["GET"])
+    def feed_plan():
+        """
+        The feed chart, plus the grid shape the editor needs to draw it.
+
+        The columns come from the stage lengths in vpd_math.py, so the editor
+        never holds its own idea of how long flowering is.
+        """
+        try:
+            return jsonify(
+                {
+                    "products": get_feed_plan(),
+                    "columns": chart_columns(),
+                    "weeks_per_stage": {
+                        stage: weeks_in_stage(stage) for stage in STAGE_EXPECTED_DAYS
+                    },
+                }
+            )
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/feed-plan", methods=["PUT"])
+    def save_feed_plan():
+        """Replace the whole chart with the grid the editor is showing."""
+        try:
+            data = request.get_json(silent=True)
+            if not data or not isinstance(data.get("products"), list):
+                return jsonify({"error": "Se espera {'products': [...]}"}), 400
+
+            if replace_feed_plan(data["products"]):
+                return jsonify({"success": True, "products": get_feed_plan()})
+            return jsonify({"error": "No se pudo guardar el plan"}), 500
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/feeding/today", methods=["GET"])
+    def feeding_today():
+        """
+        What the chart says to pour right now, already scaled to litres.
+
+        The stage and the day inside it come from the active grow, so this never
+        asks the grower to re-enter dates the backend already knows.
+        """
+        try:
+            grow = get_active_grow()
+            if not grow:
+                return jsonify({"error": "No active grow found"}), 404
+
+            stage = grow.get("stage")
+            day = grow.get("day_in_stage")
+            week = effective_week(stage, day) if stage else 0
+            litres = request.args.get("litres", type=float)
+            if litres is None:
+                litres = last_irrigation_litres(grow["id"])
+
+            due = scale_to_volume(plan_for_week(get_feed_plan(), stage, week), litres)
+            return jsonify(
+                {
+                    "grow_id": grow["id"],
+                    "stage": stage,
+                    "day_in_stage": day,
+                    "week": week,
+                    "weeks_in_stage": weeks_in_stage(stage) if stage else 0,
+                    "litres": litres,
+                    "items": due,
+                    # Nothing due inside a stage that has products elsewhere is a
+                    # flush, not a gap in the chart.
+                    "flush": week > 0 and not due,
+                }
+            )
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/irrigations", methods=["GET"])
+    def list_irrigations():
+        try:
+            grow_id = request.args.get("grow_id", type=int)
+            if grow_id is None:
+                grow = get_active_grow()
+                if not grow:
+                    return jsonify({"error": "No active grow found"}), 404
+                grow_id = grow["id"]
+
+            limit = min(request.args.get("limit", default=100, type=int), 500)
+            return jsonify({"grow_id": grow_id, "irrigations": get_irrigations(grow_id, limit)})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/irrigations", methods=["POST"])
+    def create_irrigation():
+        """
+        Log a watering.
+
+        The stage and week are stamped from the active grow rather than taken
+        from the request: the log should say what the plant was actually going
+        through, not what the browser believed.
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            try:
+                litres = float(data.get("litres"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "litres es obligatorio y numérico"}), 400
+            if litres <= 0:
+                return jsonify({"error": "litres debe ser mayor que cero"}), 400
+
+            items = data.get("items")
+            if items is not None and not isinstance(items, list):
+                return jsonify({"error": "items debe ser una lista"}), 400
+
+            grow = get_active_grow()
+            if not grow:
+                return jsonify({"error": "No active grow found"}), 404
+
+            stage = grow.get("stage")
+            week = effective_week(stage, grow.get("day_in_stage")) if stage else None
+
+            irrigation_id = record_irrigation(
+                grow_id=grow["id"],
+                litres=litres,
+                items=items or [],
+                date=data.get("date"),
+                ph=data.get("ph"),
+                ec=data.get("ec"),
+                stage=stage,
+                week=week,
+                notes=data.get("notes", ""),
+            )
+            if irrigation_id:
+                return jsonify({"success": True, "irrigation_id": irrigation_id}), 201
+            return jsonify({"error": "No se pudo registrar el riego"}), 500
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/irrigations/<int:irrigation_id>", methods=["DELETE"])
+    def remove_irrigation(irrigation_id: int):
+        try:
+            if delete_irrigation(irrigation_id):
+                return jsonify({"success": True})
+            return jsonify({"error": "No existe ese riego"}), 404
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
