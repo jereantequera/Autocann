@@ -1,0 +1,31 @@
+        <!-- Quiet hours -->
+        <!--
+             The window constrains the controller's *decision*, not the relay —
+             so this screen never talks about forcing a contact. It asks which
+             output may not be started, between when and when, and at what
+             humidity the whole thing is called off.
+
+             The escape hatch is a field and not a checkbox because the number
+             is the decision: a night at 85 % is mould, and leaving it empty is
+             choosing quiet over the plants. That is a real choice, but it has
+             to be made on purpose.
+        -->
+        <div class="section-header">
+            <h2 class="section-title">
+                <span class="section-title-icon">🔕</span>
+                Horarios de silencio
+            </h2>
+            <span class="sensor-badge" id="quiet-badge">⏳</span>
+        </div>
+        <div class="sys-note">
+            Dentro de la franja el lazo <strong>no elige</strong> encender esa salida.
+            Nunca apaga algo que ya está andando ni corta un mínimo de encendido, y
+            una orden a mano pasa igual. El lazo toma el cambio en menos de 30 s.
+        </div>
+        <div class="quiet-grid" id="quiet-grid">
+            <div class="loading">Cargando franjas</div>
+        </div>
+        <div class="quiet-actions">
+            <button class="btn btn-primary" data-quiet="save">Guardar franjas</button>
+            <span class="quiet-state" id="quiet-state"></span>
+        </div>

@@ -17,6 +17,7 @@ import {
 } from './grows.js';
 import { closeModal, closeTopModal } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
+import { wireQuiet } from './quiet.js';
 import { applyConfig, state } from './state.js';
 import { fetchNodeLog, fetchNodes, wireNodes } from './nodes.js';
 import { wireSystem } from './system.js';
@@ -220,6 +221,7 @@ async function start() {
     wireCalendar();
     wirePanel();
     wireSystem();
+    wireQuiet();
     wireNodes();
     updateSummaryPeriodLabel();
     // The chart has to be in hand before the feeding panel can render a row

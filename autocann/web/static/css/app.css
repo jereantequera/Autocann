@@ -3295,3 +3295,137 @@ body {
         font-size: 0.95em;
     }
 }
+
+/* ===============================
+   QUIET HOURS
+   ===============================
+   The window constrains the controller's decision, not the relay, so the card
+   is a form and never a switch.
+*/
+
+.quiet-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.quiet-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+}
+
+.quiet-card.is-on {
+    border-left-color: var(--accent-teal);
+}
+
+/* Not styled as a fault: the window doing its job is the normal case. */
+.quiet-card.is-silencing {
+    border-left-color: var(--accent-green);
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.06) 100%);
+}
+
+.quiet-card.is-inert {
+    border-left-color: var(--vpd-adjusting);
+    opacity: 0.85;
+}
+
+.quiet-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.quiet-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.quiet-name {
+    font-weight: 600;
+}
+
+.quiet-action,
+.quiet-inert-note {
+    color: var(--text-muted);
+    font-size: 0.8em;
+    line-height: 1.45;
+    margin-bottom: 12px;
+}
+
+.quiet-inert-note {
+    color: var(--vpd-adjusting);
+    margin-bottom: 0;
+}
+
+.quiet-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.2fr;
+    gap: 10px;
+}
+
+.quiet-card label {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.76em;
+}
+
+.quiet-card .quiet-fields input {
+    width: 100%;
+    margin-top: 5px;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95em;
+}
+
+.quiet-card .quiet-fields input:focus {
+    outline: none;
+    border-color: var(--accent-teal);
+}
+
+/* The sentence under the fields is the whole point of the card: "23:00 → 07:00"
+   is two intervals on a clock face and one continuous night. */
+.quiet-hint {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.8em;
+    line-height: 1.45;
+}
+
+.quiet-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+.quiet-state {
+    color: var(--text-muted);
+    font-size: 0.82em;
+}
+
+.quiet-state.is-ok { color: var(--accent-green); }
+.quiet-state.is-error { color: var(--vpd-danger); }
+
+@media (max-width: 768px) {
+    .quiet-fields {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .quiet-fields label:last-child {
+        grid-column: span 2;
+    }
+}

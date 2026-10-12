@@ -269,6 +269,51 @@ def test_a_view_is_never_selected_by_its_data_attribute_alone():
     assert offenders == []
 
 
+def test_the_quiet_hours_editor_is_wired_to_the_endpoint():
+    """
+    Both verbs have been routed and validated since quiet hours were added,
+    with nothing calling them: the setting that keeps a loud fan from starting
+    at four in the morning was reachable only with curl.
+    """
+    import autocann.web.app as web
+
+    routes = {str(rule) for rule in web.app.url_map.iter_rules()}
+    assert "/api/quiet-hours" in routes
+    assert "partials/quiet.html" in _included(TEMPLATES_DIR / "index.html")
+
+    quiet_js = (JS_DIR / "quiet.js").read_text()
+    assert "/api/quiet-hours" in quiet_js
+
+
+def test_the_quiet_hours_editor_says_a_window_crossing_midnight_does():
+    """
+    23:00 → 07:00 is two intervals on a clock face and one continuous night.
+    A pair of time fields alone does not say which one the backend means.
+    """
+    assert "cruza la medianoche" in (JS_DIR / "quiet.js").read_text()
+
+
+def test_a_window_on_an_output_nothing_drives_is_shown_as_inert():
+    """
+    `automatic_outputs` is served precisely so the dashboard can say so instead
+    of offering a setting that silently blocks nothing.
+    """
+    quiet_js = (JS_DIR / "quiet.js").read_text()
+    assert "automatic_outputs" in quiet_js
+    assert "inertCardHtml" in quiet_js
+
+
+def test_the_quiet_hours_editor_never_offers_to_switch_a_relay():
+    """
+    The window constrains the controller's *decision*, not the contact. Forcing
+    a relay behind the controller's back would leave its minimum-time
+    bookkeeping describing a device that is not running.
+    """
+    quiet_js = _strip_js_comments((JS_DIR / "quiet.js").read_text())
+    assert "/api/output-control" not in quiet_js
+    assert "/api/test-mode/outputs" not in quiet_js
+
+
 def test_the_weekly_report_is_a_view_rather_than_a_modal():
     """A report is read, scrolled and linked to; a modal can do none of those."""
     page = _page_html()
