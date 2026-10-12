@@ -9,7 +9,7 @@
       "autoPort": true,
       "env": {
         "AUTOCANN_INDOOR_PRIMARY": "a",
-        "AUTOCANN_INDOOR_WITNESS": "b"
+        "AUTOCANN_INDOOR_OBSERVERS": "b"
       }
     }
   ]

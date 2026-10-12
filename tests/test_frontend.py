@@ -155,10 +155,10 @@ def _js_object(name: str) -> str:
 
 def test_the_sensor_role_names_match_the_backend():
     """A renamed role loses its label, and the card just says 'primary'."""
-    from autocann.config import PRIMARY, WITNESS
+    from autocann.config import OBSERVER, PRIMARY, WITNESS
 
     roles = _js_object("SENSOR_ROLES")
-    for role in (PRIMARY, WITNESS):
+    for role in (PRIMARY, WITNESS, OBSERVER):
         assert f"{role}:" in roles, role
 
 

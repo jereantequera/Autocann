@@ -542,6 +542,11 @@ def create_app() -> Flask:
                 "sensors": entries,
                 "delta": _indoor_delta(by_role),
                 "drift": drift,
+                # Whether a cross-check exists at all. The dashboard cannot
+                # infer it from the number of sensors: an installation can have
+                # several and still have nothing to compare, because an observer
+                # is not a witness.
+                "has_witness": sensors.has_witness,
                 "max_age_seconds": INDOOR_SENSOR_MAX_AGE_SECONDS,
             }
         )

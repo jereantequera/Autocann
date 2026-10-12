@@ -39,10 +39,18 @@ fi
 
 # Configuración de esta instalación. Ver README.
 #
-#   INDOOR_PRIMARY / INDOOR_WITNESS: los dos sensores del nodo interior. El
-#   primario controla; el testigo sólo lo vigila por deriva. Sin esto el lazo
-#   lee la clave antigua `esp32_indoor`, que ya nadie escribe desde que el
-#   firmware postea con sensor_id — y se queda en failsafe para siempre.
+#   INDOOR_PRIMARY / INDOOR_WITNESS / INDOOR_OBSERVERS: los sensores del nodo
+#   interior. El primario controla. El testigo sólo lo vigila por deriva, y para
+#   eso tiene que estar en el mismo aire. Los observadores no controlan ni se
+#   cruzan: se leen y se muestran. Sin INDOOR_PRIMARY el lazo lee la clave
+#   antigua `esp32_indoor`, que ya nadie escribe desde que el firmware postea
+#   con sensor_id — y se queda en failsafe para siempre.
+#
+#   En esta carpa `b` está ENCIMA de la lámpara, a propósito: interesa saber la
+#   temperatura ahí arriba. Eso lo descalifica como testigo — el offset contra
+#   `a` se abre y se cierra con el fotoperíodo, así que el detector mediría la
+#   luz, no la salud del sensor. Va como observador, y la instalación queda
+#   SIN detección de deriva hasta que haya un tercer DHT22 al lado de `a`.
 #
 #   RELAY_MODE=remote: los relés los maneja el nodo ESP32, no el GPIO de la Pi.
 #
@@ -52,7 +60,8 @@ fi
 # quedaba con la instalación de un solo sensor y el testigo no aparecía en
 # pantalla.
 export AUTOCANN_INDOOR_PRIMARY="${AUTOCANN_INDOOR_PRIMARY:-a}"
-export AUTOCANN_INDOOR_WITNESS="${AUTOCANN_INDOOR_WITNESS:-b}"
+export AUTOCANN_INDOOR_WITNESS="${AUTOCANN_INDOOR_WITNESS:-}"
+export AUTOCANN_INDOOR_OBSERVERS="${AUTOCANN_INDOOR_OBSERVERS:-b}"
 export AUTOCANN_RELAY_MODE="${AUTOCANN_RELAY_MODE:-remote}"
 
 if pgrep -f "$BACKEND_PATTERN" > /dev/null 2>&1; then
@@ -69,5 +78,5 @@ fi
 
 # Sin argumento de etapa: usa la del cultivo activo en la base de datos.
 echo "▶️  Iniciando loop de control de VPD..."
-echo "    sensores: primario=$AUTOCANN_INDOOR_PRIMARY testigo=$AUTOCANN_INDOOR_WITNESS · relés: $AUTOCANN_RELAY_MODE"
+echo "    sensores: primario=$AUTOCANN_INDOOR_PRIMARY testigo=${AUTOCANN_INDOOR_WITNESS:-(ninguno)} observadores=${AUTOCANN_INDOOR_OBSERVERS:-(ninguno)} · relés: $AUTOCANN_RELAY_MODE"
 exec uv run python -u -m autocann.cli.vpd >> "logs/vpd_$FECHA.log" 2>&1

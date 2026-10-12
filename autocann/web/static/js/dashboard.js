@@ -130,6 +130,10 @@ function updateCurrentData(data) {
 const SENSOR_ROLES = {
     primary: { icon: '🎯', label: 'Primario · controla' },
     witness: { icon: '👁️', label: 'Testigo · sólo vigila' },
+    // Shown and nothing else. The sensor above the lamp is worth reading and
+    // useless as a witness: its offset against the primary moves with the
+    // photoperiod, not with the sensors' health.
+    observer: { icon: '📈', label: 'Observación · sólo informa' },
 };
 
 /** Same wording the control loop logs, so the two are recognisably the same fault. */
@@ -240,13 +244,16 @@ function comparisonCardHtml(payload) {
     `;
 }
 
-function updateDriftBadge(drift, sensorCount) {
+function updateDriftBadge(drift, hasWitness) {
     const el = document.getElementById('drift-badge');
     if (!el) return;
 
-    if (sensorCount < 2) {
+    if (!hasWitness) {
+        // Said out loud on purpose: without a witness the silent-drift failure
+        // - a degraded sensor reporting a plausible wrong number - is not being
+        // watched by anything, and a blank badge would read as "all good".
         el.className = 'sensor-badge';
-        el.textContent = 'sin testigo';
+        el.textContent = 'sin control de deriva';
     } else if (!drift) {
         el.className = 'sensor-badge';
         el.textContent = '⏳ sin veredicto';
@@ -272,16 +279,17 @@ function updateIndoorSensors(payload) {
                 </div>
             </div>
         `;
-        updateDriftBadge(null, 0);
+        updateDriftBadge(null, false);
         return;
     }
 
     const cards = sensors.map(sensorCardHtml);
-    // Nothing to compare with a single sensor, and an empty card implying a
-    // missing one would be worse than no card.
-    if (sensors.length > 1) cards.push(comparisonCardHtml(payload));
+    // Gated on a witness existing, not on the number of sensors: an observer is
+    // not something to compare against, and a difference card next to one would
+    // claim a cross-check the installation does not have.
+    if (payload.has_witness) cards.push(comparisonCardHtml(payload));
     grid.innerHTML = cards.join('');
-    updateDriftBadge(payload.drift, sensors.length);
+    updateDriftBadge(payload.drift, payload.has_witness);
 }
 
 function updatePeriodSummary(data) {

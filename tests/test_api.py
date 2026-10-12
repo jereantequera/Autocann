@@ -406,10 +406,59 @@ def test_each_sensor_carries_its_own_drift_flags(client, two_sensors):
     assert body["drift"]["ok"] is False
 
 
+@pytest.fixture
+def primary_and_observer(monkeypatch):
+    """
+    What this tent actually has: 'a' controls, 'b' sits above the lamp and is
+    only read.
+    """
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    monkeypatch.delenv("AUTOCANN_INDOOR_WITNESS", raising=False)
+    monkeypatch.setenv("AUTOCANN_INDOOR_OBSERVERS", "b")
+
+
+def test_an_observer_is_shown_but_never_compared(client, primary_and_observer):
+    """
+    An observer is not a witness. Comparing against one measures where it sits,
+    not whether either sensor is lying.
+    """
+    _store_indoor(client, "esp32_indoor:a", 20.6, 78.0)
+    _store_indoor(client, "esp32_indoor:b", 21.5, 81.7)
+
+    body = client.get("/api/sensors/indoor").get_json()
+
+    assert [(s["role"], s["sensor_id"]) for s in body["sensors"]] == [
+        ("primary", "a"), ("observer", "b"),
+    ]
+    assert body["has_witness"] is False
+    assert body["delta"] is None
+
+
+def test_several_sensors_are_not_a_cross_check(client, primary_and_observer):
+    """
+    The dashboard used to decide by counting cards, which called two sensors a
+    cross-check whatever they were.
+    """
+    body = client.get("/api/sensors/indoor").get_json()
+    assert len(body["sensors"]) == 2 and body["has_witness"] is False
+
+
+def test_an_observer_cannot_also_be_the_primary(client, monkeypatch):
+    """Two roles for one sensor means two meanings for one reading."""
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    monkeypatch.delenv("AUTOCANN_INDOOR_WITNESS", raising=False)
+    monkeypatch.setenv("AUTOCANN_INDOOR_OBSERVERS", "a,b")
+
+    response = client.get("/api/sensors/indoor")
+    assert response.status_code == 500
+    assert "a" in response.get_json()["error"]
+
+
 def test_a_single_sensor_installation_answers_with_one_entry(client, monkeypatch):
     """The legacy install is not a special case the frontend has to handle."""
     monkeypatch.delenv("AUTOCANN_INDOOR_PRIMARY", raising=False)
     monkeypatch.delenv("AUTOCANN_INDOOR_WITNESS", raising=False)
+    monkeypatch.delenv("AUTOCANN_INDOOR_OBSERVERS", raising=False)
     client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0})
 
     body = client.get("/api/sensors/indoor").get_json()
