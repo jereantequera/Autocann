@@ -1,21 +1,8 @@
-        <!-- Period Summary -->
-        <div class="section-header">
-            <h2 class="section-title">
-                <span class="section-title-icon">📊</span>
-                Resumen del Período
-            </h2>
-            <div class="time-selector" id="time-selector-top">
-                <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
-                <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
-                <button class="time-btn" data-hours="4" data-interval="raw">4h</button>
-                <button class="time-btn" data-hours="8" data-interval="raw">8h</button>
-                <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
-                <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
-                <button class="time-btn" data-period="3" data-interval="hourly">3d</button>
-                <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
-                <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
-            </div>
-        </div>
+        <!-- Period summary: the selected range reduced to numbers -->
+        <!--
+             The range comes from the one selector in the view header, so this
+             block carries no controls of its own.
+        -->
         <div class="summary-grid">
             <div class="summary-card">
                 <div class="summary-card-header">
@@ -36,7 +23,7 @@
                     </div>
                     <div class="summary-stat">
                         <span class="summary-stat-label">Muestras</span>
-                        <span class="summary-stat-value" id="summary-samples" style="color: var(--text-secondary);">--</span>
+                        <span class="summary-stat-value summary-stat-muted" id="summary-samples">--</span>
                     </div>
                 </div>
             </div>
@@ -78,6 +65,32 @@
                     </div>
                 </div>
             </div>
+
+            <!--
+                 The outdoor averages used to sit in the Exterior block next to
+                 the live readings, driven by a selector three sections away.
+                 They are a summary of the selected period, so they belong with
+                 the other summaries.
+            -->
+            <div class="summary-card summary-card-outside">
+                <div class="summary-card-header">
+                    <div class="summary-card-title">
+                        <span class="icon">🌤️</span>
+                        Exterior
+                    </div>
+                </div>
+                <div class="summary-minmax">
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Temp. Prom.</span>
+                        <span class="summary-stat-value outside" id="summary-outside-temp">--°C</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-label">Hum. Prom.</span>
+                        <span class="summary-stat-value outside" id="summary-outside-humidity">--%</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- VPD Score Card -->
             <div class="vpd-score-card">
                 <div class="vpd-score-header">
@@ -85,7 +98,7 @@
                         <span>🏆</span>
                         VPD Score (7 días)
                     </div>
-                    <span style="font-size: 0.8em; color: var(--text-muted);" id="vpd-score-range">--</span>
+                    <span class="vpd-score-range" id="vpd-score-range">--</span>
                 </div>
                 <div class="vpd-score-value" id="vpd-score-value">--%</div>
                 <div class="vpd-score-label" id="vpd-score-label">% del tiempo en rango óptimo</div>

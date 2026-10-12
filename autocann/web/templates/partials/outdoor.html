@@ -1,4 +1,9 @@
-        <!-- Outdoor Section -->
+        <!-- Exterior: the live readings only -->
+        <!--
+             The period averages that used to be here moved to Estadísticas,
+             next to the indoor ones: they answered a question about a range
+             selected on another part of the page.
+        -->
         <div class="section-header">
             <h2 class="section-title">
                 <span class="section-title-icon">🌤️</span>
@@ -14,21 +19,5 @@
             <div class="outdoor-card">
                 <div class="metric-label">Humedad</div>
                 <div class="metric-value" id="current-outdoor-humidity">--<span class="metric-unit">%</span></div>
-            </div>
-            <div class="summary-card" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.05) 100%);">
-                <div class="summary-card-title" style="margin-bottom: 12px;">
-                    <span class="icon">📈</span>
-                    Exterior - Promedio del Período
-                </div>
-                <div class="summary-minmax">
-                    <div class="summary-stat">
-                        <span class="summary-stat-label">Temp. Prom.</span>
-                        <span class="summary-stat-value" id="summary-outside-temp" style="color: var(--accent-teal);">--°C</span>
-                    </div>
-                    <div class="summary-stat">
-                        <span class="summary-stat-label">Hum. Prom.</span>
-                        <span class="summary-stat-value" id="summary-outside-humidity" style="color: var(--accent-teal);">--%</span>
-                    </div>
-                </div>
             </div>
         </div>

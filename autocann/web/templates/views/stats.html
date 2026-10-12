@@ -1,0 +1,31 @@
+        <!-- Estadísticas: the history, and the one selector that drives it -->
+        <!--
+             The range selector used to exist twice — once over the summary
+             cards, once over the charts — with JavaScript keeping the two in
+             sync. They were two halves of the same thing separated by three
+             unrelated sections. Now there is one selector and it sits above
+             everything it changes.
+        -->
+        <section class="view view-stats" data-view="stats" aria-label="Estadísticas">
+            <div class="section-header section-header-sticky">
+                <h2 class="section-title">
+                    <span class="section-title-icon">📈</span>
+                    Estadísticas
+                    <span class="section-subtitle" id="summary-period-label"></span>
+                </h2>
+                <div class="time-selector" id="time-selector">
+                    <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
+                    <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
+                    <button class="time-btn" data-hours="4" data-interval="raw">4h</button>
+                    <button class="time-btn" data-hours="8" data-interval="raw">8h</button>
+                    <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
+                    <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
+                    <button class="time-btn" data-period="3" data-interval="hourly">3d</button>
+                    <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
+                    <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
+                </div>
+            </div>
+
+{% include "partials/summary.html" %}
+{% include "partials/charts.html" %}
+        </section>

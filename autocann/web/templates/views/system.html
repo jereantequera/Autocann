@@ -1,0 +1,64 @@
+        <!-- Sistema: the installation, not the plants -->
+        <!--
+             Calibration has had a validated endpoint on both verbs since the
+             backend audit and no way to reach it from the browser: the offsets
+             that correct every reading on every other view were editable only
+             with curl. That is what this view is for.
+        -->
+        <section class="view view-system" data-view="sistema" aria-label="Sistema">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">🎚️</span>
+                    Calibración de sensores
+                </h2>
+                <span class="sensor-badge" id="calibration-badge">⏳</span>
+            </div>
+            <div class="sys-note">
+                El offset se suma a lo que postea el sensor antes de que el lazo lo
+                use. Se aplica recién cuando reinicia el lazo de control
+                (<code>make restart</code>), no al guardar.
+            </div>
+            <div class="calib-grid" id="calibration-grid">
+                <div class="loading">Cargando calibración</div>
+            </div>
+
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">📡</span>
+                    Conectividad
+                </h2>
+                <button class="btn btn-ghost btn-mini" data-sys="refresh">🔄 Revisar</button>
+            </div>
+            <div class="sys-grid" id="connectivity-grid">
+                <div class="loading">Consultando estado</div>
+            </div>
+
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">🗄️</span>
+                    Base de datos
+                </h2>
+            </div>
+            <div class="sys-grid">
+                <div class="sys-card">
+                    <div class="metric-label">Tamaño</div>
+                    <div class="metric-value" id="stat-db-size">--</div>
+                </div>
+                <div class="sys-card">
+                    <div class="metric-label">Cultivos</div>
+                    <div class="metric-value" id="stat-grows">--</div>
+                </div>
+                <div class="sys-card">
+                    <div class="metric-label">Muestras</div>
+                    <div class="metric-value" id="stat-readings">--</div>
+                </div>
+                <div class="sys-card">
+                    <div class="metric-label">Eventos de control</div>
+                    <div class="metric-value" id="stat-events">--</div>
+                </div>
+                <div class="sys-card sys-card-wide">
+                    <div class="metric-label">Histórico guardado</div>
+                    <div class="metric-value metric-value-sm" id="stat-span">--</div>
+                </div>
+            </div>
+        </section>

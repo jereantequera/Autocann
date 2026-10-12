@@ -1,0 +1,82 @@
+        <!-- Reportes: the weekly report, read rather than glanced at -->
+        <!--
+             This was a modal behind a ghost button in the grow bar: the densest
+             thing the app produces, opened the way a confirmation dialog is.
+             A report is read, scrolled and compared, which is a view's job, and
+             a modal cannot be linked to or left open on a second screen.
+        -->
+        <section class="view view-report" data-view="reportes" aria-label="Reportes">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">📋</span>
+                    Reporte semanal
+                    <span class="section-subtitle" id="report-period"></span>
+                </h2>
+                <button class="btn btn-ghost" data-action="weekly-report">🔄 Recalcular</button>
+            </div>
+
+            <div id="report-loading" class="loading">Generando reporte</div>
+
+            <div id="report-content" class="report-body" hidden>
+                <!-- Summary Stats -->
+                <div class="report-grid">
+                    <div class="report-stat">
+                        <div class="report-stat-value report-stat-vpd" id="report-vpd-score">--%</div>
+                        <div class="report-stat-label">VPD Score</div>
+                        <div class="report-trend neutral" id="report-vpd-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value report-stat-temp" id="report-temp-avg">--°C</div>
+                        <div class="report-stat-label">Temp. Promedio</div>
+                        <div class="report-trend neutral" id="report-temp-trend">--</div>
+                    </div>
+                    <div class="report-stat">
+                        <div class="report-stat-value report-stat-humidity" id="report-humidity-avg">--%</div>
+                        <div class="report-stat-label">Hum. Promedio</div>
+                        <div class="report-trend neutral" id="report-humidity-trend">--</div>
+                    </div>
+                </div>
+
+                <!-- Insights -->
+                <div class="report-section">
+                    <div class="report-section-title">💡 Insights</div>
+                    <div class="insights-grid">
+                        <div class="insight-card">
+                            <div class="insight-icon">🌟</div>
+                            <div class="insight-label">Mejor hora</div>
+                            <div class="insight-value" id="report-best-hour">--:00</div>
+                            <div class="insight-score good" id="report-best-score">-- score</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">⚠️</div>
+                            <div class="insight-label">Peor hora</div>
+                            <div class="insight-value" id="report-worst-hour">--:00</div>
+                            <div class="insight-score bad" id="report-worst-score">-- score</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hourly Distribution -->
+                <div class="report-section">
+                    <div class="report-section-title">📈 VPD Score por hora</div>
+                    <div class="hourly-chart" id="report-hourly-chart">
+                        <!-- Bars will be inserted here -->
+                    </div>
+                    <div class="hourly-labels" id="report-hourly-labels">
+                        <!-- Labels will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Daily Scores -->
+                <div class="report-section">
+                    <div class="report-section-title">📅 Score diario</div>
+                    <div class="report-daily" id="report-daily-scores">
+                        <!-- Daily scores will be inserted here -->
+                    </div>
+                </div>
+
+                <div class="report-samples">
+                    Basado en <strong id="report-samples">--</strong> muestras
+                </div>
+            </div>
+        </section>

@@ -1,0 +1,48 @@
+        <!-- Riego: the calendar, today's doses, and the log -->
+        <!--
+             The log alone answers "when did I last water" and nothing else. A
+             month on a grid answers the question actually worth asking — am I
+             watering on a rhythm, and where are the gaps — which a reverse
+             chronological list hides by construction.
+        -->
+        <section class="view view-riego" data-view="riego" aria-label="Riego">
+            <div class="cal-panel" id="cal-panel">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <span class="section-title-icon">📅</span>
+                        Calendario de riego
+                    </h2>
+                    <div class="cal-nav">
+                        <button class="btn btn-ghost btn-mini" data-cal="prev"
+                                aria-label="Mes anterior">‹</button>
+                        <span class="cal-month" id="cal-month">--</span>
+                        <button class="btn btn-ghost btn-mini" data-cal="next"
+                                aria-label="Mes siguiente">›</button>
+                        <button class="btn btn-ghost btn-mini" data-cal="today">Hoy</button>
+                    </div>
+                </div>
+
+                <div class="calendar">
+                    <div class="cal-weekdays" aria-hidden="true">
+                        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span>
+                        <span>Vie</span><span>Sáb</span><span>Dom</span>
+                    </div>
+                    <div class="cal-grid" id="cal-grid"></div>
+                </div>
+
+                <div class="cal-footer">
+                    <div class="cal-legend">
+                        <span class="cal-legend-item"><i class="cal-dot"></i> Riego registrado</span>
+                        <span class="cal-legend-item"><i class="cal-dot off"></i> Algo fuera del plan</span>
+                        <span class="cal-legend-item"><i class="cal-dot flush"></i> Solo agua</span>
+                    </div>
+                    <div class="cal-streak" id="cal-streak"></div>
+                </div>
+
+                <!-- A day only opens when it has something to show, so the
+                     panel is absent rather than empty the rest of the time. -->
+                <div class="cal-detail" id="cal-detail" hidden></div>
+            </div>
+
+{% include "partials/feeding.html" %}
+        </section>

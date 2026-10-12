@@ -334,8 +334,12 @@ function updateSummaryPeriodLabel() {
         } else {
             label.textContent = `Últimas ${state.hours}h`;
         }
+    } else if (state.period === 1) {
+        // The element this writes into did not exist in any template, so the
+        // function returned early and "Últimos 1 día" was never on screen.
+        label.textContent = 'Último día';
     } else {
-        label.textContent = `Últimos ${state.period} día${state.period > 1 ? 's' : ''}`;
+        label.textContent = `Últimos ${state.period} días`;
     }
 }
 
