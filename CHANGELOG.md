@@ -60,6 +60,57 @@ del backend — no sólo en el banner, así que cualquier consumidor de
 El color de la tira se recalcula al filtrar. Dejar `status: "critical"` con todos
 los items críticos descartados mantenía el cartel rojo con nada rojo adentro.
 
+## La pausa dura hasta que alguien la saca
+
+Pausar el controlador vencía solo a las ocho horas. El argumento era una falla
+real — una pausa que nadie recuerda deja la carpa sin control sin que nada avise
+— pero el remedio apuntaba al lado equivocado. Una pausa que termina por reloj
+**cierra los relés en un momento que nadie eligió**, y el motivo por el que uno
+pausa es meter mano en la carpa: el timer dispara con las manos adentro. Lo que
+esa preocupación pide de verdad es que el estado sea imposible de pasar por
+alto, y eso se dice en pantalla en vez de hacérselo a los relés.
+
+Dura hasta que se la saca, y el encabezado lo dice todo el tiempo que dure.
+
+**El estado se mudó a la base y Redis quedó de espejo.** Redis es memoria:
+reiniciarlo, o reiniciar la Raspberry, devolvía la carpa al controlador en
+silencio — la misma sorpresa que las ocho horas, con menos aviso todavía. El
+lazo sigue leyendo Redis en cada ciclo porque es el camino rápido, y repone el
+espejo desde la base en el intervalo de settings, **antes** de evaluar la pausa,
+para que un Redis que volvió vacío no alcance a meter un ciclo de control
+automático. Un Redis *inalcanzable* sigue leyéndose como "en control": sin él
+tampoco se pueden mover los relés a mano, así que quedarse en pausa sin que
+nadie pueda intervenir no le sirve a nadie. El payload dice `since` y
+`elapsed_seconds` donde antes decía `until` y `remaining_seconds`, porque ya no
+hay vencimiento hacia el cual contar y el número que importa es hace cuánto que
+la carpa viene sola.
+
+**El control está donde está el estado.** "Sistema Activo" era un cartel
+decorativo en el encabezado mientras el botón que lo cambiaba era un link
+fantasma a mitad del panel — alcanzable sólo desde la única vista que lista los
+relés, que no es la vista en la que uno está cuando quiere frenar la carpa.
+Ahora es un botón: informa el estado y apretándolo lo cambia. "Sin conexión" le
+gana a "en pausa", porque mientras el backend no contesta lo que dijo el último
+payload sobre la pausa es una suposición, y el botón se deshabilita en vez de
+parecer vivo.
+
+Registrar un riego es la otra cosa que se hace desde cualquier lado, así que es
+la otra cosa del encabezado. El panel tenía una tarjeta entera para eso — días
+desde el último riego, dosis de hoy, un link — que era una copia peor de la
+pestaña Riego en la única pantalla pensada para leerse y no para usarse. Queda
+la parte que sí es un llamado a actuar: un badge en el botón, y sólo a partir
+de los cuatro días, porque un badge siempre encendido es mueble.
+
+**Dos cosas que aparecieron probándolo.** En el teléfono el panel scrolleaba de
+costado: un track de grilla no baja del `min-content` de su contenido, y el
+contenido era un canvas que Chart.js había dimensionado para un escritorio, así
+que la columna quedaba en 962 px dentro de una pantalla de 375. `min-width: 0`
+deja encoger el track, que es lo que permite que Chart.js se entere y redibuje.
+Y el tiempo transcurrido salía "--" durante el primer minuto: `formatDuration`
+describe tiempo *restante*, así que lee el cero como "sin duración", y cero
+segundos transcurridos es una respuesta válida que significa que acabás de
+apretar el botón.
+
 ## El log del nodo, sin entrar a la carpa
 
 El ESP32 imprime por el puerto serie exactamente lo que está mal — un DHT22 que
@@ -105,6 +156,11 @@ Trabajo de banco con la carpa vacía: **el lazo deja de decidir y no se guarda
 nada**. Los relés quedan donde se los ponga desde el dashboard; ni las muestras
 ni los eventos de control llegan a SQLite, porque una sesión moviendo relés a
 mano no es historia del cultivo.
+
+> [!IMPORTANT]
+> Lo que sigue describe el diseño original, con vencimiento a las 8 horas.
+> Después se reemplazó: ahora la pausa dura hasta que alguien la saca y vive en
+> la base. Ver «La pausa dura hasta que alguien la saca» más arriba.
 
 **Se guarda como un vencimiento, no como un flag**, en Redis y con la TTL
 puesta: la clave venciendo *es* el modo terminando, y el timestamp adentro es un

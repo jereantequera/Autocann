@@ -149,8 +149,9 @@ http://<ip-de-tu-raspberry>:5000
   sensor y las líneas que imprimió
 - `GET /api/node/log`, `GET /api/nodes` - Ese log y ese diagnóstico, para el
   dashboard
-- `GET`/`POST /api/test-mode` - Modo prueba: el lazo deja de decidir
-- `POST /api/test-mode/outputs` - Accionar un relé a mano durante el modo prueba
+- `GET`/`POST /api/test-mode` - Pausa: el lazo deja de decidir, hasta que alguien
+  la saca
+- `POST /api/test-mode/outputs` - Accionar un relé a mano mientras está en pausa
 - `GET /api/output-status` - Estado de los relés y overrides activos
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
@@ -327,29 +328,47 @@ es un problema físico.
 > toques — es lo único que permite saber, mirando la web, si el nodo tiene
 > grabado lo último.
 
-## Modo prueba
+## Pausa
 
 Para trabajo de banco: **el lazo deja de decidir y no se guarda nada**. Los
 relés quedan donde se los ponga desde el dashboard, y ni las muestras ni los
 eventos de control llegan a SQLite — una sesión moviendo relés a mano no es
 historia del cultivo.
 
-Se activa desde el botón 🧪 de la sección *Salidas*. Mientras está activo hay un
-cartel permanente: la única falla que esta función puede producir es que alguien
-se vaya sin darse cuenta de que la carpa quedó sin control.
+Se activa desde el chip de estado del encabezado, que dice *Sistema activo* o
+*Sistema en pausa* y es también el botón que lo cambia. Mientras está en pausa
+hay una barra permanente abajo del encabezado, en todas las vistas: la única
+falla que esta función puede producir es que alguien se vaya sin darse cuenta
+de que la carpa quedó sin control.
 
-**Se guarda como un vencimiento, no como un flag.** Un flag que alguien se
-olvida sobrevive reinicios y deja la carpa sin control por días; un vencimiento
-se cura solo. Por defecto 8 h, máximo 24 h, y si Redis se cae vuelve a
-automático — que es la dirección segura para fallar.
+**Dura hasta que alguien la saca.** Antes vencía sola a las 8 h, con el
+argumento de que un flag olvidado deja la carpa sin control por días. El riesgo
+era real pero el remedio apuntaba al lado equivocado: una pausa que termina por
+reloj cierra los relés en un momento que nadie eligió, y el motivo por el que
+uno pausa es justamente meter mano en la carpa. Lo que esa preocupación pide de
+verdad es que el estado sea imposible de pasar por alto, y eso se dice en
+pantalla en vez de hacérselo a los relés.
 
-Lo que **sigue valiendo** en modo prueba:
+**La verdad está en la base, Redis es un espejo.** El lazo lee Redis en cada
+ciclo porque es el camino rápido, y repone el espejo desde la base cada 30 s,
+antes de evaluar la pausa, para que un Redis vacío no alcance a meter un ciclo
+de control automático. Reiniciar Redis o la Raspberry ya no reanuda la carpa:
+era la misma sorpresa que las 8 horas y llegaba con menos aviso todavía. Un
+Redis **inalcanzable** sí vuelve a automático, que es distinto — sin Redis
+tampoco se pueden mover los relés a mano, así que quedarse en pausa sin que
+nadie pueda intervenir no le sirve a nadie.
+
+Lo que **sigue valiendo** durante la pausa:
 
 - Los **mínimos de encendido/apagado**. Protegen el equipo, y al equipo no le
   importa si la orden vino de una persona. Un comando que tiene que esperar se
   informa en la tarjeta, no se descarta en silencio.
 - **Publicar el estado deseado cada ciclo**. El nodo remoto desenergiza a los
   60 s de silencio, así que un lazo callado haría caer los relés cada minuto.
+
+> [!NOTE]
+> Con la pausa puesta no se guarda histórico, y el hueco crece mientras dure.
+> `/api/anomalies` lo sabe y no lo reporta como sensor desconectado.
 
 ## Relés en un nodo remoto
 

@@ -281,12 +281,10 @@ def indoor_sensors_from_env() -> IndoorSensors:
 
 
 # ---------------------------------------------------------------------------
-# Test mode
+# Pause
 # ---------------------------------------------------------------------------
 
-#: Redis key holding the unix timestamp at which test mode ends. Stored with a
-#: matching Redis TTL, so the key expiring *is* the mode ending — and the
-#: deadline inside it is a second, independent check in case the TTL is lost.
+#: Redis key mirroring the pause.
 #:
 #: Holds the timestamp the pause *started*, and has no TTL. It used to hold a
 #: deadline that expired on its own after eight hours, on the argument that a

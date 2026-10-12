@@ -378,7 +378,7 @@ def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTun
     _set_redis("sensors", json.dumps(payload))
 
     if reading is None:
-        sensors.publish_status(indoor_ok=False, indoor_error="Sin lectura válida (modo prueba)")
+        sensors.publish_status(indoor_ok=False, indoor_error="Sin lectura válida (en pausa)")
     else:
         sensors.publish_status(indoor_ok=True)
 
@@ -913,10 +913,10 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
             loop_started = monotonic()
 
             try:
-                # Checked first and every cycle, before anything else: test mode
+                # Checked first and every cycle, before anything else: a pause
                 # needs neither an active grow, nor a valid stage, nor a usable
-                # reading. Those are preconditions for *deciding*, and in test
-                # mode nothing decides.
+                # reading. Those are preconditions for *deciding*, and while
+                # paused nothing decides.
                 # The mirror is restored on the same interval the other
                 # settings are read on, and before the pause is checked: a
                 # Redis that came back empty must not get a cycle of automatic

@@ -191,11 +191,14 @@ function updateDatabaseStats(stats) {
 }
 
 // ===============================
-// Test mode
+// Pause
 // ===============================
 // While it is on the control loop stands down: the relays follow what is asked
-// here and nothing is written to the history. It ends on its own, which is the
-// whole reason it is safe to offer at all.
+// here and nothing is written to the history. It ends when somebody ends it -
+// it used to expire after eight hours, and what made that unsafe is that the
+// relays then closed again at a moment nobody chose. What makes this safe to
+// offer instead is that the state is impossible to miss: the header says it,
+// in amber, on every view, for as long as it lasts.
 
 /** Last known pause state, from /api/output-status so it cannot disagree. */
 let testMode = { active: false };
