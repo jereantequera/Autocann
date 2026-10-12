@@ -27,6 +27,7 @@ from autocann.control.feeding import (
     scale_to_volume,
     weeks_in_stage,
 )
+from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
 from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import (
     STAGE_EXPECTED_DAYS,
@@ -50,6 +51,7 @@ from autocann.db import (
     get_latest_sensor_data,
     get_period_summary,
     get_sensor_data_range,
+    get_setting,
     get_stage_timeline,
     get_vpd_score,
     get_weekly_report,
@@ -58,6 +60,7 @@ from autocann.db import (
     replace_feed_plan,
     set_active_grow,
     set_calibration,
+    set_setting,
     update_grow_stage,
 )
 from autocann.hardware.outputs import (
@@ -723,6 +726,99 @@ def create_app() -> Flask:
             return jsonify({"error": f"Failed to publish the request: {e}"}), 500
 
         return jsonify({"success": True, **_test_mode_payload()})
+
+    # ===============================
+    # Quiet hours
+    # ===============================
+
+    QUIET_HOURS_SETTING = "quiet_hours"
+
+    @app.route("/api/quiet-hours", methods=["GET"])
+    def get_quiet_hours():
+        """
+        The per-output quiet windows, and which outputs a window can affect.
+
+        `automatic_outputs` is served rather than assumed: a window on an output
+        nothing drives automatically would do nothing, and the dashboard should
+        say so instead of offering a setting that is quietly inert.
+        """
+        try:
+            stored = get_setting(QUIET_HOURS_SETTING, {}) or {}
+            windows = windows_from_dict(stored)
+            return jsonify(
+                {
+                    "windows": {name: w.to_dict() for name, w in windows.items()},
+                    "automatic_outputs": sorted(ACTION_OUTPUTS.values()),
+                    "outputs": [
+                        {"name": o["name"], "label": o["label"]} for o in get_outputs()
+                    ],
+                }
+            )
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/quiet-hours", methods=["PUT"])
+    def update_quiet_hours():
+        """
+        Replace the quiet windows.
+
+        Body: {"windows": {"<output>": {"enabled": bool, "start": "HH:MM",
+        "end": "HH:MM", "max_humidity": number|null}}}
+
+        `max_humidity` is the way out: at or above it the window is ignored.
+        Leaving it null is a hard block, which is a real choice — a night at
+        85 % is mould, and silence is not worth a crop unless you say so.
+        """
+        data = request.get_json(silent=True) or {}
+        raw = data.get("windows")
+        if not isinstance(raw, dict):
+            return jsonify({"error": "Missing or invalid 'windows' (must be an object)"}), 400
+
+        cleaned = {}
+        for name, value in raw.items():
+            if not find_output(name):
+                valid = ", ".join(output_names())
+                return jsonify(
+                    {"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 400
+            if not isinstance(value, dict):
+                return jsonify({"error": f"'{name}' must be an object"}), 400
+
+            enabled = bool(value.get("enabled"))
+            start, end = value.get("start"), value.get("end")
+            if enabled:
+                # Only checked when the window is on. Half-filled configuration
+                # that nobody has switched on yet is a draft, not an error.
+                if parse_hhmm(start) is None or parse_hhmm(end) is None:
+                    return jsonify(
+                        {"error": f"'{name}': 'start' y 'end' tienen que ser HH:MM"}), 400
+                if parse_hhmm(start) == parse_hhmm(end):
+                    return jsonify(
+                        {"error": f"'{name}': una franja de ancho cero no silencia nada"}), 400
+
+            max_humidity = value.get("max_humidity")
+            if max_humidity is not None:
+                try:
+                    max_humidity = float(max_humidity)
+                except (TypeError, ValueError):
+                    return jsonify({"error": f"'{name}': 'max_humidity' debe ser un número"}), 400
+                if not 0 <= max_humidity <= 100:
+                    return jsonify({"error": f"'{name}': 'max_humidity' fuera de rango (0-100)"}), 400
+
+            cleaned[name] = QuietWindow(
+                enabled=enabled,
+                start=parse_hhmm(start),
+                end=parse_hhmm(end),
+                max_humidity=max_humidity,
+            ).to_dict()
+
+        if not set_setting(QUIET_HOURS_SETTING, cleaned):
+            return jsonify({"error": "Failed to store the quiet hours"}), 500
+
+        return jsonify({
+            "success": True,
+            "windows": cleaned,
+            "note": "El lazo la toma en menos de 30 s.",
+        })
 
     @app.route("/api/sensor-history", methods=["GET"])
     def get_sensor_history():

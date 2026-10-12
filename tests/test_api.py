@@ -651,3 +651,66 @@ def test_an_unknown_output_is_refused_by_name(client):
     client.post("/api/test-mode", json={"enabled": True})
     response = client.post("/api/test-mode/outputs", json={"name": "luz", "state": True})
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Quiet hours
+# ---------------------------------------------------------------------------
+
+NIGHT = {"enabled": True, "start": "23:00", "end": "07:00", "max_humidity": 85}
+
+
+def test_quiet_hours_start_out_unset(client):
+    body = client.get("/api/quiet-hours").get_json()
+    assert body["windows"] == {}
+    # Served rather than assumed: a window on an output nothing drives
+    # automatically would be a setting that is quietly inert.
+    assert body["automatic_outputs"] == ["humidity_down", "humidity_up"]
+
+
+def test_a_window_survives_the_round_trip(client):
+    client.put("/api/quiet-hours", json={"windows": {"humidity_down": NIGHT}})
+
+    stored = client.get("/api/quiet-hours").get_json()["windows"]["humidity_down"]
+    assert stored == {"enabled": True, "start": "23:00", "end": "07:00", "max_humidity": 85.0}
+
+
+def test_a_hard_block_is_stored_as_one(client):
+    """No escape is a real choice, not a missing field."""
+    client.put("/api/quiet-hours", json={
+        "windows": {"humidity_down": {"enabled": True, "start": "23:00", "end": "07:00"}}})
+
+    assert client.get("/api/quiet-hours").get_json()["windows"]["humidity_down"][
+        "max_humidity"] is None
+
+
+def test_an_enabled_window_needs_real_times(client):
+    response = client.put("/api/quiet-hours", json={
+        "windows": {"humidity_down": {"enabled": True, "start": "la noche", "end": "07:00"}}})
+    assert response.status_code == 400
+
+
+def test_a_draft_nobody_switched_on_is_not_an_error(client):
+    """Half-filled configuration is a draft, not a mistake."""
+    response = client.put("/api/quiet-hours", json={
+        "windows": {"humidity_down": {"enabled": False, "start": "", "end": ""}}})
+    assert response.status_code == 200
+
+
+def test_a_zero_width_window_is_refused(client):
+    response = client.put("/api/quiet-hours", json={
+        "windows": {"humidity_down": {"enabled": True, "start": "03:00", "end": "03:00"}}})
+    assert response.status_code == 400
+    assert "cero" in response.get_json()["error"]
+
+
+@pytest.mark.parametrize("value", [-1, 101, "mucho"])
+def test_the_escape_threshold_has_to_be_a_humidity(client, value):
+    response = client.put("/api/quiet-hours", json={
+        "windows": {"humidity_down": {**NIGHT, "max_humidity": value}}})
+    assert response.status_code == 400
+
+
+def test_a_window_on_an_unknown_output_is_refused(client):
+    response = client.put("/api/quiet-hours", json={"windows": {"luz": NIGHT}})
+    assert response.status_code == 400

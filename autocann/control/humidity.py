@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from statistics import median
-from typing import Deque, Dict, Optional
+from typing import Deque, Dict, FrozenSet, Optional
 
 IDLE = "idle"
 HUMIDIFY = "humidify"
@@ -94,6 +94,7 @@ def decide(
     state: ControllerState,
     config: Optional[ControllerConfig] = None,
     reading_age_seconds: float = 0.0,
+    blocked: FrozenSet[str] = frozenset(),
 ) -> Decision:
     """
     Decide what the humidity outputs should do, and mutate `state` to match.
@@ -101,6 +102,15 @@ def decide(
     `now` is a monotonic clock reading (seconds). `humidity` and
     `target_humidity` are percentages; either being None means "no valid data"
     and trips the failsafe.
+
+    `blocked` names actions that may not be chosen right now — quiet hours, for
+    an output that makes noise at night. It is a constraint on the decision
+    rather than on the relay on purpose: forcing a contact open behind this
+    function's back would leave the state below describing a device that is not
+    running, and the first command afterwards could short-cycle the real one.
+
+    A blocked action never cuts a minimum on-time short. The block is about
+    noise; the minimum is about the equipment, and the equipment wins.
     """
     config = config or DEFAULT_CONFIG
     # --- Failsafe: no usable data. Stop everything, ignore minimum on time. ---
@@ -114,6 +124,14 @@ def decide(
 
     # --- A device is already running: decide whether to stop. ---
     if state.action in (HUMIDIFY, DEHUMIDIFY):
+        if state.action in blocked:
+            # Checked before "reached": the window is a reason to stop that has
+            # nothing to do with the target. The minimum on-time still applies,
+            # so a device caught running when the window opens finishes what
+            # protects it and only then goes quiet.
+            if elapsed < config.min_on_seconds:
+                return Decision(state.action, "min_on_time", changed=False)
+            return _transition(state, IDLE, "quiet_hours", now)
         reached = error >= 0 if state.action == HUMIDIFY else error <= 0
         if not reached:
             return Decision(state.action, "still_correcting", changed=False)
@@ -134,6 +152,8 @@ def decide(
         return Decision(IDLE, "changeover_delay", changed=False)
 
     wanted = HUMIDIFY if error < 0 else DEHUMIDIFY
+    if wanted in blocked:
+        return Decision(IDLE, "quiet_hours", changed=False)
     last_off = state.last_off_at.get(wanted)
     if last_off is not None and (now - last_off) < config.min_off_seconds:
         return Decision(IDLE, "anti_short_cycle", changed=False)

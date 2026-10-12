@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -501,6 +502,20 @@ def init_database() -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_irrigation_items
         ON irrigation_items(irrigation_id)
+    """
+    )
+
+    # Settings the operator edits and the control loop obeys. One row per key,
+    # value as JSON. In the database rather than in Redis because losing it has
+    # to be loud: a quiet-hours window that silently vanished would show up as a
+    # fan running at four in the morning.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT
+        )
     """
     )
 
@@ -2119,3 +2134,54 @@ def detect_anomalies(
         return {"error": str(e), "status": "error"}
 
 
+
+
+# ===============================
+# Settings
+# ===============================
+
+
+def get_setting(key: str, default=None):
+    """
+    One stored setting, already parsed. `default` when it is absent or corrupt.
+
+    Corrupt reads as absent on purpose: this is read by the control loop, and a
+    bad row must not stop the tent from being controlled.
+    """
+    ensure_schema()
+    try:
+        conn = _open()
+        try:
+            row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return default
+    if row is None:
+        return default
+    try:
+        return json.loads(row[0])
+    except (TypeError, ValueError):
+        return default
+
+
+def set_setting(key: str, value) -> bool:
+    """Store one setting. Returns whether it was written."""
+    ensure_schema()
+    try:
+        conn = _open()
+        try:
+            conn.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                (key, json.dumps(value),
+                 datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return True
+    except sqlite3.Error as e:
+        print(f"❌ No se pudo guardar la configuración '{key}': {e}")
+        return False

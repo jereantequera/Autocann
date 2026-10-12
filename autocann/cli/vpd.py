@@ -19,7 +19,7 @@ import signal
 from dataclasses import dataclass, replace
 from datetime import datetime
 from time import monotonic, sleep
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 import redis
 
@@ -46,6 +46,7 @@ from autocann.control.humidity import (
     MedianFilter,
     decide,
 )
+from autocann.control.quiet import blocked_actions, windows_from_dict
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, Calibration, SampleAccumulator
 from autocann.control.vpd_math import (
     STAGES,
@@ -54,7 +55,14 @@ from autocann.control.vpd_math import (
     humidity_range_for_stage,
     vpd_is_in_range,
 )
-from autocann.db import ensure_schema, get_active_grow, get_calibration, store_control_event, store_sensor_sample
+from autocann.db import (
+    ensure_schema,
+    get_active_grow,
+    get_calibration,
+    get_setting,
+    store_control_event,
+    store_sensor_sample,
+)
 from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
 from autocann.time import ARGENTINA_TZ
 
@@ -63,6 +71,12 @@ LOOP_INTERVAL_SECONDS = 3.0
 DB_SAVE_INTERVAL_SECONDS = 300.0
 #: How often the active grow / stage is re-read from the database.
 STAGE_CHECK_INTERVAL_SECONDS = 60.0
+#: How often the operator's settings are re-read. Short enough that editing a
+#: quiet window on the dashboard takes effect while you are still looking at it:
+#: calibration is read once at startup, which would be the wrong trade here.
+SETTINGS_CHECK_INTERVAL_SECONDS = 30.0
+#: Settings key holding the per-output quiet windows.
+QUIET_HOURS_SETTING = "quiet_hours"
 #: ESP32 data older than this is ignored. Defined in `autocann.config` because
 #: the dashboard marks a reading stale with the same number, and a dashboard
 #: calling a reading fresh that the loop is refusing to act on is worse than
@@ -861,6 +875,9 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     last_sensor_reinit = 0.0
     unknown_stage_warned: Optional[str] = None
     in_test_mode = False
+    last_settings_check = -SETTINGS_CHECK_INTERVAL_SECONDS
+    quiet_windows: Dict[str, Any] = {}
+    quiet_reported: FrozenSet[str] = frozenset()
     # Every reading feeds this; one row per DB_SAVE_INTERVAL_SECONDS summarises
     # the whole interval instead of whichever reading happened to land on it.
     accumulator = SampleAccumulator()
@@ -900,6 +917,10 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     accumulator.reset()
                     last_db_save = loop_started
                     print("✅ Modo prueba terminado — vuelve el control automático")
+
+                if loop_started - last_settings_check >= SETTINGS_CHECK_INTERVAL_SECONDS:
+                    last_settings_check = loop_started
+                    quiet_windows = windows_from_dict(get_setting(QUIET_HOURS_SETTING, {}))
 
                 if loop_started - last_stage_check >= STAGE_CHECK_INTERVAL_SECONDS:
                     last_stage_check = loop_started
@@ -971,6 +992,17 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 sensors_data["timestamp"] = int(_now_local().timestamp())
                 sensors_data["datetime"] = _now_local().strftime("%Y-%m-%d %H:%M:%S")
 
+                # Evaluated against the wall clock, which is what a quiet
+                # window is about, and against the humidity, which is what its
+                # escape is about.
+                blocked = blocked_actions(quiet_windows, _now_local().time(), humidity)
+                if blocked != quiet_reported:
+                    for action in sorted(blocked - quiet_reported):
+                        print(f"🔇 Franja de silencio: no se va a {action}")
+                    for action in sorted(quiet_reported - blocked):
+                        print(f"🔊 Fin de la franja de silencio para {action}")
+                    quiet_reported = blocked
+
                 decision = decide(
                     humidity=humidity,
                     target_humidity=setpoint.target_humidity,
@@ -978,9 +1010,11 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     state=state,
                     config=replace(config, deadband_pct=setpoint.deadband_pct),
                     reading_age_seconds=sensors.reading_age_seconds,
+                    blocked=blocked,
                 )
                 sensors_data["control_action"] = decision.action
                 sensors_data["control_reason"] = decision.reason
+                sensors_data["quiet_hours"] = sorted(blocked)
                 sensors_data["reading_age_seconds"] = round(sensors.reading_age_seconds, 1)
 
                 if decision.changed:
