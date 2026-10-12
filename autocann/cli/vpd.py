@@ -29,6 +29,7 @@ from autocann.config import (
     RELAY_MODE_REMOTE,
     TEST_MODE_KEY,
     TEST_MODE_OUTPUTS_KEY,
+    TEST_MODE_SETTING,
     ControlTuning,
     IndoorSensors,
     control_tuning_from_env,
@@ -341,7 +342,7 @@ class Relays:
 
 
 def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTuning,
-                        until: int, now: float) -> None:
+                        since: int, now: float) -> None:
     """
     One cycle with the controller switched off.
 
@@ -350,8 +351,8 @@ def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTun
     tent — but nothing is accumulated and nothing is stored, which is the point.
 
     The desired state is still published every cycle. The remote node
-    de-energises after 60 s without a poll, so a loop that went quiet in test
-    mode would drop the relays once a minute and make the bench test useless.
+    de-energises after 60 s without a poll, so a loop that went quiet while
+    paused would drop the relays once a minute and make the bench work useless.
     """
     held = relays.apply_manual(read_test_mode_outputs(), tuning=tuning, now=now)
 
@@ -360,7 +361,7 @@ def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTun
     payload.update(
         {
             "mode": "test",
-            "test_mode_until": until,
+            "test_mode_since": since,
             "timestamp": int(_now_local().timestamp()),
             "datetime": _now_local().strftime("%Y-%m-%d %H:%M:%S"),
             # There is no target and no decision in test mode. Publishing the
@@ -370,7 +371,7 @@ def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTun
             "target_humidity": None,
             "vpd_in_range": None,
             "control_action": None,
-            "control_reason": "modo prueba: el lazo no decide",
+            "control_reason": "en pausa: el lazo no decide",
             "held_outputs": held,
         }
     )
@@ -382,28 +383,49 @@ def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTun
         sensors.publish_status(indoor_ok=True)
 
 
-def read_test_mode_deadline() -> Optional[int]:
+def read_test_mode_since() -> Optional[int]:
     """
-    The unix timestamp at which test mode ends, or None when it is not active.
+    When the pause started, or None when the loop is in control.
 
-    Both the Redis TTL and the stored deadline are checked. The TTL is what
-    normally ends the mode; the deadline is the backstop for a key that somehow
-    outlives it, because the one thing this must never do is stay on forever.
+    Read from Redis every cycle because it is cheap. Redis is a mirror, not the
+    truth - `restore_pause_mirror` puts it back from the database - so the one
+    thing this cannot do is treat a missing key as "resume". It still treats an
+    *unreachable* Redis as resume, which is a different case: the loop cannot
+    be driven by hand without it either, so carrying on controlling the tent is
+    the useful answer rather than standing down with nobody able to intervene.
     """
     try:
         raw = redis_client.get(TEST_MODE_KEY)
     except Exception:
-        # Redis unreachable: fall back to automatic control. Guessing "still in
-        # test mode" would leave the tent uncontrolled on an infrastructure
-        # fault.
         return None
     if not raw:
         return None
     try:
-        until = int(raw)
+        return int(raw)
     except (TypeError, ValueError):
         return None
-    return until if int(_now_local().timestamp()) < until else None
+
+
+def restore_pause_mirror() -> None:
+    """
+    Put the Redis mirror back when the database says the tent is paused.
+
+    Redis is memory. Restarting it, or the Raspberry, used to mean a pause
+    silently ended and the relays started moving again at a moment nobody
+    chose. Checked on the settings interval rather than every cycle: it only
+    has to beat somebody walking back to the tent.
+    """
+    stored = get_setting(TEST_MODE_SETTING, None)
+    if not isinstance(stored, dict) or not stored.get("active"):
+        return
+    try:
+        if redis_client.get(TEST_MODE_KEY):
+            return
+        since = int(stored.get("since") or int(_now_local().timestamp()))
+        redis_client.set(TEST_MODE_KEY, str(since))
+        print("⏸️ Pausa restaurada desde la base: Redis no la tenía")
+    except Exception:
+        pass
 
 
 def read_test_mode_outputs() -> Dict[str, bool]:
@@ -876,6 +898,10 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     unknown_stage_warned: Optional[str] = None
     in_test_mode = False
     last_settings_check = -SETTINGS_CHECK_INTERVAL_SECONDS
+    # Its own clock, not the settings one: the paused branch `continue`s before
+    # that gets updated, so sharing it would re-read the database every cycle
+    # for exactly as long as the pause lasts.
+    last_pause_check = -SETTINGS_CHECK_INTERVAL_SECONDS
     quiet_windows: Dict[str, Any] = {}
     quiet_reported: FrozenSet[str] = frozenset()
     # Every reading feeds this; one row per DB_SAVE_INTERVAL_SECONDS summarises
@@ -891,16 +917,25 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 # needs neither an active grow, nor a valid stage, nor a usable
                 # reading. Those are preconditions for *deciding*, and in test
                 # mode nothing decides.
-                test_mode_until = read_test_mode_deadline()
-                if test_mode_until is not None:
+                # The mirror is restored on the same interval the other
+                # settings are read on, and before the pause is checked: a
+                # Redis that came back empty must not get a cycle of automatic
+                # control in before the database is consulted.
+                if loop_started - last_pause_check >= SETTINGS_CHECK_INTERVAL_SECONDS:
+                    last_pause_check = loop_started
+                    restore_pause_mirror()
+
+                test_mode_since = read_test_mode_since()
+                if test_mode_since is not None:
                     if not in_test_mode:
                         in_test_mode = True
                         relays.log_events = False
-                        ends = datetime.fromtimestamp(test_mode_until, ARGENTINA_TZ)
-                        print(f"🧪 Modo prueba hasta {ends.strftime('%H:%M:%S')} — "
+                        started = datetime.fromtimestamp(test_mode_since, ARGENTINA_TZ)
+                        print(f"⏸️ En pausa desde {started.strftime('%H:%M:%S')} — "
                               "el lazo no decide, los relés siguen lo que se pida "
-                              "a mano y no se guarda nada")
-                    run_test_mode_cycle(relays, sensors, config, test_mode_until, loop_started)
+                              "a mano y no se guarda nada. Sigue así hasta que "
+                              "alguien la saque.")
+                    run_test_mode_cycle(relays, sensors, config, test_mode_since, loop_started)
                     sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
@@ -916,7 +951,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
                     accumulator.reset()
                     last_db_save = loop_started
-                    print("✅ Modo prueba terminado — vuelve el control automático")
+                    print("✅ Pausa terminada — vuelve el control automático")
 
                 if loop_started - last_settings_check >= SETTINGS_CHECK_INTERVAL_SECONDS:
                     last_settings_check = loop_started

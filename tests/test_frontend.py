@@ -312,18 +312,59 @@ def test_every_drift_flag_the_monitor_emits_has_a_label():
         assert f"{flag}:" in labels, flag
 
 
-def test_test_mode_is_announced_on_screen_while_it_is_on():
+def test_the_pause_is_announced_on_screen_while_it_lasts():
     """
     The one failure this feature can produce is somebody walking away without
-    noticing the tent is uncontrolled, so the banner is not optional.
+    noticing the tent is uncontrolled, so the banner is not optional. It
+    matters more now than when it expired after eight hours: nothing but a
+    person ends it, so saying so is the whole safety story.
     """
-    partial = (TEMPLATES_DIR / "partials" / "outputs.html").read_text()
-    assert 'id="test-mode-banner"' in partial
-    assert 'id="test-mode-countdown"' in partial
-    assert 'data-action="exit-test-mode"' in partial
+    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
+    assert 'id="pause-bar"' in header
+    assert 'id="pause-elapsed"' in header
+    assert 'data-action="resume-system"' in header
+    # Says out loud that it does not end on its own; a banner that only reports
+    # the state reads like something that will clear up by itself.
+    assert "No se reanuda solo" in header
 
     dashboard = (JS_DIR / "dashboard.js").read_text()
-    assert "renderTestModeBanner" in dashboard
+    assert "renderSystemState" in dashboard
+
+
+def test_the_pause_is_reachable_from_every_view():
+    """
+    Pausing is the state of the whole system, not a property of the relay
+    section it used to be buried in - and the view showing that section is not
+    the one you are on when you need to stop the tent.
+    """
+    index = (TEMPLATES_DIR / "index.html").read_text()
+    # Included outside <main class="views">, so it is not inside any one view.
+    assert index.index('partials/header.html') < index.index('<main class="views">')
+
+    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
+    assert 'data-action="toggle-pause"' in header
+    assert 'href="#/riego"' in header, "el CTA de riego también vive arriba"
+
+
+def test_the_pause_does_not_expire_on_its_own():
+    """
+    A pause that resumes by itself closes relays at a moment nobody chose, and
+    if it was taken to rewire something, while somebody's hands are in there.
+    """
+    import autocann.config as config
+
+    assert not hasattr(config, "TEST_MODE_DEFAULT_SECONDS")
+    assert not hasattr(config, "TEST_MODE_MAX_SECONDS")
+
+    app_py = (Path(config.__file__).parent / "web" / "app.py").read_text()
+    # No TTL on the pause keys: `ex=` on either is an expiry by another name.
+    pause_write = app_py[app_py.index("def set_test_mode"):]
+    pause_write = pause_write[: pause_write.index("@app.route", 10)]
+    assert "ex=" not in pause_write
+
+    # And it outlives Redis, which is memory: a reboot must not resume the tent.
+    assert "TEST_MODE_SETTING" in app_py
+    assert "restore_pause_mirror" in (Path(config.__file__).parent / "cli" / "vpd.py").read_text()
 
 
 def test_the_test_mode_endpoints_the_dashboard_calls_exist():

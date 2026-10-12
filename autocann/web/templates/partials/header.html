@@ -1,14 +1,54 @@
         <!-- Header -->
+        <!--
+             The two things anyone does from anywhere in the app live here, next
+             to the logo, on every view: stop the controller, and log a
+             watering. Both used to be buried - the first behind a ghost button
+             halfway down the panel, the second at the bottom of a tab.
+        -->
         <header class="header">
             <div class="logo">
                 <div class="logo-icon">🌿</div>
                 <h1>Auto<span>cann</span></h1>
             </div>
             <div class="header-right">
-                <div class="status-indicator">
-                    <div class="status-dot"></div>
-                    <span>Sistema Activo</span>
-                </div>
+                <!--
+                     A button, not a label. It said "Sistema Activo" and meant
+                     it as decoration; the state it reports is also the state
+                     you change, so it is the control for it.
+                -->
+                <button type="button" class="system-state" id="system-state"
+                        data-action="toggle-pause">
+                    <span class="status-dot" id="system-state-dot"></span>
+                    <span class="system-state-text" id="system-state-text">Sistema activo</span>
+                    <span class="system-state-action" id="system-state-action">Pausar</span>
+                </button>
+
+                <a class="btn btn-primary header-cta" href="#/riego">
+                    💧 Agregar riego
+                    <span class="header-cta-badge" id="feed-cta-badge" hidden></span>
+                </a>
+
                 <div class="last-update" id="last-update">Cargando...</div>
             </div>
         </header>
+
+        <!--
+             Loud, full width, on every view, and it stays until somebody ends
+             it. This is what replaces the eight-hour expiry: the old worry was
+             a pause nobody remembers, and the answer to that is saying so
+             permanently rather than resuming the tent on a timer.
+        -->
+        <div id="pause-bar" class="pause-bar" role="status" aria-live="polite">
+            <div class="pause-bar-icon">⏸️</div>
+            <div class="pause-bar-content">
+                <div class="pause-bar-title">Sistema en pausa</div>
+                <div class="pause-bar-message">
+                    El lazo no está controlando la carpa: los relés quedan donde los
+                    pongas y no se guarda nada en el histórico.
+                    <strong>No se reanuda solo</strong> — sigue así hasta que lo saques,
+                    incluso si se reinicia la Raspberry.
+                    En pausa desde hace <strong id="pause-elapsed">--</strong>.
+                </div>
+            </div>
+            <button class="btn btn-primary" data-action="resume-system">▶️ Reanudar</button>
+        </div>

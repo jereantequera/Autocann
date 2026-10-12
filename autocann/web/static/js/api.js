@@ -13,21 +13,20 @@ const connection = {
     get offline() { return this.consecutiveErrors >= 2; },
 };
 
+/**
+ * Publish the connection state; the banner is this module's, the chip is not.
+ *
+ * The header chip now reports two things at once - whether the backend answers
+ * and whether the control loop is paused - and only one place can own an
+ * element. This announces, and whoever renders the chip decides which of the
+ * two states wins.
+ */
 function renderConnectionState() {
-    const dot = document.querySelector('.status-dot');
-    const label = document.querySelector('.status-indicator span');
     const banner = document.getElementById('connection-alert');
-    if (!dot || !label) return;
-
-    if (connection.offline) {
-        dot.classList.add('offline');
-        label.textContent = 'Sin conexión al backend';
-        if (banner) banner.classList.add('show');
-    } else {
-        dot.classList.remove('offline');
-        label.textContent = 'Sistema Activo';
-        if (banner) banner.classList.remove('show');
-    }
+    if (banner) banner.classList.toggle('show', connection.offline);
+    document.dispatchEvent(new CustomEvent('connection:changed', {
+        detail: { offline: connection.offline },
+    }));
 }
 
 const REQUEST_TIMEOUT_MS = 8000;

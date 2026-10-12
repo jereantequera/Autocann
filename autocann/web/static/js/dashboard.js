@@ -415,20 +415,74 @@ function updateSensorStatus(data) {
 // here and nothing is written to the history. It ends on its own, which is the
 // whole reason it is safe to offer at all.
 
-/** Last known test-mode state, from /api/output-status so it cannot disagree. */
+/** Last known pause state, from /api/output-status so it cannot disagree. */
 let testMode = { active: false };
+/** Whether the backend is answering, from api.js. */
+let offline = false;
 
-function renderTestModeBanner(mode) {
-    const banner = document.getElementById('test-mode-banner');
-    const enterBtn = document.getElementById('test-mode-enter');
-    const countdown = document.getElementById('test-mode-countdown');
-
-    if (banner) banner.classList.toggle('show', !!mode.active);
-    // Hidden rather than disabled while active: the way out is the "Salir" on
-    // the banner, and two competing controls invite turning it on twice.
-    if (enterBtn) enterBtn.style.display = mode.active ? 'none' : '';
-    if (countdown) countdown.textContent = formatDuration(mode.remaining_seconds);
+/**
+ * How long the pause has lasted, in words.
+ *
+ * Not formatDuration: that one describes time *left*, so it reads zero and
+ * below as "no duration" and renders "--". Zero seconds of elapsed time is a
+ * real answer - it means you just pressed the button - and "en pausa desde
+ * hace --" reads like something failed to load.
+ */
+function pausedFor(seconds) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'un momento';
+    if (seconds < 60) return 'menos de un minuto';
+    return formatDuration(seconds);
 }
+
+/**
+ * The header chip, and the bar under it.
+ *
+ * One renderer for two inputs, because one element cannot have two owners: a
+ * backend that stopped answering and a controller that was paused are
+ * different things, and the chip has to say which. Not answering wins - while
+ * it lasts, what the last payload said about the pause is a guess.
+ */
+function renderSystemState() {
+    const chip = document.getElementById('system-state');
+    const dot = document.getElementById('system-state-dot');
+    const text = document.getElementById('system-state-text');
+    const action = document.getElementById('system-state-action');
+    const bar = document.getElementById('pause-bar');
+    const elapsed = document.getElementById('pause-elapsed');
+    if (!chip) return;
+
+    const paused = !!testMode.active;
+
+    if (bar) bar.classList.toggle('show', paused && !offline);
+    if (elapsed) elapsed.textContent = pausedFor(testMode.elapsed_seconds);
+
+    chip.classList.toggle('is-paused', paused && !offline);
+    chip.classList.toggle('is-offline', offline);
+    dot.classList.toggle('offline', offline);
+
+    if (offline) {
+        text.textContent = 'Sin conexión';
+        // Nothing to toggle: the request would not arrive, and a button that
+        // looks live while the backend is gone is how you end up pressing it
+        // four times and not knowing what took.
+        action.textContent = '';
+        chip.disabled = true;
+        chip.title = 'No se puede contactar al backend';
+        return;
+    }
+
+    chip.disabled = false;
+    text.textContent = paused ? 'Sistema en pausa' : 'Sistema activo';
+    action.textContent = paused ? 'Reanudar' : 'Pausar';
+    chip.title = paused
+        ? 'El lazo no está controlando la carpa'
+        : 'Detener el control automático para trabajar en la carpa';
+}
+
+document.addEventListener('connection:changed', event => {
+    offline = !!event.detail?.offline;
+    renderSystemState();
+});
 
 function outputCardHtml(output, mode) {
     let stateText = '--';
@@ -483,7 +537,7 @@ function updateOutputsStatus(payload) {
     const outputs = payload?.outputs || [];
 
     testMode = payload?.test_mode || { active: false };
-    renderTestModeBanner(testMode);
+    renderSystemState();
 
     if (!grid) return;
 
@@ -501,14 +555,17 @@ function updateOutputsStatus(payload) {
 }
 
 async function enterTestMode() {
+    // Said plainly because it is now true: nothing ends this but a person.
     if (!confirm(
         'El lazo deja de controlar la carpa: los relés van a quedar donde vos los pongas '
-        + 'y no se va a guardar nada en el histórico.\n\nVuelve solo a automático a las 8 horas.'
+        + 'y no se va a guardar nada en el histórico.\n\n'
+        + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
+        + 'reinicie la Raspberry.'
     )) return;
 
     const result = await apiPost('/api/test-mode', { enabled: true });
     if (!result.ok) {
-        alert(`❌ No se pudo entrar en modo prueba: ${result.error}`);
+        alert(`❌ No se pudo pausar: ${result.error}`);
         return;
     }
     fetchOutputsStatus();
@@ -517,10 +574,16 @@ async function enterTestMode() {
 async function exitTestMode() {
     const result = await apiPost('/api/test-mode', { enabled: false });
     if (!result.ok) {
-        alert(`❌ No se pudo salir del modo prueba: ${result.error}`);
+        alert(`❌ No se pudo reanudar: ${result.error}`);
         return;
     }
     fetchOutputsStatus();
+}
+
+/** The header chip: one control, so which way it goes depends on the state. */
+function toggleTestMode() {
+    if (testMode.active) exitTestMode();
+    else enterTestMode();
 }
 
 async function setTestOutput(trigger) {
@@ -587,5 +650,5 @@ function fetchHistoricalData(days, interval, hours = null) {
 export {
     updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData, fetchIndoorSensors,
     fetchOutputsStatus, fetchSensorStatus, fetchDatabaseStats, fetchHistoricalData,
-    enterTestMode, exitTestMode, setTestOutput,
+    enterTestMode, exitTestMode, toggleTestMode, setTestOutput, renderSystemState,
 };

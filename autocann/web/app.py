@@ -10,10 +10,9 @@ from autocann import __version__
 from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     PRIMARY,
-    TEST_MODE_DEFAULT_SECONDS,
     TEST_MODE_KEY,
-    TEST_MODE_MAX_SECONDS,
     TEST_MODE_OUTPUTS_KEY,
+    TEST_MODE_SETTING,
     WITNESS,
     indoor_sensor_key,
     indoor_sensors_from_env,
@@ -205,19 +204,47 @@ def create_app() -> Flask:
             }
         )
 
-    def _test_mode_deadline():
-        """The deadline if test mode is on, else None. Shared by every handler."""
-        raw = redis_client.get(TEST_MODE_KEY)
-        if not raw:
-            return None
+    def _test_mode_since():
+        """
+        When the pause started, or None when the loop is in control.
+
+        The database is the truth and Redis is the mirror, so a Redis that was
+        restarted or flushed does not read as "not paused" and quietly hand the
+        tent back to the controller. Redis is still answered from first because
+        it is the common case and costs nothing.
+        """
+        raw = None
         try:
-            until = int(raw)
-        except (TypeError, ValueError):
+            raw = redis_client.get(TEST_MODE_KEY)
+        except Exception:
+            raw = None
+
+        if raw:
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                pass
+
+        stored = get_setting(TEST_MODE_SETTING, None)
+        if not isinstance(stored, dict) or not stored.get("active"):
             return None
-        return until if int(datetime.now(ARGENTINA_TZ).timestamp()) < until else None
+
+        since = stored.get("since")
+        try:
+            since = int(since)
+        except (TypeError, ValueError):
+            since = int(datetime.now(ARGENTINA_TZ).timestamp())
+
+        # Seen in the database but not in Redis: put the mirror back, so the
+        # control loop - which only reads Redis each cycle - sees it too.
+        try:
+            redis_client.set(TEST_MODE_KEY, str(since))
+        except Exception:
+            pass
+        return since
 
     def _test_mode_payload():
-        until = _test_mode_deadline()
+        since = _test_mode_since()
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
             requested = json.loads(raw) if raw else {}
@@ -227,17 +254,18 @@ def create_app() -> Flask:
             requested = {}
 
         return {
-            "active": until is not None,
-            "until": until,
-            "remaining_seconds": (
-                None if until is None
-                else until - int(datetime.now(ARGENTINA_TZ).timestamp())
+            "active": since is not None,
+            "since": since,
+            # How long it has been, not how long is left: there is no deadline
+            # to count down to any more, and the number that matters is how long
+            # the tent has been going unattended.
+            "elapsed_seconds": (
+                None if since is None
+                else max(0, int(datetime.now(ARGENTINA_TZ).timestamp()) - since)
             ),
             "requested_outputs": {
                 name: bool(requested.get(name, False)) for name in output_names()
             },
-            "default_seconds": TEST_MODE_DEFAULT_SECONDS,
-            "max_seconds": TEST_MODE_MAX_SECONDS,
         }
 
     @app.route("/api/output-status", methods=["GET"])
@@ -621,7 +649,7 @@ def create_app() -> Flask:
     @app.route("/api/test-mode", methods=["GET"])
     def get_test_mode():
         """
-        Whether the control loop is standing down, and for how much longer.
+        Whether the control loop is standing down, and since when.
         """
         try:
             return jsonify(_test_mode_payload())
@@ -631,17 +659,21 @@ def create_app() -> Flask:
     @app.route("/api/test-mode", methods=["POST"])
     def set_test_mode():
         """
-        Turn test mode on for a while, or off.
+        Pause the control loop, or hand the tent back to it.
 
         Body (JSON):
         - enabled: boolean
-        - duration_seconds: optional, how long it lasts (default
-          TEST_MODE_DEFAULT_SECONDS, max TEST_MODE_MAX_SECONDS)
 
-        It is stored as a deadline with a matching Redis TTL rather than as a
-        flag. A flag someone forgets survives restarts and leaves the tent
-        uncontrolled indefinitely; this ends on its own, and losing Redis ends
-        it too, which is the safe direction to fail in.
+        The pause lasts until somebody ends it. It used to expire after eight
+        hours; what that bought - never being left uncontrolled by accident -
+        is now bought by saying so in the header on every view instead, and what
+        it cost was relays closing again at a moment nobody chose.
+
+        Written to the database first, then mirrored into Redis. The loop reads
+        Redis, so the order matters only when one of the two writes fails: a
+        pause recorded and not mirrored is noticed and repaired on the next
+        read, while a pause mirrored and not recorded would vanish on the next
+        reboot with nothing to notice it.
         """
         data = request.get_json(silent=True) or {}
         enabled = data.get("enabled")
@@ -649,34 +681,27 @@ def create_app() -> Flask:
             return jsonify({"error": "Missing or invalid 'enabled' (must be boolean)"}), 400
 
         if not enabled:
+            if not set_setting(TEST_MODE_SETTING, {"active": False}):
+                return jsonify({"error": "No se pudo registrar el fin de la pausa"}), 500
             try:
                 redis_client.delete(TEST_MODE_KEY)
-                # Cleared together: a later session must not begin by
-                # energising whatever was left switched on in this one.
+                # Cleared together: a later pause must not begin by energising
+                # whatever was left switched on in this one.
                 redis_client.delete(TEST_MODE_OUTPUTS_KEY)
             except Exception as e:
                 return jsonify({"error": f"Failed to leave test mode: {e}"}), 500
             return jsonify({"success": True, **_test_mode_payload()})
 
-        duration = data.get("duration_seconds", TEST_MODE_DEFAULT_SECONDS)
+        since = int(datetime.now(ARGENTINA_TZ).timestamp())
+        if not set_setting(TEST_MODE_SETTING, {"active": True, "since": since}):
+            return jsonify({"error": "No se pudo registrar la pausa"}), 500
         try:
-            duration = int(duration)
-        except (TypeError, ValueError):
-            return jsonify({"error": "'duration_seconds' must be an integer"}), 400
-        if duration < 1 or duration > TEST_MODE_MAX_SECONDS:
-            return jsonify(
-                {"error": f"'duration_seconds' must be between 1 and {TEST_MODE_MAX_SECONDS}"}
-            ), 400
-
-        until = int(datetime.now(ARGENTINA_TZ).timestamp()) + duration
-        try:
-            redis_client.set(TEST_MODE_KEY, str(until), ex=duration)
-            # Everything starts off. Entering test mode is not a reason for a
-            # relay to close.
+            redis_client.set(TEST_MODE_KEY, str(since))
+            # Everything starts off. Pausing is not a reason for a relay to
+            # close.
             redis_client.set(
                 TEST_MODE_OUTPUTS_KEY,
                 json.dumps({name: False for name in output_names()}),
-                ex=duration,
             )
         except Exception as e:
             return jsonify({"error": f"Failed to enter test mode: {e}"}), 500
@@ -686,10 +711,10 @@ def create_app() -> Flask:
     @app.route("/api/test-mode/outputs", methods=["POST"])
     def set_test_mode_output():
         """
-        Ask an output to switch while in test mode.
+        Ask an output to switch while the loop is paused.
 
-        Refused when test mode is off: the control loop would ignore it, and a
-        request that silently does nothing is worse than one that fails.
+        Refused when it is not: the control loop would ignore it, and a request
+        that silently does nothing is worse than one that fails.
 
         The request is not a guarantee. The loop still honours the minimum
         on/off times — they protect the equipment, which does not care that a
@@ -708,9 +733,8 @@ def create_app() -> Flask:
             valid = ", ".join(output_names())
             return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
 
-        until = _test_mode_deadline()
-        if until is None:
-            return jsonify({"error": "El modo prueba no está activo"}), 409
+        if _test_mode_since() is None:
+            return jsonify({"error": "El sistema no está en pausa"}), 409
 
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
@@ -718,10 +742,9 @@ def create_app() -> Flask:
             if not isinstance(requested, dict):
                 requested = {}
             requested[name] = state
-            # The TTL follows the deadline, so the requested states can never
-            # outlive the mode they belong to.
-            remaining = max(1, until - int(datetime.now(ARGENTINA_TZ).timestamp()))
-            redis_client.set(TEST_MODE_OUTPUTS_KEY, json.dumps(requested), ex=remaining)
+            # No TTL: these belong to the pause, and the pause is ended by
+            # someone rather than by a clock. Leaving the pause deletes them.
+            redis_client.set(TEST_MODE_OUTPUTS_KEY, json.dumps(requested))
         except Exception as e:
             return jsonify({"error": f"Failed to publish the request: {e}"}), 500
 

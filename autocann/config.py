@@ -288,21 +288,31 @@ def indoor_sensors_from_env() -> IndoorSensors:
 #: matching Redis TTL, so the key expiring *is* the mode ending — and the
 #: deadline inside it is a second, independent check in case the TTL is lost.
 #:
-#: A deadline rather than a boolean, on purpose. A flag someone forgets survives
-#: restarts and leaves the tent uncontrolled for days with nothing to say so;
-#: a deadline heals itself. It is also why this lives in Redis rather than in
-#: the database: losing it reverts to automatic control, which is the safe
-#: direction to fail in.
-TEST_MODE_KEY = "test_mode_until"
+#: Holds the timestamp the pause *started*, and has no TTL. It used to hold a
+#: deadline that expired on its own after eight hours, on the argument that a
+#: flag someone forgets leaves the tent uncontrolled with nothing to say so.
+#: The argument was right about the failure and wrong about the fix: a pause
+#: that resumes by itself is worse, because it energises relays at a moment
+#: nobody chose - which, if the pause was taken to rewire something, is while
+#: somebody's hands are in there. What answers the original worry is that the
+#: state is now impossible to miss: the header says it, in amber, on every view,
+#: for as long as it lasts.
+TEST_MODE_KEY = "test_mode_since"
 
-#: Redis key holding what the operator asked each output to do while in test
-#: mode, as {name: bool}. Deliberately *not* the manual-override keys the
-#: automatic path reads: those would still be sitting there when test mode ends,
-#: and would then quietly override real control decisions.
+#: Redis key holding what the operator asked each output to do while paused,
+#: as {name: bool}. Deliberately *not* the manual-override keys the automatic
+#: path reads: those would still be sitting there when the pause ends, and
+#: would then quietly override real control decisions.
 TEST_MODE_OUTPUTS_KEY = "test_mode_outputs"
 
-TEST_MODE_DEFAULT_SECONDS = 8 * 3600
-TEST_MODE_MAX_SECONDS = 24 * 3600
+#: Settings key mirroring the pause into the database.
+#:
+#: Redis stays the fast path - the loop reads it every cycle - but it is not the
+#: truth any more. Redis is memory: a restart of it, or of the Raspberry, used
+#: to mean the tent silently went back to being controlled. Someone who paused
+#: it does not expect a reboot to undo that, so the database carries the state
+#: and the loop restores the mirror from it.
+TEST_MODE_SETTING = "paused"
 
 
 # ---------------------------------------------------------------------------

@@ -3,9 +3,9 @@ import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } fro
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
-    enterTestMode, exitTestMode, fetchCurrentData, fetchHistoricalData,
+    exitTestMode, fetchCurrentData, fetchHistoricalData,
     fetchIndoorSensors, fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus,
-    setTestOutput, updateSummaryPeriodLabel,
+    setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
 } from './dashboard.js';
 import {
     addPlanProduct, fetchFeedPlan, fetchFeeding, resetFormToPlan, saveIrrigation,
@@ -138,8 +138,10 @@ const ACTIONS = {
     'feed-plan-add': addPlanProduct,
     'feed-save': saveIrrigation,
     'feed-reset': resetFormToPlan,
-    'enter-test-mode': enterTestMode,
-    'exit-test-mode': exitTestMode,
+    // One control in the header, so which way it goes depends on the state.
+    'toggle-pause': toggleTestMode,
+    // The bar under the header only ever ends a pause; it is never the way in.
+    'resume-system': exitTestMode,
     'test-output': setTestOutput,
 };
 

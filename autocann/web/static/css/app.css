@@ -856,12 +856,12 @@ body {
 .output-state.off { color: var(--vpd-danger); }
 .output-state.unknown { color: var(--text-muted); }
 
-/* Test mode */
-.test-mode-banner {
+/* Paused */
+.pause-bar {
     display: none;
     align-items: center;
     gap: 16px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
     padding: 16px 20px;
     border-radius: 12px;
     /* Amber, not red: nothing is broken. Something is switched off on purpose
@@ -870,28 +870,32 @@ body {
     border: 1px solid var(--vpd-adjusting);
 }
 
-.test-mode-banner.show {
+.pause-bar.show {
     display: flex;
 }
 
-.test-mode-banner-icon {
+.pause-bar-icon {
     font-size: 1.6em;
 }
 
-.test-mode-banner-content {
+.pause-bar-content {
     flex: 1;
 }
 
-.test-mode-banner-title {
+.pause-bar-title {
     font-weight: 600;
     color: var(--vpd-adjusting);
     margin-bottom: 2px;
 }
 
-.test-mode-banner-message {
+.pause-bar-message {
     color: var(--text-secondary);
     font-size: 0.85em;
     line-height: 1.5;
+}
+
+.pause-bar-message strong {
+    color: var(--text-primary);
 }
 
 .output-card.is-manual {
@@ -2139,6 +2143,106 @@ body {
 }
 
 /* ===============================
+   HEADER CONTROLS
+   ===============================
+   The system state and the watering CTA. Both used to be buried in the panel;
+   they are the two things done from anywhere, so they sit next to the logo on
+   every view.
+*/
+
+.system-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.system-state:hover:not(:disabled) {
+    background: var(--bg-card-hover);
+    border-color: var(--border-accent);
+}
+
+.system-state:disabled {
+    cursor: default;
+    opacity: 0.75;
+}
+
+/* The verb, kept visually quieter than the state: the chip is read far more
+   often than it is pressed. */
+.system-state-action {
+    padding-left: 10px;
+    margin-left: 2px;
+    border-left: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.82em;
+    letter-spacing: 0.4px;
+}
+
+.system-state-action:empty {
+    display: none;
+}
+
+.system-state:hover:not(:disabled) .system-state-action {
+    color: var(--accent-green);
+}
+
+.system-state.is-paused {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: var(--vpd-adjusting);
+}
+
+.system-state.is-paused .system-state-text {
+    color: var(--vpd-adjusting);
+    font-weight: 600;
+}
+
+.system-state.is-paused .status-dot {
+    background: var(--vpd-adjusting);
+    box-shadow: none;
+    animation: none;
+}
+
+.system-state.is-paused:hover .system-state-action {
+    color: var(--vpd-adjusting);
+}
+
+.system-state.is-offline {
+    border-color: var(--vpd-danger);
+}
+
+.header-cta {
+    position: relative;
+    white-space: nowrap;
+}
+
+/* Only there when it has something to say - days since the last watering, once
+   that number is worth acting on. A badge that is always lit is furniture. */
+.header-cta-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 11px;
+    background: var(--vpd-adjusting);
+    color: #1a1205;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72em;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* ===============================
    PANEL
    ===============================
    Sized to fit 1080p without scrolling: the screen on the tent wall has nobody
@@ -2156,6 +2260,17 @@ body {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    /* A grid track refuses to shrink below its content's min-content, and the
+       content here is a canvas Chart.js last sized for a desktop. Without this
+       the column stays 962px wide inside a 375px phone and the whole page
+       scrolls sideways; with it the track shrinks, which is what lets Chart.js
+       notice and redraw smaller. */
+    min-width: 0;
+}
+
+.panel-col .chart-container,
+.panel-col .chart-wrapper {
+    min-width: 0;
 }
 
 /* Everything in this view is compacted against the rest of the app: a 1080p
