@@ -171,7 +171,7 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 16px 24px;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2167,7 +2167,7 @@ body {
 }
 
 .view-panel .hero-card {
-    padding: 18px;
+    padding: 16px;
 }
 
 .view-panel .hero-value {
@@ -2217,7 +2217,7 @@ body {
 }
 
 .chart-wrapper-panel {
-    height: 180px;
+    height: 160px;
 }
 
 .chart-note {
