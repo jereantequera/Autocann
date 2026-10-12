@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 
 import pytest
 
 from autocann.control.vpd_math import VPD_RANGES
+
+BUCKET_SECONDS = 3600
+
+
+def anchored_now(span_seconds: int, bucket: int = BUCKET_SECONDS) -> int:
+    """
+    A `now` whose preceding `span_seconds` all sit inside one aggregation bucket.
+
+    get_aggregated_data() groups by `timestamp // bucket`, so rows written at
+    `now - offset` land in the *previous* bucket whenever `now % bucket <
+    offset`. A `now` taken straight from the wall clock therefore splits a
+    test's rows across two buckets during the first `offset` seconds of every
+    hour, and leaves them together for the rest of it. Anchoring to a bucket
+    start and stepping in by the span the test needs — plus a margin, so no row
+    sits on the boundary itself — makes the layout identical at any time of day.
+    """
+    margin = 60
+    if span_seconds + margin >= bucket:
+        raise ValueError(f"un span de {span_seconds}s no entra en un bucket de {bucket}s")
+    return (int(time.time()) // bucket) * bucket + span_seconds + margin
+
 
 # Keys `autocann.cli.query_db.show_stats` prints. It used to crash with a
 # KeyError because get_database_stats() returned only two of them.
@@ -302,9 +324,7 @@ def test_aggregation_reports_the_real_envelope_not_the_range_of_averages(temp_db
     reading any of them saw, not the spread of their averages — which is much
     narrower and makes the tent look calmer than it was.
     """
-    import time
-
-    now = int(time.time())
+    now = anchored_now(11 * 300)          # all twelve rows in one bucket
     grow_id = temp_db.get_active_grow()["id"]
     conn = temp_db._open()
     for i in range(12):
@@ -318,26 +338,23 @@ def test_aggregation_reports_the_real_envelope_not_the_range_of_averages(temp_db
     conn.commit()
     conn.close()
 
-    # Hourly buckets split on the hour, so the rows may land in more than one.
     buckets = temp_db.get_aggregated_data(now - 7200, now, 3600)
-    assert buckets
+    assert len(buckets) == 1, "las doce filas tienen que caer en el mismo bucket"
+    bucket = buckets[0]
 
-    for bucket in buckets:
-        assert bucket["temperature"] == 24.0
-        # Every row has the same average, so the spread of averages is nil...
-        assert (bucket["min_temperature"], bucket["max_temperature"]) == (24.0, 24.0)
-        # ...while the envelope reports what the readings behind them actually did.
-        assert (bucket["temperature_min"], bucket["temperature_max"]) == (20.0, 28.0)
-        assert (bucket["humidity_min"], bucket["humidity_max"]) == (44.0, 56.0)
+    assert bucket["temperature"] == 24.0
+    # Every row has the same average, so the spread of averages is nil...
+    assert (bucket["min_temperature"], bucket["max_temperature"]) == (24.0, 24.0)
+    # ...while the envelope reports what the readings behind them actually did.
+    assert (bucket["temperature_min"], bucket["temperature_max"]) == (20.0, 28.0)
+    assert (bucket["humidity_min"], bucket["humidity_max"]) == (44.0, 56.0)
 
-    # And the buckets together account for every raw reading.
-    assert sum(b["sample_n"] for b in buckets) == 12 * 100
+    # And the bucket accounts for every raw reading behind those summaries.
+    assert bucket["sample_n"] == 12 * 100
 
 
 def test_aggregation_falls_back_to_the_average_for_rows_without_an_envelope(temp_db):
-    import time
-
-    now = int(time.time())
+    now = anchored_now(300)               # both rows in one bucket, whatever the hour
     grow_id = temp_db.get_active_grow()["id"]
     conn = temp_db._open()
     for i, temp in enumerate([22.0, 26.0]):
@@ -349,7 +366,9 @@ def test_aggregation_falls_back_to_the_average_for_rows_without_an_envelope(temp
     conn.commit()
     conn.close()
 
-    bucket = temp_db.get_aggregated_data(now - 3600, now, 3600)[0]
+    buckets = temp_db.get_aggregated_data(now - 3600, now, 3600)
+    assert len(buckets) == 1, "las dos filas tienen que caer en el mismo bucket"
+    bucket = buckets[0]
     assert (bucket["temperature_min"], bucket["temperature_max"]) == (22.0, 26.0)
     assert bucket["sample_n"] == 2        # one reading per legacy row
 
