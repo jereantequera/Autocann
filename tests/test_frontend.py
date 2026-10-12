@@ -18,6 +18,7 @@ import pytest
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 
 JS_DIR = STATIC_DIR / "js"
+JS_TEST_DIR = Path(__file__).parent / "js"
 
 
 def _strip_js_comments(source: str) -> str:
@@ -28,8 +29,15 @@ def _strip_js_comments(source: str) -> str:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
 def test_javascript_unit_tests_pass():
+    """
+    Every file in tests/js/, not a hardcoded list: a suite nobody runs is worse
+    than no suite. `node --test` is given the files rather than the directory,
+    which it reads as a module to execute.
+    """
+    suites = sorted(str(path) for path in JS_TEST_DIR.glob("*.test.mjs"))
+    assert suites, "tests/js/ quedó sin suites"
     result = subprocess.run(
-        ["node", "--test", "tests/js/util.test.mjs"],
+        ["node", "--test", *suites],
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -159,6 +167,24 @@ def test_every_template_is_reachable_from_the_page():
         str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
     }
     assert on_disk - reachable == set()
+
+def test_the_humidity_card_cannot_render_a_difference_without_readings():
+    """
+    /api/current-data answers 404 with a JSON body, and apiGet only raises on
+    5xx, so the dashboard renders that body with every field `undefined`. The
+    guard was `humidity !== null`, which `undefined` passes, and the card
+    announced "NaN% por encima". The comparison now lives in a pure helper that
+    tests/js/ exercises with an empty payload.
+    """
+    dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
+    match = re.search(r"function updateHumidityBar\(.*?\n\}", dashboard, re.S)
+    assert match, "updateHumidityBar desapareció de dashboard.js"
+    body = match.group(0)
+
+    assert "humidityDiffLabel(humidity, targetHumidity)" in body
+    assert "humidity - targetHumidity" not in body
+    # `undefined !== null` is true, which is how the NaN got on screen.
+    assert "!== null" not in body
 
 
 def test_the_indoor_sensors_section_is_reachable_from_the_page():

@@ -97,6 +97,24 @@ function fmtSigned(value, decimals = 1, fallback = '--') {
     return (value >= 0 ? '+' : '') + value.toFixed(decimals);
 }
 
+/**
+ * El cartel de diferencia contra la humedad objetivo, o null si falta una lectura.
+ *
+ * Nullish no es null: cuando /api/current-data responde 404 el cuerpo
+ * `{"error": ...}` llega igual, cada campo vale `undefined`, y un guard escrito
+ * `humidity !== null` lo deja pasar y rinde "NaN% por encima" en pantalla.
+ *
+ * @returns {?{state: string, text: string}}  null cuando no hay nada que comparar
+ */
+function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
+    if (!Number.isFinite(humidity) || !Number.isFinite(targetHumidity)) return null;
+    const diff = humidity - targetHumidity;
+    const absDiff = Math.abs(diff).toFixed(1);
+    if (Math.abs(diff) <= tolerance) return { state: 'on-target', text: '✓ En objetivo' };
+    if (diff < 0) return { state: 'too-low', text: `↓ ${absDiff}% por debajo` };
+    return { state: 'too-high', text: `↑ ${absDiff}% por encima` };
+}
+
 function getScoreClass(score) {
     if (score >= 85) return 'excellent';
     if (score >= 70) return 'good';
@@ -113,5 +131,5 @@ function getScoreLabel(score) {
 
 export {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, getScoreClass, getScoreLabel,
+    formatDate, humidityDiffLabel, getScoreClass, getScoreLabel,
 };

@@ -1,7 +1,7 @@
 /**
  * Tests for the pure helpers in static/js/util.js.
  *
- * Run with: node --test tests/js/
+ * Run with: node --test tests/js/*.test.mjs
  * The Python suite also runs these via tests/test_frontend.py, and skips when
  * node is not installed — the Raspberry does not need a JS toolchain.
  */
@@ -11,7 +11,7 @@ import { test } from 'node:test';
 
 import {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, formatDuration, getScoreClass,
-    getScoreLabel, parseLocalDatetime,
+    getScoreLabel, humidityDiffLabel, parseLocalDatetime,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -129,4 +129,30 @@ test('formatDuration shows a dash rather than a countdown already past', () => {
     for (const value of [0, -5, null, undefined, NaN, 'pronto']) {
         assert.equal(formatDuration(value), '--', `para ${String(value)}`);
     }
+});
+
+test('humidityDiffLabel names the three states a grower acts on', () => {
+    assert.deepEqual(humidityDiffLabel(60, 60), { state: 'on-target', text: '✓ En objetivo' });
+    assert.deepEqual(humidityDiffLabel(63, 60), { state: 'on-target', text: '✓ En objetivo' });
+    assert.deepEqual(humidityDiffLabel(50, 60), { state: 'too-low', text: '↓ 10.0% por debajo' });
+    assert.deepEqual(humidityDiffLabel(70.5, 60), { state: 'too-high', text: '↑ 10.5% por encima' });
+});
+
+test('humidityDiffLabel returns nothing when a payload carries no readings', () => {
+    // /api/current-data answers 404 with `{"error": "No current data available"}`,
+    // and apiGet only throws on 5xx, so the dashboard renders that body: every
+    // field is `undefined`. A guard written `humidity !== null` let it through
+    // and the card announced "NaN% por encima".
+    const empty = {};  // the 404 body, as far as updateCurrentData can tell
+    assert.equal(humidityDiffLabel(empty.humidity, empty.target_humidity), null);
+
+    for (const value of [null, undefined, NaN, Infinity, '60', {}]) {
+        assert.equal(humidityDiffLabel(value, 60), null, `humedad ${String(value)}`);
+        assert.equal(humidityDiffLabel(60, value), null, `objetivo ${String(value)}`);
+    }
+});
+
+test('humidityDiffLabel keeps a real zero as a reading, not as a missing one', () => {
+    assert.equal(humidityDiffLabel(0, 60).state, 'too-low');
+    assert.equal(humidityDiffLabel(60, 0).state, 'too-high');
 });

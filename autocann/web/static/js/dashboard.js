@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { config, state } from './state.js';
-import { escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration } from './util.js';
+import { escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, humidityDiffLabel } from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
 
@@ -37,34 +37,28 @@ function updateVpdGauge(vpd) {
     marker.style.left = `${position}%`;
 }
 
+// Cada pieza de la barra depende de una lectura distinta y cualquiera puede
+// faltar, así que cada una se dibuja sólo si su propio número existe.
+
 function updateHumidityBar(humidity, targetHumidity) {
     const fillEl = document.getElementById('humidity-bar-fill');
     const targetEl = document.getElementById('humidity-bar-target');
     const diffEl = document.getElementById('humidity-diff');
-    
-    if (fillEl && humidity !== null && humidity !== undefined) {
+
+    if (fillEl && Number.isFinite(humidity)) {
         fillEl.style.width = `${Math.min(Math.max(humidity, 0), 100)}%`;
     }
-    
-    if (targetEl && targetHumidity !== null && targetHumidity !== undefined) {
+
+    if (targetEl && Number.isFinite(targetHumidity)) {
         targetEl.style.left = `${Math.min(Math.max(targetHumidity, 0), 100)}%`;
     }
-    
-    // Update difference indicator
-    if (diffEl && humidity !== null && targetHumidity !== null) {
-        const diff = humidity - targetHumidity;
-        const absDiff = Math.abs(diff).toFixed(1);
-        
-        if (Math.abs(diff) <= 3) {
-            diffEl.className = 'humidity-diff on-target';
-            diffEl.innerHTML = '✓ En objetivo';
-        } else if (diff < 0) {
-            diffEl.className = 'humidity-diff too-low';
-            diffEl.innerHTML = `↓ ${absDiff}% por debajo`;
-        } else {
-            diffEl.className = 'humidity-diff too-high';
-            diffEl.innerHTML = `↑ ${absDiff}% por encima`;
-        }
+
+    // Sin lectura no hay diferencia: el cartel vuelve a quedar vacío, como nace
+    // en la plantilla, en lugar de anunciar una resta contra undefined.
+    if (diffEl) {
+        const label = humidityDiffLabel(humidity, targetHumidity);
+        diffEl.className = label ? `humidity-diff ${label.state}` : 'humidity-diff';
+        diffEl.textContent = label ? label.text : '';
     }
 }
 
