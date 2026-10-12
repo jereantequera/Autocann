@@ -1,0 +1,40 @@
+        <!-- Cultivo: the grow's own life, not the tent's weather -->
+        <!--
+             Two modals used to hold this: one listing every grow, one changing
+             the stage. A list you browse is not a dialog, and the stage history
+             was fetched already — only to draw markers on a chart nobody opens
+             to read dates off. Here it is written out.
+        -->
+        <section class="view view-grow" data-view="cultivo" aria-label="Cultivo">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">🌱</span>
+                    Cultivo activo
+                    <span class="section-subtitle" id="grow-detail-name">--</span>
+                </h2>
+                <div class="grow-actions">
+                    <button class="btn btn-secondary" data-action="show-stage">🔄 Cambiar etapa</button>
+                    <button class="btn btn-primary" data-action="new-grow">➕ Nuevo cultivo</button>
+                </div>
+            </div>
+
+            <!--
+                 Each stage with the days it actually lasted next to the days it
+                 was supposed to: the only place that says whether this grow is
+                 running long, and by how much.
+            -->
+            <div class="timeline" id="grow-timeline">
+                <div class="loading">Cargando etapas</div>
+            </div>
+
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">📋</span>
+                    Todos los cultivos
+                </h2>
+                <span class="sensor-badge" id="grow-count-badge">⏳</span>
+            </div>
+            <div class="grow-list" id="growList">
+                <div class="loading">Cargando cultivos</div>
+            </div>
+        </section>

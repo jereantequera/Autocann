@@ -1,4 +1,11 @@
-        <!-- Grow Control Bar -->
+        <!-- Grow context: which grow, which stage, how far in -->
+        <!--
+             The buttons that used to live here (reporte, cultivos, etapa,
+             nuevo) are the tabs and the Cultivo view now. What is left is
+             context, not navigation: it is on screen in every view because
+             every number in the app means something different in week two of
+             flowering than in week two of veg.
+        -->
         <div class="grow-bar">
             <div class="grow-info">
                 <span class="grow-name" id="grow-name">Cargando...</span>
@@ -11,11 +18,5 @@
                     <div class="stage-progress-fill" id="stage-progress-fill"></div>
                 </div>
                 <span class="stage-progress-label" id="stage-progress-label"></span>
-            </div>
-            <div class="grow-actions">
-                <button class="btn btn-ghost" data-action="weekly-report">📊 Reporte</button>
-                <button class="btn btn-ghost" data-action="show-grows">📋 Cultivos</button>
-                <button class="btn btn-secondary" data-action="show-stage">🔄 Etapa</button>
-                <button class="btn btn-primary" data-action="new-grow">➕ Nuevo</button>
             </div>
         </div>

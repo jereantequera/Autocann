@@ -26,6 +26,18 @@ function el(id) {
     return document.getElementById(id);
 }
 
+/**
+ * Tell the calendar and the panel tile what the log says.
+ *
+ * They render the same rows this module fetched instead of asking for them
+ * again, so three places cannot end up showing three different logs.
+ */
+function announce() {
+    document.dispatchEvent(new CustomEvent('feeding:updated', {
+        detail: { today, irrigations: history },
+    }));
+}
+
 /** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
 function dose(value) {
     if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
@@ -415,6 +427,7 @@ function fetchFeedingToday() {
         }
         renderToday();
         if (!formTouched) renderForm();
+        announce();
     });
 }
 
@@ -424,6 +437,7 @@ function fetchIrrigations() {
         history = data.irrigations;
         pendingDelete = null;
         renderHistory();
+        announce();
     });
 }
 

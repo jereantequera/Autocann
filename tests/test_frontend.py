@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -129,11 +130,125 @@ def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
     assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
 
 
+def _included(path: Path, seen: set[str] | None = None) -> set[str]:
+    """Every template `path` pulls in, directly or through another include."""
+    seen = seen if seen is not None else set()
+    for name in re.findall(r'{%\s*include\s+"([^"]+)"', path.read_text()):
+        if name in seen:
+            continue
+        seen.add(name)
+        _included(TEMPLATES_DIR / name, seen)
+    return seen
+
+
+def _page_html() -> str:
+    """index.html with every include inlined, as one document."""
+    parts = [(TEMPLATES_DIR / "index.html").read_text()]
+    parts += [(TEMPLATES_DIR / name).read_text() for name in _included(TEMPLATES_DIR / "index.html")]
+    return "\n".join(parts)
+
+
+def test_every_template_is_reachable_from_the_page():
+    """
+    A partial nobody includes renders nothing and fails silently. The views sit
+    between index.html and the partials now, so reachability has to be followed
+    through the chain rather than looked for in one file.
+    """
+    reachable = _included(TEMPLATES_DIR / "index.html") | {"index.html"}
+    on_disk = {
+        str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
+    }
+    assert on_disk - reachable == set()
+
+
 def test_the_indoor_sensors_section_is_reachable_from_the_page():
-    """A partial nobody includes renders nothing, and fails silently."""
-    assert "partials/sensors.html" in (TEMPLATES_DIR / "index.html").read_text()
+    assert "partials/sensors.html" in _included(TEMPLATES_DIR / "index.html")
     assert 'id="indoor-sensors-grid"' in (TEMPLATES_DIR / "partials" / "sensors.html").read_text()
     assert "indoor-sensors-grid" in (JS_DIR / "dashboard.js").read_text()
+
+
+def test_every_nav_tab_points_at_a_view_that_exists():
+    """A tab for a view that is not in the page just shows an empty screen."""
+    nav = (TEMPLATES_DIR / "partials" / "nav.html").read_text()
+    tabs = set(re.findall(r'class="nav-tab"[^>]*data-view="(\w+)"', nav))
+    views = set(re.findall(r'class="view [^"]*"\s+data-view="(\w+)"', _page_html()))
+    assert tabs, "la barra de vistas quedó sin pestañas"
+    assert tabs == views, f"pestañas sin vista o vistas sin pestaña: {tabs ^ views}"
+
+
+def test_no_element_id_appears_twice_in_the_page():
+    """
+    Every view is in the DOM at once, only hidden, so two of them sharing an id
+    means `getElementById` writes the reading into whichever came first and the
+    other never updates.
+    """
+    ids = re.findall(r'\sid="([^"]+)"', _page_html())
+    duplicates = sorted({name for name in ids if ids.count(name) > 1})
+    assert duplicates == []
+
+
+def test_the_time_range_is_chosen_in_exactly_one_place():
+    """
+    It used to exist twice, over the summary cards and over the charts, with
+    JavaScript keeping the two in sync - two halves of one control separated by
+    three unrelated sections.
+    """
+    assert _page_html().count('class="time-selector"') == 1
+
+
+def test_every_poller_names_a_view_that_exists():
+    """
+    A poller scoped to a view that does not exist never runs, and the numbers it
+    feeds sit at "--" forever.
+    """
+    main_js = _strip_js_comments((JS_DIR / "main.js").read_text())
+    pollers = re.search(r"const POLLERS = \[(.*?)\n\];", main_js, re.S)
+    assert pollers, "POLLERS desapareció de main.js"
+
+    named = set(re.findall(r"'(\w+)'", pollers.group(1)))
+    views = set(re.findall(r'data-view="(\w+)"', _page_html()))
+    assert named <= views, f"pollers apuntando a vistas inexistentes: {named - views}"
+
+
+def test_the_calibration_editor_is_wired_to_the_endpoint():
+    """
+    Both verbs have been routed and validated since the backend audit with no
+    way to reach them from the browser.
+    """
+    import autocann.web.app as web
+
+    routes = {str(rule) for rule in web.app.url_map.iter_rules()}
+    assert "/api/calibration" in routes
+
+    system_js = (JS_DIR / "system.js").read_text()
+    assert "/api/calibration" in system_js
+    # Saving does not take effect until the loop restarts, and a form that does
+    # not say so reads as applied.
+    assert "reinicies el lazo" in system_js
+
+
+def test_a_view_is_never_selected_by_its_data_attribute_alone():
+    """
+    The nav tab carries the same `data-view` as the section it points at, and it
+    comes first in the document: a bare `[data-view="x"]` binds the section's
+    handlers to the anchor, and every button inside it stops working.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        code = _strip_js_comments(path.read_text())
+        for match in re.finditer(r"querySelector(?:All)?\(\s*['\"]([^'\"]*)", code):
+            selector = match.group(1)
+            if "data-view=" in selector and ".view[" not in selector:
+                offenders.append(f"{path.name}: {selector}")
+    assert offenders == []
+
+
+def test_the_weekly_report_is_a_view_rather_than_a_modal():
+    """A report is read, scrolled and linked to; a modal can do none of those."""
+    page = _page_html()
+    assert 'data-view="reportes"' in page
+    assert "weeklyReportModal" not in page
+    assert "weeklyReportModal" not in (JS_DIR / "analytics.js").read_text()
 
 
 def test_the_second_sensor_is_rendered_from_its_own_reading():

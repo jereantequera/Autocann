@@ -1,8 +1,8 @@
 import { apiGet } from './api.js';
-import { showModal } from './modals.js';
+import { navigate } from './views.js';
 import { escapeHtml, getScoreClass, getScoreLabel } from './util.js';
 
-/** VPD score, anomaly banner and the weekly report modal. */
+/** VPD score, anomaly banner and the weekly report. */
 
 function updateVpdScore(data) {
     if (data.error) {
@@ -140,10 +140,16 @@ function fetchAnomalies() {
     apiGet('/api/anomalies?hours=24').then(data => { if (data) updateAnomalies(data); });
 }
 
-function showWeeklyReportModal() {
-    showModal('weeklyReportModal');
-    document.getElementById('report-loading').style.display = 'block';
-    document.getElementById('report-content').style.display = 'none';
+/**
+ * Open the report.
+ *
+ * It used to be a modal: the densest thing the app produces, opened the way a
+ * confirmation dialog is, impossible to link to or leave up on a second
+ * screen. Now it is a view, and this only navigates there - the fetch is
+ * triggered by arriving, below.
+ */
+function showWeeklyReport() {
+    navigate('reportes');
     fetchWeeklyReport();
 }
 
@@ -153,8 +159,8 @@ function updateWeeklyReport(data) {
         return;
     }
 
-    document.getElementById('report-loading').style.display = 'none';
-    document.getElementById('report-content').style.display = 'block';
+    document.getElementById('report-loading').hidden = true;
+    document.getElementById('report-content').hidden = false;
 
     // Period
     if (data.report_period) {
@@ -211,24 +217,25 @@ function updateWeeklyReport(data) {
     const dailyEl = document.getElementById('report-daily-scores');
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     
+    // Styled by class, not by a style attribute built per row: the colour of a
+    // score is a rule the stylesheet already states for the VPD score card, and
+    // stating it twice is how the two drift apart.
     dailyEl.innerHTML = dailyScores.map(day => {
         const dayDate = new Date(day.date + 'T12:00:00');
         const dayName = dayNames[dayDate.getDay()];
         const score = day.score;
-        const scoreClass = getScoreClass(score);
         const barWidth = score != null ? score : 0;
-        
+
         return `
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="width: 80px; font-size: 0.85em; color: var(--text-secondary);">${dayName}</span>
-                <div style="flex: 1; height: 24px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
-                    <div style="height: 100%; width: ${barWidth}%; background: linear-gradient(90deg, #a855f7, #c084fc); transition: width 0.5s;"></div>
+            <div class="report-day">
+                <span class="report-day-name">${escapeHtml(dayName)}</span>
+                <div class="report-day-bar">
+                    <div class="report-day-fill" style="width: ${barWidth}%"></div>
                 </div>
-                <span style="width: 50px; text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: ${score == null ? 'var(--text-muted)' : score >= 70 ? 'var(--accent-green)' : score >= 50 ? 'var(--vpd-adjusting)' : 'var(--vpd-danger)'};">
-                    ${score != null ? score + '%' : '--'}
+                <span class="report-day-score ${score == null ? 'empty' : getScoreClass(score)}">
+                    ${score != null ? `${score}%` : '--'}
                 </span>
-            </div>
-        `;
+            </div>`;
     }).join('');
 
     // Sample count
@@ -259,15 +266,24 @@ function updateTrend(elementId, value, unit, invertColors = false) {
 }
 
 function fetchWeeklyReport() {
-    apiGet('/api/weekly-report').then(data => {
+    const loading = document.getElementById('report-loading');
+    const content = document.getElementById('report-content');
+    if (loading && content.hidden) loading.hidden = false;
+
+    apiGet('/api/weekly-report', { key: 'weekly-report' }).then(data => {
         if (data) {
             updateWeeklyReport(data);
         } else {
-            document.getElementById('report-loading').textContent = 'Error al cargar reporte';
+            loading.hidden = false;
+            loading.textContent = 'No se pudo generar el reporte. Probá de nuevo.';
         }
     });
 }
 
-// Time period selector - sync both selectors
+// A week of aggregates is the most expensive query the backend answers, so it
+// runs when somebody actually opens the report rather than on a timer.
+document.addEventListener('view:enter', event => {
+    if (event.detail?.view === 'reportes') fetchWeeklyReport();
+});
 
-export { fetchVpdScore, fetchAnomalies, dismissAnomalies, showWeeklyReportModal };
+export { fetchVpdScore, fetchAnomalies, dismissAnomalies, showWeeklyReport };

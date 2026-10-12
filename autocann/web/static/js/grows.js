@@ -5,7 +5,14 @@ import { fetchDatabaseStats, fetchHistoricalData } from './dashboard.js';
 import { config, state } from './state.js';
 import { escapeHtml } from './util.js';
 
-/** Grow lifecycle: active grow, stage changes, and the grow list modal. */
+/**
+ * Grow lifecycle: the active grow, its stage history, and the list of all of
+ * them.
+ *
+ * The list and the stage history live in the Cultivo view. Creating a grow and
+ * changing a stage are still modals, which is what a dialog is for: a short
+ * form, answered and dismissed.
+ */
 
 function showNewGrowModal() {
     document.getElementById('newGrowName').value = '';
@@ -18,17 +25,14 @@ function showStageModal() {
     showModal('stageModal');
 }
 
-function showGrowModal() {
-    showModal('growsModal');
-    loadGrowsList();
-}
-
 // Grow management
 
 function updateActiveGrow(grow) {
     if (!grow) return;
     
     document.getElementById('grow-name').textContent = grow.name;
+    const detailName = document.getElementById('grow-detail-name');
+    if (detailName) detailName.textContent = grow.name;
     state.stage = grow.stage;
     
     const stageElement = document.getElementById('grow-stage');
@@ -111,14 +115,61 @@ function fetchActiveGrow() {
     });
 }
 
-/** Stage history for the active grow; drives the markers on the charts. */
+/** Stage history for the active grow: the chart markers and the Cultivo list. */
 function fetchStageTimeline(growId) {
     if (!Number.isFinite(growId)) return;
     apiGet(`/api/grows/${growId}/timeline`, { key: 'timeline' }).then(data => {
         if (!data || !data.timeline) return;
         state.timeline = data.timeline;
         renderStageMarkers(data.timeline);
+        renderStageTimeline(data.timeline);
     });
+}
+
+/**
+ * Each stage with the days it lasted next to the days it was meant to.
+ *
+ * This was already being fetched to draw dashed lines on the charts. Written
+ * out it answers the question the markers only hint at: is this grow running
+ * long, and which stage is where it went.
+ */
+function renderStageTimeline(timeline) {
+    const box = document.getElementById('grow-timeline');
+    if (!box) return;
+
+    if (!timeline || !timeline.length) {
+        box.innerHTML = '<div class="feed-empty">Este cultivo todavía no '
+            + 'registró ningún cambio de etapa.</div>';
+        return;
+    }
+
+    box.innerHTML = timeline.map(period => {
+        const expected = Number.isFinite(period.expected_days) ? period.expected_days : null;
+        const days = Number.isFinite(period.days) ? period.days : null;
+        const overdue = days !== null && expected !== null && days > expected;
+        const pct = days !== null && expected
+            ? Math.min((days / expected) * 100, 100) : 0;
+
+        const span = period.ended_date
+            ? `${period.started_date} → ${period.ended_date}`
+            : `${period.started_date} → en curso`;
+
+        return `
+            <div class="timeline-item ${escapeHtml(period.stage)}${period.is_current ? ' is-current' : ''}">
+                <div class="timeline-head">
+                    <span class="grow-stage ${escapeHtml(period.stage)}">
+                        ${escapeHtml(config.stageNames[period.stage] || period.stage)}
+                    </span>
+                    <span class="timeline-days${overdue ? ' overdue' : ''}">
+                        ${days !== null ? `${days} d` : '--'}${expected ? ` de ~${expected}` : ''}
+                    </span>
+                </div>
+                <div class="timeline-bar">
+                    <div class="timeline-fill${overdue ? ' overdue' : ''}" style="width: ${pct}%"></div>
+                </div>
+                <div class="timeline-span">${escapeHtml(span)}</div>
+            </div>`;
+    }).join('');
 }
 
 // Modal functions
@@ -193,7 +244,7 @@ async function activateGrow(growId) {
 
         if (response.ok) {
             alert(`✅ ${result.message}`);
-            closeModal('growsModal');
+            loadGrowsList();
             fetchActiveGrow();
             fetchDatabaseStats();
             fetchHistoricalData(state.period, state.interval, state.hours);
@@ -233,13 +284,18 @@ async function loadGrowsList() {
         const response = await fetch('/api/grows');
         const data = await response.json();
 
+        const badge = document.getElementById('grow-count-badge');
+
         if (data.grows && data.grows.length > 0) {
-            const stageNames = {
-                'early_veg': 'Vegetativo Temprano',
-                'late_veg': 'Vegetativo Tardío',
-                'flowering': 'Floración',
-                'dry': 'Secado'
-            };
+            // The names come from /api/config like everywhere else; this used to
+            // keep a fourth copy of the same four strings.
+            const stageNames = config.stageNames;
+
+            if (badge) {
+                badge.className = 'sensor-badge';
+                badge.textContent = `${data.grows.length} `
+                    + `${data.grows.length === 1 ? 'cultivo' : 'cultivos'}`;
+            }
 
             // Every interpolated value is escaped: names, dates and the
             // stage come straight from the database.
@@ -271,17 +327,27 @@ async function loadGrowsList() {
                 </div>`;
             }).join('');
         } else {
-            growListElement.innerHTML = '<p style="text-align: center; color: var(--text-muted);">No hay cultivos registrados</p>';
+            if (badge) { badge.className = 'sensor-badge'; badge.textContent = 'ninguno'; }
+            growListElement.innerHTML =
+                '<div class="feed-empty">No hay cultivos registrados.</div>';
         }
     } catch (error) {
         console.error('Error loading grows:', error);
-        growListElement.innerHTML = '<p style="text-align: center; color: #ef4444;">Error al cargar cultivos</p>';
+        growListElement.innerHTML =
+            '<div class="feed-empty is-error">No se pudieron cargar los cultivos.</div>';
     }
 }
 
 function wireGrowListActions() {
     const list = document.getElementById('growList');
     if (!list) return;
+
+    // Loaded on arrival rather than polled: a grow is created a handful of
+    // times a year, and the bar at the top already tracks the active one.
+    document.addEventListener('view:enter', event => {
+        if (event.detail?.view === 'cultivo') loadGrowsList();
+    });
+
     list.addEventListener('click', event => {
         const endBtn = event.target.closest('[data-action="end"]');
         if (endBtn) {
@@ -294,4 +360,7 @@ function wireGrowListActions() {
     });
 }
 
-export { fetchStageTimeline, showNewGrowModal, showStageModal, showGrowModal, fetchActiveGrow, createGrow, updateStage, activateGrow, endGrow, wireGrowListActions };
+export {
+    fetchStageTimeline, showNewGrowModal, showStageModal, loadGrowsList, fetchActiveGrow,
+    createGrow, updateStage, activateGrow, endGrow, wireGrowListActions,
+};

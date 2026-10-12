@@ -58,7 +58,9 @@ body {
 .container {
     max-width: 1600px;
     margin: 0 auto;
-    padding: 20px;
+    /* 16, not 20: the panel view is budgeted against a 1080p screen and the
+       last few pixels are the difference between fitting and a scrollbar. */
+    padding: 16px 20px;
 }
 
 /* Header */
@@ -66,8 +68,8 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 0;
-    margin-bottom: 30px;
+    padding: 14px 0;
+    margin-bottom: 18px;
     border-bottom: 1px solid var(--border-color);
 }
 
@@ -78,8 +80,8 @@ body {
 }
 
 .logo-icon {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     background: linear-gradient(135deg, var(--accent-green), var(--accent-emerald));
     border-radius: 12px;
     display: flex;
@@ -2038,4 +2040,902 @@ body {
 @media (max-width: 768px) {
     .feed-grid { grid-template-columns: 1fr; }
     .feed-plan-table .feed-rowh { min-width: 160px; }
+}
+
+/* ===============================
+   VIEWS
+   ===============================
+   Everything below belongs to the split of the single scrolling page into
+   routed views. It is appended rather than woven in because the rule order is
+   the cascade: these are the last word on layout, and the sections above keep
+   styling the pieces exactly as they did when they were stacked.
+*/
+
+/* The attribute has to win against the display rules further down, or a panel
+   given `display: grid` ignores being hidden. */
+[hidden] {
+    display: none !important;
+}
+
+/* View tabs */
+.view-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    padding: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.view-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.nav-tab {
+    flex: 1 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.92em;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background 0.18s ease, color 0.18s ease;
+}
+
+.nav-tab:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.nav-tab.is-active {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(16, 185, 129, 0.10));
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+
+.nav-tab-icon {
+    font-size: 1.05em;
+}
+
+/* One view on screen at a time; the rest stay in the DOM so their charts and
+   forms keep their state across a switch. */
+.view {
+    display: none;
+}
+
+.view.is-active {
+    display: block;
+}
+
+/* The first section header in a view has the nav above it already. */
+.view > .section-header:first-child,
+.view > .cal-panel > .section-header:first-child {
+    margin-top: 0;
+}
+
+.section-subtitle {
+    color: var(--text-muted);
+    font-size: 0.7em;
+    font-weight: 400;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* The range selector has to stay reachable while scrolling three charts. */
+.section-header-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin-top: 0;
+    padding: 12px 0;
+    background: linear-gradient(var(--bg-primary) 70%, rgba(10, 15, 13, 0));
+}
+
+/* ===============================
+   PANEL
+   ===============================
+   Sized to fit 1080p without scrolling: the screen on the tent wall has nobody
+   there to scroll it. Everything here is read, not filled in.
+*/
+
+.panel-grid {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.panel-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Everything in this view is compacted against the rest of the app: a 1080p
+   wall screen is the budget, and padding spent here is a row of relays nobody
+   can see. */
+.view-panel .hero-grid {
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.view-panel .hero-card {
+    padding: 18px;
+}
+
+.view-panel .hero-value {
+    font-size: 2.4em;
+}
+
+.view-panel .vpd-gauge,
+.view-panel .humidity-bar-container {
+    margin-top: 12px;
+}
+
+.view-panel .section-header {
+    margin: 0 0 12px 0;
+}
+
+.view-panel .section-title {
+    font-size: 1.1em;
+}
+
+/* Three relays across a narrow column rather than stacked: the state is two
+   words, and stacking them costs 200px of a screen that has none to give. */
+.view-panel .outputs-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.view-panel .output-card,
+.view-panel .outdoor-card,
+.view-panel .sensor-card {
+    padding: 14px;
+}
+
+.view-panel .outdoor-grid {
+    gap: 12px;
+}
+
+.view-panel .outdoor-card .metric-value {
+    font-size: 1.6em;
+}
+
+.view-panel .sensors-note {
+    display: none;
+}
+
+.chart-container-panel {
+    margin-bottom: 0;
+}
+
+.chart-wrapper-panel {
+    height: 180px;
+}
+
+.chart-note {
+    color: var(--text-muted);
+    font-size: 0.78em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* The watering tile: how long it has been, and what today's plan asks for. */
+.panel-feed {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--humidity-high);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.panel-feed.is-stale {
+    border-left-color: var(--vpd-adjusting);
+}
+
+.panel-feed-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.4em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--humidity-high);
+}
+
+.panel-feed.is-stale .panel-feed-value {
+    color: var(--vpd-adjusting);
+}
+
+.panel-feed-label {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    margin-top: 6px;
+}
+
+.panel-feed-detail {
+    color: var(--text-muted);
+    font-size: 0.82em;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    line-height: 1.4;
+}
+
+/* ===============================
+   IRRIGATION CALENDAR
+   =============================== */
+
+.cal-panel {
+    margin-bottom: 32px;
+}
+
+.cal-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cal-month {
+    min-width: 150px;
+    text-align: center;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.calendar {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 16px;
+}
+
+.cal-weekdays,
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+}
+
+.cal-weekdays {
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+}
+
+.cal-day {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-height: 64px;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    text-align: left;
+    cursor: default;
+}
+
+.cal-day.is-blank {
+    background: transparent;
+}
+
+.cal-day.is-future {
+    opacity: 0.4;
+}
+
+.cal-day-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+}
+
+.cal-day.is-today {
+    border-color: var(--accent-green);
+}
+
+.cal-day.is-today .cal-day-num {
+    color: var(--accent-green);
+    font-weight: 700;
+}
+
+/* A watered day is filled, not dotted: the shape of the month is the point,
+   and a 6px dot does not make a shape at arm's length. */
+.cal-day.has-feed {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.08));
+    border-color: rgba(59, 130, 246, 0.35);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.cal-day.has-feed:hover {
+    border-color: var(--humidity-high);
+}
+
+.cal-day.is-off-plan {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08));
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.cal-day.is-flush {
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.2), rgba(20, 184, 166, 0.06));
+    border-color: rgba(20, 184, 166, 0.35);
+}
+
+.cal-day.is-open {
+    box-shadow: 0 0 0 2px var(--accent-green);
+}
+
+.cal-day-litres {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78em;
+    font-weight: 600;
+}
+
+.cal-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--humidity-high);
+}
+
+.cal-day .cal-dot {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+}
+
+.cal-day.is-off-plan .cal-dot,
+.cal-dot.off {
+    background: var(--vpd-adjusting);
+}
+
+.cal-day.is-flush .cal-dot,
+.cal-dot.flush {
+    background: var(--accent-teal);
+}
+
+.cal-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    color: var(--text-muted);
+    font-size: 0.8em;
+}
+
+.cal-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.cal-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cal-streak {
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.cal-detail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.cal-detail-entry {
+    background: var(--bg-card);
+    border: 1px solid var(--border-accent);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.cal-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===============================
+   STAGE TIMELINE
+   ===============================
+   Already fetched to draw markers on the charts; written out it answers the
+   question the markers only hint at.
+*/
+
+.timeline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.timeline-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.timeline-item.is-current {
+    border-color: var(--accent-green);
+    box-shadow: var(--shadow-glow);
+}
+
+.timeline-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.timeline-days {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.timeline-days.overdue {
+    color: var(--vpd-adjusting);
+}
+
+.timeline-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.timeline-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-green), var(--accent-emerald));
+}
+
+.timeline-fill.overdue {
+    background: linear-gradient(90deg, var(--vpd-adjusting), var(--temp-hot));
+}
+
+.timeline-span {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 0.78em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===============================
+   SISTEMA
+   =============================== */
+
+.sys-note {
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--border-accent);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.86em;
+    line-height: 1.5;
+}
+
+.sys-note code {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent-lime);
+}
+
+.sys-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.sys-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+}
+
+.sys-card-wide {
+    grid-column: span 2;
+}
+
+.sys-state {
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+.sys-state.ok {
+    color: var(--accent-green);
+}
+
+.sys-state.error {
+    color: var(--vpd-danger);
+}
+
+.sys-detail {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 0.78em;
+    line-height: 1.4;
+}
+
+.metric-value-sm {
+    font-size: 1.1em;
+}
+
+/* Calibration: the offsets every reading on every other view is corrected by. */
+.calib-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.calib-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 18px;
+}
+
+.calib-card.is-set {
+    border-left: 3px solid var(--accent-lime);
+}
+
+.calib-card.is-orphan {
+    border-left: 3px solid var(--vpd-adjusting);
+    opacity: 0.85;
+}
+
+.calib-orphan {
+    margin-bottom: 12px;
+    color: var(--vpd-adjusting);
+    font-size: 0.78em;
+    line-height: 1.4;
+}
+
+.calib-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.calib-name {
+    font-weight: 600;
+}
+
+.calib-state {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+.calib-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.calib-card label,
+.calib-notes {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.78em;
+}
+
+.calib-notes {
+    margin-top: 12px;
+}
+
+.calib-card input {
+    width: 100%;
+    margin-top: 5px;
+    padding: 9px 11px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1em;
+}
+
+.calib-card input:focus {
+    outline: none;
+    border-color: var(--accent-green);
+}
+
+.calib-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.calib-msg {
+    color: var(--text-muted);
+    font-size: 0.78em;
+}
+
+.calib-msg.is-ok {
+    color: var(--accent-green);
+}
+
+.calib-msg.is-error {
+    color: var(--vpd-danger);
+}
+
+/* ===============================
+   REPORT VIEW
+   ===============================
+   The same blocks the modal held, now with the colours as classes instead of
+   style attributes built per row.
+*/
+
+.report-body {
+    max-width: 900px;
+}
+
+.report-stat-vpd { color: #a855f7; }
+.report-stat-temp { color: var(--temp-hot); }
+.report-stat-humidity { color: var(--humidity-high); }
+
+.insight-score {
+    font-size: 0.8em;
+}
+
+.insight-score.good { color: var(--accent-green); }
+.insight-score.bad { color: var(--vpd-danger); }
+
+.report-daily {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.report-day {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.report-day-name {
+    width: 80px;
+    color: var(--text-secondary);
+    font-size: 0.85em;
+}
+
+.report-day-bar {
+    flex: 1;
+    height: 24px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.report-day-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #a855f7, #c084fc);
+    transition: width 0.5s ease;
+}
+
+.report-day-score {
+    width: 52px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+
+.report-day-score.excellent,
+.report-day-score.good { color: var(--accent-green); }
+.report-day-score.fair { color: var(--vpd-adjusting); }
+.report-day-score.poor { color: var(--vpd-danger); }
+.report-day-score.empty { color: var(--text-muted); }
+
+.report-samples {
+    margin-top: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+/* ===============================
+   PIECES THAT LOST THEIR STYLE ATTRIBUTE
+   =============================== */
+
+.summary-stat-value.summary-stat-muted {
+    color: var(--text-secondary);
+}
+
+.summary-card-outside {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.05) 100%);
+}
+
+.summary-stat-value.outside {
+    color: var(--accent-teal);
+}
+
+.vpd-score-range {
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+.feed-empty.is-error {
+    color: var(--vpd-danger);
+}
+
+/* ===============================
+   VIEWS - RESPONSIVE
+   =============================== */
+
+@media (max-width: 1100px) {
+    .panel-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-wrapper-panel {
+        height: 280px;
+    }
+}
+
+@media (max-width: 768px) {
+    /* A thumb reaches the bottom of a phone, not the top of a long page. */
+    .view-nav {
+        position: fixed;
+        inset: auto 0 0 0;
+        z-index: 60;
+        margin: 0;
+        padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+        border-bottom: 0;
+        background: rgba(17, 25, 22, 0.97);
+        backdrop-filter: blur(10px);
+        overflow-x: visible;
+    }
+
+    body {
+        padding-bottom: 78px;
+    }
+
+    .nav-tab {
+        flex: 1 1 0;
+        flex-direction: column;
+        gap: 3px;
+        padding: 7px 2px;
+        min-width: 0;
+    }
+
+    .nav-tab-icon {
+        font-size: 1.2em;
+    }
+
+    /* "Estadísticas" does not fit a sixth of a phone; the short form rides
+       along in the markup so the full word stays in the document. */
+    .nav-tab-label {
+        font-size: 0;
+    }
+
+    .nav-tab-label::after {
+        content: attr(data-short);
+        font-size: 10px;
+        font-weight: 500;
+    }
+
+    .section-header-sticky {
+        position: static;
+        padding: 0;
+    }
+
+    /* The grow bar is on every view now, so its overflow is not a corner of
+       one screen any more: name, stage and the two day counters have to wrap
+       instead of running off the right edge. */
+    .header {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+        text-align: left;
+    }
+
+    .header-right {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .grow-bar {
+        flex-direction: row;
+        padding: 12px 16px;
+    }
+
+    .grow-info {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px 12px;
+        min-width: 0;
+    }
+
+    .grow-name {
+        width: 100%;
+        text-align: center;
+        font-size: 1.05em;
+    }
+
+    .stage-progress {
+        flex: 1 1 100%;
+    }
+
+    /* Titles and their controls stack rather than squeeze: the month pager was
+       being pushed off the right edge by the heading next to it. */
+    .section-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    /* The title takes the whole row so its controls get a row of their own
+       instead of being squeezed off the right edge beside a wrapped heading. */
+    .section-header > .section-title {
+        flex: 1 1 100%;
+    }
+
+    .cal-nav {
+        flex: 1 1 100%;
+        justify-content: space-between;
+    }
+
+    .cal-month {
+        min-width: 0;
+        flex: 1;
+        font-size: 0.9em;
+    }
+
+    .cal-day {
+        min-height: 52px;
+        padding: 5px;
+    }
+
+    .cal-day-litres {
+        display: none;
+    }
+
+    .calib-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .sys-card-wide {
+        grid-column: auto;
+    }
+
+    .report-day-name {
+        width: 60px;
+        font-size: 0.78em;
+    }
 }

@@ -1,0 +1,59 @@
+        <!-- Panel: the view that stays on screen -->
+        <!--
+             Everything here answers one question — what is the tent doing right
+             now — and nothing here is a form. It is laid out to fit a 1080p
+             screen without scrolling, because the tablet on the tent wall has
+             nobody there to scroll it.
+
+             The relay test mode is the one thing here that writes anything, and
+             it announces itself across the whole width while it is on.
+        -->
+        <section class="view view-panel" data-view="panel" aria-label="Panel de control">
+{% include "partials/hero.html" %}
+
+            <!--
+                 Two whole columns rather than a grid of four cells: what moves
+                 by the second on the left, the state of the installation and
+                 the one chore on the right. In a 2x2 the taller cell of each
+                 row set the height of the shorter one, and the screen ran off
+                 the bottom for nothing.
+            -->
+            <div class="panel-grid">
+                <div class="panel-col">
+                    <div class="chart-container chart-container-panel">
+                        <div class="chart-header">
+                            <div class="chart-title">⏱️ Últimas 24 horas</div>
+                            <div class="chart-note" id="panel-chart-note">promedio por hora</div>
+                        </div>
+                        <div class="chart-wrapper chart-wrapper-panel">
+                            <canvas id="panelChart"></canvas>
+                        </div>
+                    </div>
+
+{% include "partials/sensors.html" %}
+                </div>
+
+                <div class="panel-col panel-col-side">
+{% include "partials/outputs.html" %}
+
+{% include "partials/outdoor.html" %}
+
+                    <!-- Watering is a daily act and the one thing on this
+                         screen somebody has to do rather than watch, so the
+                         panel carries how long it has been and sends them to
+                         Riego to actually do it. -->
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="section-title-icon">💧</span>
+                            Riego
+                        </h2>
+                        <a class="btn btn-ghost btn-mini" href="#/riego">Registrar</a>
+                    </div>
+                    <div class="panel-feed" id="panel-feed">
+                        <div class="panel-feed-value" id="panel-feed-value">--</div>
+                        <div class="panel-feed-label" id="panel-feed-label">desde el último riego</div>
+                        <div class="panel-feed-detail" id="panel-feed-detail">Cargando…</div>
+                    </div>
+                </div>
+            </div>
+        </section>

@@ -1,8 +1,9 @@
 import { apiGet } from './api.js';
-import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReportModal } from './analytics.js';
-import { initCharts } from './charts.js';
+import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } from './analytics.js';
+import { wireCalendar } from './calendar.js';
+import { initCharts, resizeCharts } from './charts.js';
 import {
-    enterTestMode, exitTestMode, fetchCurrentData, fetchDatabaseStats, fetchHistoricalData,
+    enterTestMode, exitTestMode, fetchCurrentData, fetchHistoricalData,
     fetchIndoorSensors, fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus,
     setTestOutput, updateSummaryPeriodLabel,
 } from './dashboard.js';
@@ -11,11 +12,14 @@ import {
     savePlan, togglePlanEditor, wireFeeding,
 } from './feeding.js';
 import {
-    activateGrow, createGrow, endGrow, fetchActiveGrow, showGrowModal, showNewGrowModal,
+    activateGrow, createGrow, endGrow, fetchActiveGrow, showNewGrowModal,
     showStageModal, updateStage, wireGrowListActions,
 } from './grows.js';
 import { closeModal, closeTopModal } from './modals.js';
+import { fetchPanelHistory, wirePanel } from './panel.js';
 import { applyConfig, state } from './state.js';
+import { wireSystem } from './system.js';
+import { currentView, initViews } from './views.js';
 
 /**
  * Entry point: configuration, event wiring and the polling schedule.
@@ -26,31 +30,43 @@ import { applyConfig, state } from './state.js';
 // ---------------------------------------------------------------------------
 // A hidden tab used to keep polling every 3 seconds forever, which drains a
 // phone battery and keeps the Raspberry busy for nobody's benefit.
+//
+// `views` names where a poller's numbers are actually on screen; one without it
+// runs everywhere, because what it feeds - the grow bar, the alert strip - is on
+// every view. Polling the 30-day aggregate while somebody reads the calendar is
+// the same waste as polling a hidden tab, and the Raspberry is the one paying.
 
 const POLLERS = [
-    { fn: fetchCurrentData, every: 3000 },
-    { fn: fetchOutputsStatus, every: 3000 },
+    { fn: fetchCurrentData, every: 3000, views: ['panel'] },
+    { fn: fetchOutputsStatus, every: 3000, views: ['panel'] },
     // The node posts each sensor every 10 s, so polling faster buys nothing
     // but load on the Raspberry.
-    { fn: fetchIndoorSensors, every: 10000 },
-    { fn: fetchSensorStatus, every: 30000 },
+    { fn: fetchIndoorSensors, every: 10000, views: ['panel'] },
+    { fn: fetchSensorStatus, every: 30000, views: ['panel'] },
+    { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
-      every: 30000 },
-    { fn: fetchDatabaseStats, every: 60000 },
-    { fn: fetchActiveGrow, every: 60000 },
+      every: 30000, views: ['stats'] },
+    { fn: fetchVpdScore, every: 5 * 60 * 1000, views: ['stats'] },
     // Watering is a once-a-day act; this only has to notice a stage change or
-    // a log entry made from another device.
-    { fn: fetchFeeding, every: 60000 },
-    { fn: fetchVpdScore, every: 5 * 60 * 1000 },
+    // a log entry made from another device. The panel shows how long it has
+    // been since the last one, so it is needed there too.
+    { fn: fetchFeeding, every: 60000, views: ['panel', 'riego'] },
+    { fn: fetchActiveGrow, every: 60000 },
     { fn: fetchAnomalies, every: 60000 },
 ];
 
 let pollTimers = [];
 
+/** Whether this poller feeds anything the view on screen can show. */
+function isPollerActive(poller) {
+    return !poller.views || poller.views.includes(currentView());
+}
+
 function startPolling() {
     stopPolling();
     pollTimers = POLLERS.map(p => setInterval(() => {
         if (document.hidden) return;
+        if (!isPollerActive(p)) return;
         p.fn();
     }, p.every));
 }
@@ -60,18 +76,15 @@ function stopPolling() {
     pollTimers = [];
 }
 
+/**
+ * Fetch everything the current view needs, now.
+ *
+ * Driven off POLLERS rather than its own list of calls: the two used to be
+ * maintained side by side, which is how a poller gets added and the refresh on
+ * tab focus keeps showing a stale number for a whole interval.
+ */
 function refreshAll() {
-    fetchCurrentData();
-    fetchOutputsStatus();
-    fetchIndoorSensors();
-    fetchSensorStatus();
-    fetchDatabaseStats();
-    fetchActiveGrow();
-    fetchFeeding();
-    fetchHistoricalData(state.period, state.interval, state.hours);
-    fetchPeriodSummary();
-    fetchVpdScore();
-    fetchAnomalies();
+    POLLERS.forEach(p => { if (isPollerActive(p)) p.fn(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +127,7 @@ function handleTimeBtnClick(clickedBtn) {
 // in the grow list.
 
 const ACTIONS = {
-    'weekly-report': showWeeklyReportModal,
-    'show-grows': showGrowModal,
+    'weekly-report': showWeeklyReport,
     'show-stage': showStageModal,
     'new-grow': showNewGrowModal,
     'create-grow': createGrow,
@@ -171,6 +183,17 @@ function wireActions() {
         // interval with stale numbers on screen.
         if (!document.hidden) refreshAll();
     });
+
+    document.addEventListener('view:enter', event => {
+        // The first one fires during startup, where refreshAll() below already
+        // runs; refreshing twice would just be two requests the de-duplication
+        // has to throw away.
+        if (event.detail?.initial) return;
+        refreshAll();
+        // A canvas built inside a hidden section has no size until something
+        // asks it to measure itself again.
+        resizeCharts();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -186,11 +209,18 @@ async function start() {
     wireActions();
     wireGrowListActions();
     wireFeeding();
+    wireCalendar();
+    wirePanel();
+    wireSystem();
     updateSummaryPeriodLabel();
     // The chart has to be in hand before the feeding panel can render a row
     // per product, so it is fetched once here rather than on the poll.
     await fetchFeedPlan();
+    // Last of the wiring: it decides which view is on screen, and the pollers
+    // below ask that question to know what is worth fetching.
+    initViews();
     refreshAll();
+    resizeCharts();
     startPolling();
 }
 
@@ -202,4 +232,4 @@ if (document.readyState === 'loading') {
 
 // The grow list renders its own buttons and needs these; everything else is
 // reached through data-action.
-export { activateGrow, endGrow, refreshAll, startPolling, stopPolling };
+export { activateGrow, endGrow, isPollerActive, refreshAll, startPolling, stopPolling };
