@@ -171,6 +171,40 @@ def test_every_drift_flag_the_monitor_emits_has_a_label():
         assert f"{flag}:" in labels, flag
 
 
+def test_test_mode_is_announced_on_screen_while_it_is_on():
+    """
+    The one failure this feature can produce is somebody walking away without
+    noticing the tent is uncontrolled, so the banner is not optional.
+    """
+    partial = (TEMPLATES_DIR / "partials" / "outputs.html").read_text()
+    assert 'id="test-mode-banner"' in partial
+    assert 'id="test-mode-countdown"' in partial
+    assert 'data-action="exit-test-mode"' in partial
+
+    dashboard = (JS_DIR / "dashboard.js").read_text()
+    assert "renderTestModeBanner" in dashboard
+
+
+def test_the_test_mode_endpoints_the_dashboard_calls_exist():
+    """A renamed route is a button that silently does nothing."""
+    import autocann.web.app as web
+
+    routes = {str(rule) for rule in web.app.url_map.iter_rules()}
+    dashboard = (JS_DIR / "dashboard.js").read_text()
+    for route in ("/api/test-mode", "/api/test-mode/outputs"):
+        assert route in dashboard, route
+        assert route in routes, route
+
+
+def test_the_action_dispatcher_hands_the_element_to_its_handler():
+    """
+    The relay buttons carry which output they belong to in data-*; a dispatcher
+    that calls the handler with no arguments throws that away.
+    """
+    main_js = _strip_js_comments((JS_DIR / "main.js").read_text())
+    assert "ACTIONS[action](trigger)" in main_js
+
+
 def test_the_uv_wrapper_is_not_counted_as_a_second_control_loop(monkeypatch):
     """
     Production launches the loop as `uv run python -m autocann.cli.vpd`, which

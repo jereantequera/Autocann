@@ -80,6 +80,17 @@ function formatAge(seconds) {
     return `hace ${Math.floor(hours / 24)} d`;
 }
 
+/** Una duración que falta, en palabras: "7 h 59 min", "45 min", "30 s". */
+function formatDuration(seconds) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '--';
+    const total = Math.round(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (hours > 0) return `${hours} h ${minutes} min`;
+    if (minutes > 0) return `${minutes} min`;
+    return `${total} s`;
+}
+
 /** A signed difference, so "+0.4" and "-0.4" are told apart at a glance. */
 function fmtSigned(value, decimals = 1, fallback = '--') {
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
@@ -101,6 +112,6 @@ function getScoreLabel(score) {
 }
 
 export {
-    escapeHtml, fmtNum, fmtSigned, formatAge, parseLocalDatetime, formatDate,
-    getScoreClass, getScoreLabel,
+    escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
+    formatDate, getScoreClass, getScoreLabel,
 };

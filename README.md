@@ -141,7 +141,10 @@ http://<ip-de-tu-raspberry>:5000
 - `GET /api/database-stats` - Estadísticas de la base de datos
 - `GET /api/sensor-status` - Estado de conectividad de los sensores
 - `GET /api/sensors/indoor` - Todos los sensores interiores a la vez, con su rol
-  (primario/testigo), la antigüedad de cada lectura y el veredicto de deriva
+  (primario/testigo/observación), la antigüedad de cada lectura y el veredicto
+  de deriva
+- `GET`/`POST /api/test-mode` - Modo prueba: el lazo deja de decidir
+- `POST /api/test-mode/outputs` - Accionar un relé a mano durante el modo prueba
 - `GET /api/output-status` - Estado de los relés y overrides activos
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
@@ -260,6 +263,30 @@ no aparece en pantalla. `scripts/start_services.sh` las exporta antes de arranca
 los dos procesos.
 
 El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
+
+## Modo prueba
+
+Para trabajo de banco: **el lazo deja de decidir y no se guarda nada**. Los
+relés quedan donde se los ponga desde el dashboard, y ni las muestras ni los
+eventos de control llegan a SQLite — una sesión moviendo relés a mano no es
+historia del cultivo.
+
+Se activa desde el botón 🧪 de la sección *Salidas*. Mientras está activo hay un
+cartel permanente: la única falla que esta función puede producir es que alguien
+se vaya sin darse cuenta de que la carpa quedó sin control.
+
+**Se guarda como un vencimiento, no como un flag.** Un flag que alguien se
+olvida sobrevive reinicios y deja la carpa sin control por días; un vencimiento
+se cura solo. Por defecto 8 h, máximo 24 h, y si Redis se cae vuelve a
+automático — que es la dirección segura para fallar.
+
+Lo que **sigue valiendo** en modo prueba:
+
+- Los **mínimos de encendido/apagado**. Protegen el equipo, y al equipo no le
+  importa si la orden vino de una persona. Un comando que tiene que esperar se
+  informa en la tarjeta, no se descarta en silencio.
+- **Publicar el estado deseado cada ciclo**. El nodo remoto desenergiza a los
+  60 s de silencio, así que un lazo callado haría caer los relés cada minuto.
 
 ## Relés en un nodo remoto
 

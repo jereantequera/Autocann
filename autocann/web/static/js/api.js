@@ -64,4 +64,27 @@ async function apiGet(url, { key = url } = {}) {
     }
 }
 
-export { connection, renderConnectionState, apiGet };
+/**
+ * POST con el error del servidor ya desempaquetado.
+ *
+ * No pasa por la de-duplicación de apiGet: dos clicks seguidos sobre un botón
+ * son dos órdenes distintas, y descartar la segunda haría que la pantalla
+ * mienta sobre lo que pidió el usuario.
+ */
+async function apiPost(url, body) {
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body ?? {}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return { ok: false, error: data.error || `HTTP ${response.status}` };
+        return { ok: true, data };
+    } catch (error) {
+        console.error(`Error posting ${url}:`, error);
+        return { ok: false, error: 'No se pudo contactar al backend' };
+    }
+}
+
+export { connection, renderConnectionState, apiGet, apiPost };

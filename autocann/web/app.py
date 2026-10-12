@@ -10,6 +10,10 @@ from autocann import __version__
 from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     PRIMARY,
+    TEST_MODE_DEFAULT_SECONDS,
+    TEST_MODE_KEY,
+    TEST_MODE_MAX_SECONDS,
+    TEST_MODE_OUTPUTS_KEY,
     WITNESS,
     indoor_sensor_key,
     indoor_sensors_from_env,
@@ -198,11 +202,61 @@ def create_app() -> Flask:
             }
         )
 
+    def _test_mode_deadline():
+        """The deadline if test mode is on, else None. Shared by every handler."""
+        raw = redis_client.get(TEST_MODE_KEY)
+        if not raw:
+            return None
+        try:
+            until = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return until if int(datetime.now(ARGENTINA_TZ).timestamp()) < until else None
+
+    def _test_mode_payload():
+        until = _test_mode_deadline()
+        try:
+            raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
+            requested = json.loads(raw) if raw else {}
+        except Exception:
+            requested = {}
+        if not isinstance(requested, dict):
+            requested = {}
+
+        return {
+            "active": until is not None,
+            "until": until,
+            "remaining_seconds": (
+                None if until is None
+                else until - int(datetime.now(ARGENTINA_TZ).timestamp())
+            ),
+            "requested_outputs": {
+                name: bool(requested.get(name, False)) for name in output_names()
+            },
+            "default_seconds": TEST_MODE_DEFAULT_SECONDS,
+            "max_seconds": TEST_MODE_MAX_SECONDS,
+        }
+
     @app.route("/api/output-status", methods=["GET"])
     def get_output_status():
         """
         Endpoint to get current output/relay status from Redis plus BCM pin mapping.
+
+        Carries the test-mode state as well. The dashboard draws both from this
+        one answer so they cannot disagree: two polls could show manual buttons
+        over outputs the loop is already deciding again, which is the one
+        confusion worth designing out.
         """
+        # Published by the control loop: what it refused to switch yet, and for
+        # how long, so a relay that does not move can say why.
+        held = {}
+        try:
+            raw = redis_client.get("sensors")
+            if raw:
+                held = (json.loads(raw) or {}).get("held_outputs") or {}
+        except Exception:
+            held = {}
+
         outputs = []
         for o in get_outputs():
             redis_key = o.get("redis_key")
@@ -217,10 +271,16 @@ def create_app() -> Flask:
                     "redis_key": redis_key,
                     "state": state,
                     "manual_override": parse_bool_flag(override_raw),
+                    "held_seconds": held.get(o.get("name")),
                 }
             )
 
-        return jsonify({"outputs": outputs})
+        try:
+            test_mode = _test_mode_payload()
+        except Exception:
+            test_mode = {"active": False}
+
+        return jsonify({"outputs": outputs, "test_mode": test_mode})
 
     @app.route("/api/output-control", methods=["POST"])
     def set_output_control():
@@ -550,6 +610,119 @@ def create_app() -> Flask:
                 "max_age_seconds": INDOOR_SENSOR_MAX_AGE_SECONDS,
             }
         )
+
+    # ===============================
+    # Test mode
+    # ===============================
+
+    @app.route("/api/test-mode", methods=["GET"])
+    def get_test_mode():
+        """
+        Whether the control loop is standing down, and for how much longer.
+        """
+        try:
+            return jsonify(_test_mode_payload())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/test-mode", methods=["POST"])
+    def set_test_mode():
+        """
+        Turn test mode on for a while, or off.
+
+        Body (JSON):
+        - enabled: boolean
+        - duration_seconds: optional, how long it lasts (default
+          TEST_MODE_DEFAULT_SECONDS, max TEST_MODE_MAX_SECONDS)
+
+        It is stored as a deadline with a matching Redis TTL rather than as a
+        flag. A flag someone forgets survives restarts and leaves the tent
+        uncontrolled indefinitely; this ends on its own, and losing Redis ends
+        it too, which is the safe direction to fail in.
+        """
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"error": "Missing or invalid 'enabled' (must be boolean)"}), 400
+
+        if not enabled:
+            try:
+                redis_client.delete(TEST_MODE_KEY)
+                # Cleared together: a later session must not begin by
+                # energising whatever was left switched on in this one.
+                redis_client.delete(TEST_MODE_OUTPUTS_KEY)
+            except Exception as e:
+                return jsonify({"error": f"Failed to leave test mode: {e}"}), 500
+            return jsonify({"success": True, **_test_mode_payload()})
+
+        duration = data.get("duration_seconds", TEST_MODE_DEFAULT_SECONDS)
+        try:
+            duration = int(duration)
+        except (TypeError, ValueError):
+            return jsonify({"error": "'duration_seconds' must be an integer"}), 400
+        if duration < 1 or duration > TEST_MODE_MAX_SECONDS:
+            return jsonify(
+                {"error": f"'duration_seconds' must be between 1 and {TEST_MODE_MAX_SECONDS}"}
+            ), 400
+
+        until = int(datetime.now(ARGENTINA_TZ).timestamp()) + duration
+        try:
+            redis_client.set(TEST_MODE_KEY, str(until), ex=duration)
+            # Everything starts off. Entering test mode is not a reason for a
+            # relay to close.
+            redis_client.set(
+                TEST_MODE_OUTPUTS_KEY,
+                json.dumps({name: False for name in output_names()}),
+                ex=duration,
+            )
+        except Exception as e:
+            return jsonify({"error": f"Failed to enter test mode: {e}"}), 500
+
+        return jsonify({"success": True, **_test_mode_payload()})
+
+    @app.route("/api/test-mode/outputs", methods=["POST"])
+    def set_test_mode_output():
+        """
+        Ask an output to switch while in test mode.
+
+        Refused when test mode is off: the control loop would ignore it, and a
+        request that silently does nothing is worse than one that fails.
+
+        The request is not a guarantee. The loop still honours the minimum
+        on/off times — they protect the equipment, which does not care that a
+        person asked — so an output may stay put for a few seconds. The loop
+        reports what it held back.
+        """
+        data = request.get_json(silent=True) or {}
+        name = data.get("name")
+        state = data.get("state")
+
+        if not name or not isinstance(name, str):
+            return jsonify({"error": "Missing or invalid 'name'"}), 400
+        if not isinstance(state, bool):
+            return jsonify({"error": "Missing or invalid 'state' (must be boolean)"}), 400
+        if not find_output(name):
+            valid = ", ".join(output_names())
+            return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
+
+        until = _test_mode_deadline()
+        if until is None:
+            return jsonify({"error": "El modo prueba no está activo"}), 409
+
+        try:
+            raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
+            requested = json.loads(raw) if raw else {}
+            if not isinstance(requested, dict):
+                requested = {}
+            requested[name] = state
+            # The TTL follows the deadline, so the requested states can never
+            # outlive the mode they belong to.
+            remaining = max(1, until - int(datetime.now(ARGENTINA_TZ).timestamp()))
+            redis_client.set(TEST_MODE_OUTPUTS_KEY, json.dumps(requested), ex=remaining)
+        except Exception as e:
+            return jsonify({"error": f"Failed to publish the request: {e}"}), 500
+
+        return jsonify({"success": True, **_test_mode_payload()})
 
     @app.route("/api/sensor-history", methods=["GET"])
     def get_sensor_history():

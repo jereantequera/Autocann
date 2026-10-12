@@ -554,3 +554,100 @@ def test_an_output_missing_from_the_payload_defaults_to_off(client):
 def test_the_answer_never_omits_an_output(client):
     _publish_desired(client, {})
     assert set(client.get("/api/outputs/desired").get_json()["outputs"]) == set(ALL_OFF)
+
+
+# ---------------------------------------------------------------------------
+# Test mode
+# ---------------------------------------------------------------------------
+
+
+def _now():
+    from datetime import datetime
+
+    from autocann.time import ARGENTINA_TZ
+
+    return int(datetime.now(ARGENTINA_TZ).timestamp())
+
+
+def test_test_mode_is_off_until_it_is_asked_for(client):
+    body = client.get("/api/test-mode").get_json()
+    assert body["active"] is False
+    assert body["until"] is None
+
+
+def test_entering_test_mode_stores_a_deadline_not_a_flag(client):
+    """
+    A flag someone forgets survives restarts and leaves the tent uncontrolled
+    for days. A deadline heals itself.
+    """
+    body = client.post("/api/test-mode", json={"enabled": True}).get_json()
+
+    assert body["active"] is True
+    assert body["until"] >= _now()
+    # The Redis TTL is the same expiry said a second way, so losing one still
+    # ends the mode.
+    assert client.redis.ttls["test_mode_until"] == 8 * 3600
+
+
+def test_entering_test_mode_does_not_energise_anything(client):
+    """Standing the controller down is not a reason for a relay to close."""
+    body = client.post("/api/test-mode", json={"enabled": True}).get_json()
+    assert set(body["requested_outputs"].values()) == {False}
+
+
+def test_a_past_deadline_reads_as_off(client):
+    """The backstop for a TTL that somehow did not fire."""
+    client.redis.store["test_mode_until"] = str(_now() - 1)
+    assert client.get("/api/test-mode").get_json()["active"] is False
+
+
+def test_leaving_test_mode_also_clears_what_was_switched_on(client):
+    """A later session must not begin by energising the leftovers of this one."""
+    client.post("/api/test-mode", json={"enabled": True})
+    client.post("/api/test-mode/outputs", json={"name": "ventilation", "state": True})
+
+    client.post("/api/test-mode", json={"enabled": False})
+
+    assert "test_mode_until" not in client.redis.store
+    assert "test_mode_outputs" not in client.redis.store
+
+
+def test_an_output_request_is_refused_outside_test_mode(client):
+    """The loop would ignore it, and a request that silently does nothing is worse."""
+    response = client.post("/api/test-mode/outputs", json={"name": "ventilation", "state": True})
+    assert response.status_code == 409
+
+
+def test_an_output_request_is_published_for_the_loop(client):
+    client.post("/api/test-mode", json={"enabled": True})
+    body = client.post(
+        "/api/test-mode/outputs", json={"name": "humidity_up", "state": True}).get_json()
+
+    assert body["requested_outputs"]["humidity_up"] is True
+    assert body["requested_outputs"]["ventilation"] is False
+    assert json.loads(client.redis.store["test_mode_outputs"])["humidity_up"] is True
+
+
+def test_the_requested_states_cannot_outlive_the_mode(client):
+    """Otherwise they would be waiting to apply the next time it is turned on."""
+    client.post("/api/test-mode", json={"enabled": True, "duration_seconds": 300})
+    client.post("/api/test-mode/outputs", json={"name": "ventilation", "state": True})
+
+    assert client.redis.ttls["test_mode_outputs"] <= 300
+
+
+def test_test_mode_refuses_to_last_longer_than_a_day(client):
+    response = client.post("/api/test-mode", json={"enabled": True, "duration_seconds": 10 ** 9})
+    assert response.status_code == 400
+    assert "test_mode_until" not in client.redis.store
+
+
+@pytest.mark.parametrize("body", [{}, {"enabled": "si"}, {"enabled": 1}])
+def test_test_mode_needs_an_explicit_boolean(client, body):
+    assert client.post("/api/test-mode", json=body).status_code == 400
+
+
+def test_an_unknown_output_is_refused_by_name(client):
+    client.post("/api/test-mode", json={"enabled": True})
+    response = client.post("/api/test-mode/outputs", json={"name": "luz", "state": True})
+    assert response.status_code == 404

@@ -281,6 +281,31 @@ def indoor_sensors_from_env() -> IndoorSensors:
 
 
 # ---------------------------------------------------------------------------
+# Test mode
+# ---------------------------------------------------------------------------
+
+#: Redis key holding the unix timestamp at which test mode ends. Stored with a
+#: matching Redis TTL, so the key expiring *is* the mode ending — and the
+#: deadline inside it is a second, independent check in case the TTL is lost.
+#:
+#: A deadline rather than a boolean, on purpose. A flag someone forgets survives
+#: restarts and leaves the tent uncontrolled for days with nothing to say so;
+#: a deadline heals itself. It is also why this lives in Redis rather than in
+#: the database: losing it reverts to automatic control, which is the safe
+#: direction to fail in.
+TEST_MODE_KEY = "test_mode_until"
+
+#: Redis key holding what the operator asked each output to do while in test
+#: mode, as {name: bool}. Deliberately *not* the manual-override keys the
+#: automatic path reads: those would still be sitting there when test mode ends,
+#: and would then quietly override real control decisions.
+TEST_MODE_OUTPUTS_KEY = "test_mode_outputs"
+
+TEST_MODE_DEFAULT_SECONDS = 8 * 3600
+TEST_MODE_MAX_SECONDS = 24 * 3600
+
+
+# ---------------------------------------------------------------------------
 # Relay outputs
 # ---------------------------------------------------------------------------
 

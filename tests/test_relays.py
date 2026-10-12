@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from autocann.cli.vpd import Relays
+from autocann.config import RELAY_MODE_REMOTE, ControlTuning
 from autocann.control.humidity import DEHUMIDIFY, HUMIDIFY, IDLE
+from autocann.hardware.outputs import get_outputs
 
 
 class FakeDevice:
@@ -208,3 +210,129 @@ def test_the_published_state_carries_every_output(published):
     published.apply(IDLE)
     outputs = published.writes[-1][1]["outputs"]
     assert set(outputs) == set(published._specs)
+
+
+# ---------------------------------------------------------------------------
+# Test mode: the relays follow a person, not a decision
+# ---------------------------------------------------------------------------
+
+TUNING = ControlTuning(min_on_seconds=60.0, min_off_seconds=180.0)
+
+
+def test_manual_drive_puts_every_output_exactly_where_asked(relays):
+    held = relays.apply_manual(
+        {"humidity_up": True, "ventilation": True}, tuning=TUNING, now=1000.0)
+
+    assert state(relays) == {
+        "humidity_up": True, "humidity_down": False, "ventilation": True,
+    }
+    assert held == {}
+
+
+def test_manual_drive_can_do_what_no_automatic_action_can(relays):
+    """
+    `apply` derives the humidity outputs from one action, so it can never ask
+    for both. A bench test has to be able to: that is what testing wiring is.
+    """
+    relays.apply_manual(
+        {"humidity_up": True, "humidity_down": True}, tuning=TUNING, now=1000.0)
+
+    assert state(relays)["humidity_up"] and state(relays)["humidity_down"]
+
+
+def test_manual_drive_writes_no_history(relays, monkeypatch):
+    """Test mode stores nothing: a bench session is not history."""
+    events = []
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+                        lambda *a, **k: events.append(a))
+
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    relays.apply_manual({"ventilation": False}, tuning=TUNING, now=1000.0 + 999)
+
+    assert events == []
+
+
+def test_the_minimum_times_still_hold_for_a_person(relays):
+    """
+    The equipment does not care whether the command came from a person or from
+    the controller.
+    """
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    held = relays.apply_manual({"ventilation": False}, tuning=TUNING, now=1010.0)
+
+    assert state(relays)["ventilation"] is True, "no debería haberse apagado"
+    assert held == {"ventilation": pytest.approx(50.0)}
+
+
+def test_a_held_command_is_reported_not_dropped(relays):
+    """A relay that does not move must say why, or it just looks broken."""
+    relays.apply_manual({"humidity_up": True}, tuning=TUNING, now=1000.0)
+    held = relays.apply_manual({"humidity_up": False}, tuning=TUNING, now=1030.0)
+
+    assert "humidity_up" in held and held["humidity_up"] > 0
+
+
+def test_the_command_goes_through_once_the_minimum_is_served(relays):
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    assert relays.apply_manual({"ventilation": False}, tuning=TUNING, now=1061.0) == {}
+    assert state(relays)["ventilation"] is False
+
+
+def test_an_output_that_never_switched_owes_no_waiting_time(relays):
+    """Otherwise the first command of a session would always be held back."""
+    assert relays.hold_remaining("ventilation", TUNING, now=0.0) == 0.0
+    assert relays.apply_manual({"ventilation": True}, tuning=TUNING, now=0.0) == {}
+
+
+def test_asking_for_a_state_an_output_already_has_is_never_held(relays):
+    """It is not a transition, so there is nothing to protect."""
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    assert relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1005.0) == {}
+
+
+def test_an_output_that_never_switched_still_reports_that_it_is_off(monkeypatch):
+    """
+    `set_output` writes nothing when nothing changed, so without this an output
+    that has never moved has no Redis key — and the dashboard draws a dash over
+    a relay that is known to be off.
+    """
+    written = {}
+    monkeypatch.setattr("autocann.cli.vpd._set_redis",
+                        lambda key, value, **k: written.__setitem__(key, value))
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
+
+    Relays(mode=RELAY_MODE_REMOTE).setup()
+
+    for spec in get_outputs():
+        assert written.get(spec["redis_key"]) == "false", spec["name"]
+
+
+def test_test_mode_keeps_the_shutdown_path_out_of_the_history(relays, monkeypatch):
+    """
+    The paths that de-energise without being asked — the shutdown handler, the
+    loop's catch-all — are the ones a per-call-site flag would forget, and they
+    run with exactly the relays a bench session had switched on.
+    """
+    events = []
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+                        lambda *a, **k: events.append(a))
+
+    relays.log_events = False
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    relays.all_off()          # as the shutdown handler calls it: logging on
+
+    assert events == []
+    assert state(relays)["ventilation"] is False
+
+
+def test_leaving_test_mode_puts_the_history_back(relays, monkeypatch):
+    events = []
+    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+                        lambda *a, **k: events.append(a))
+
+    relays.log_events = False
+    relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
+    relays.log_events = True
+    relays.apply(IDLE)
+
+    assert events == [("ventilation", "off")]

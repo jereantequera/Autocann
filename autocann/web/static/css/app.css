@@ -854,6 +854,93 @@ body {
 .output-state.off { color: var(--vpd-danger); }
 .output-state.unknown { color: var(--text-muted); }
 
+/* Test mode */
+.test-mode-banner {
+    display: none;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    /* Amber, not red: nothing is broken. Something is switched off on purpose
+       and must not be forgotten, which is a different thing to say. */
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid var(--vpd-adjusting);
+}
+
+.test-mode-banner.show {
+    display: flex;
+}
+
+.test-mode-banner-icon {
+    font-size: 1.6em;
+}
+
+.test-mode-banner-content {
+    flex: 1;
+}
+
+.test-mode-banner-title {
+    font-weight: 600;
+    color: var(--vpd-adjusting);
+    margin-bottom: 2px;
+}
+
+.test-mode-banner-message {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.output-card.is-manual {
+    border-color: var(--vpd-adjusting);
+}
+
+.output-controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.btn-output {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.85em;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.btn-output:hover {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+}
+
+/* `active` marks what was asked for, which is not always what the relay is
+   doing yet: a minimum on/off time can hold a command for a couple of minutes,
+   and the card says so separately. */
+.btn-output.on.active {
+    background: rgba(34, 197, 94, 0.18);
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+}
+
+.btn-output.off.active {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: var(--vpd-danger);
+    color: var(--vpd-danger);
+}
+
+.output-held {
+    margin-top: 10px;
+    color: var(--vpd-adjusting);
+    font-size: 0.78em;
+}
+
 /* Charts Section */
 .charts-section {
     margin-top: 30px;

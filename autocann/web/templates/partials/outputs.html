@@ -4,7 +4,28 @@
                 <span class="section-title-icon">🔌</span>
                 Salidas (Relays)
             </h2>
+            <button class="btn btn-ghost" data-action="enter-test-mode" id="test-mode-enter">
+                🧪 Modo prueba
+            </button>
         </div>
+
+        <!--
+             Loud on purpose. While this is up the tent is not being controlled
+             by anything, and the one failure this feature can produce is
+             somebody walking away without noticing.
+        -->
+        <div id="test-mode-banner" class="test-mode-banner" role="status" aria-live="polite">
+            <div class="test-mode-banner-icon">🧪</div>
+            <div class="test-mode-banner-content">
+                <div class="test-mode-banner-title">Modo prueba activo</div>
+                <div class="test-mode-banner-message">
+                    El lazo no está controlando la carpa y no se guarda nada en el histórico.
+                    Vuelve solo a automático en <strong id="test-mode-countdown">--</strong>.
+                </div>
+            </div>
+            <button class="btn btn-ghost" data-action="exit-test-mode">Salir</button>
+        </div>
+
         <div class="outputs-grid" id="outputs-grid">
             <div class="output-card">
                 <div class="output-name">Cargando...</div>

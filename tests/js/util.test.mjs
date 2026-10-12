@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, getScoreClass, getScoreLabel,
-    parseLocalDatetime,
+    escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, formatDuration, getScoreClass,
+    getScoreLabel, parseLocalDatetime,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -116,4 +116,17 @@ test('fmtSigned keeps the sign, which is the whole point of a difference', () =>
     assert.equal(fmtSigned(0), '+0.0');
     assert.equal(fmtSigned(-1.234, 2), '-1.23');
     assert.equal(fmtSigned(null), '--');
+});
+
+test('formatDuration reads as time left, not as a number of seconds', () => {
+    assert.equal(formatDuration(30), '30 s');
+    assert.equal(formatDuration(90), '1 min');
+    assert.equal(formatDuration(8 * 3600), '8 h 0 min');
+    assert.equal(formatDuration(3 * 3600 + 25 * 60), '3 h 25 min');
+});
+
+test('formatDuration shows a dash rather than a countdown already past', () => {
+    for (const value of [0, -5, null, undefined, NaN, 'pronto']) {
+        assert.equal(formatDuration(value), '--', `para ${String(value)}`);
+    }
 });

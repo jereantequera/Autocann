@@ -1,7 +1,7 @@
-import { apiGet } from './api.js';
+import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { config, state } from './state.js';
-import { escapeHtml, fmtNum, fmtSigned, formatAge } from './util.js';
+import { escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration } from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
 
@@ -410,9 +410,82 @@ function updateSensorStatus(data) {
     }
 }
 
+// ===============================
+// Test mode
+// ===============================
+// While it is on the control loop stands down: the relays follow what is asked
+// here and nothing is written to the history. It ends on its own, which is the
+// whole reason it is safe to offer at all.
+
+/** Last known test-mode state, from /api/output-status so it cannot disagree. */
+let testMode = { active: false };
+
+function renderTestModeBanner(mode) {
+    const banner = document.getElementById('test-mode-banner');
+    const enterBtn = document.getElementById('test-mode-enter');
+    const countdown = document.getElementById('test-mode-countdown');
+
+    if (banner) banner.classList.toggle('show', !!mode.active);
+    // Hidden rather than disabled while active: the way out is the "Salir" on
+    // the banner, and two competing controls invite turning it on twice.
+    if (enterBtn) enterBtn.style.display = mode.active ? 'none' : '';
+    if (countdown) countdown.textContent = formatDuration(mode.remaining_seconds);
+}
+
+function outputCardHtml(output, mode) {
+    let stateText = '--';
+    let stateClass = 'unknown';
+    if (output.state === true) {
+        stateText = 'ENCENDIDA';
+        stateClass = 'on';
+    } else if (output.state === false) {
+        stateText = 'APAGADA';
+        stateClass = 'off';
+    }
+
+    const label = escapeHtml(output.label || output.name || 'Salida');
+    const name = escapeHtml(output.name || '');
+    const pin = (output.pin_bcm !== undefined && output.pin_bcm !== null)
+        ? `BCM ${Number(output.pin_bcm)}` : '';
+
+    let controls = '';
+    if (mode.active && output.name) {
+        const requested = mode.requested_outputs?.[output.name];
+        // A relay that does not move must say why, or the button looks broken.
+        // The minimum on/off times hold even for a person: the equipment does
+        // not care who asked.
+        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
+            ? `<div class="output-held">⏳ esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</div>`
+            : '';
+        controls = `
+            <div class="output-controls">
+                <button class="btn-output on ${requested === true ? 'active' : ''}"
+                        data-action="test-output" data-name="${name}" data-state="true">Prender</button>
+                <button class="btn-output off ${requested === false ? 'active' : ''}"
+                        data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
+            </div>
+            ${held}
+        `;
+    }
+
+    return `
+        <div class="output-card ${mode.active ? 'is-manual' : ''}">
+            <div class="output-header">
+                <div class="output-name">${label}</div>
+                <div class="output-pin">${pin}</div>
+            </div>
+            <div class="output-state ${stateClass}">${stateText}</div>
+            ${controls}
+        </div>
+    `;
+}
+
 function updateOutputsStatus(payload) {
     const grid = document.getElementById('outputs-grid');
     const outputs = payload?.outputs || [];
+
+    testMode = payload?.test_mode || { active: false };
+    renderTestModeBanner(testMode);
 
     if (!grid) return;
 
@@ -426,31 +499,46 @@ function updateOutputsStatus(payload) {
         return;
     }
 
-    grid.innerHTML = outputs.map(o => {
-        let stateText = '--';
-        let stateClass = 'unknown';
-        if (o.state === true) {
-            stateText = 'ENCENDIDA';
-            stateClass = 'on';
-        } else if (o.state === false) {
-            stateText = 'APAGADA';
-            stateClass = 'off';
-        }
+    grid.innerHTML = outputs.map(o => outputCardHtml(o, testMode)).join('');
+}
 
-        const label = escapeHtml(o.label || o.name || 'Salida');
-        const pin = (o.pin_bcm !== undefined && o.pin_bcm !== null)
-            ? `BCM ${Number(o.pin_bcm)}` : '';
-        
-        return `
-            <div class="output-card">
-                <div class="output-header">
-                    <div class="output-name">${label}</div>
-                    <div class="output-pin">${pin}</div>
-                </div>
-                <div class="output-state ${stateClass}">${stateText}</div>
-            </div>
-        `;
-    }).join('');
+async function enterTestMode() {
+    if (!confirm(
+        'El lazo deja de controlar la carpa: los relés van a quedar donde vos los pongas '
+        + 'y no se va a guardar nada en el histórico.\n\nVuelve solo a automático a las 8 horas.'
+    )) return;
+
+    const result = await apiPost('/api/test-mode', { enabled: true });
+    if (!result.ok) {
+        alert(`❌ No se pudo entrar en modo prueba: ${result.error}`);
+        return;
+    }
+    fetchOutputsStatus();
+}
+
+async function exitTestMode() {
+    const result = await apiPost('/api/test-mode', { enabled: false });
+    if (!result.ok) {
+        alert(`❌ No se pudo salir del modo prueba: ${result.error}`);
+        return;
+    }
+    fetchOutputsStatus();
+}
+
+async function setTestOutput(trigger) {
+    const name = trigger?.dataset?.name;
+    if (!name) return;
+
+    const result = await apiPost('/api/test-mode/outputs', {
+        name,
+        state: trigger.dataset.state === 'true',
+    });
+    if (!result.ok) {
+        alert(`❌ ${result.error}`);
+    }
+    // Refresh either way: on failure the buttons must go back to showing what
+    // is actually requested, not what was clicked.
+    fetchOutputsStatus();
 }
 
 // API Fetch functions
@@ -501,4 +589,5 @@ function fetchHistoricalData(days, interval, hours = null) {
 export {
     updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData, fetchIndoorSensors,
     fetchOutputsStatus, fetchSensorStatus, fetchDatabaseStats, fetchHistoricalData,
+    enterTestMode, exitTestMode, setTestOutput,
 };

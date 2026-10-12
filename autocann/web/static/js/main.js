@@ -2,8 +2,9 @@ import { apiGet } from './api.js';
 import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReportModal } from './analytics.js';
 import { initCharts } from './charts.js';
 import {
-    fetchCurrentData, fetchDatabaseStats, fetchHistoricalData, fetchIndoorSensors,
-    fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus, updateSummaryPeriodLabel,
+    enterTestMode, exitTestMode, fetchCurrentData, fetchDatabaseStats, fetchHistoricalData,
+    fetchIndoorSensors, fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus,
+    setTestOutput, updateSummaryPeriodLabel,
 } from './dashboard.js';
 import {
     addPlanProduct, fetchFeedPlan, fetchFeeding, resetFormToPlan, saveIrrigation,
@@ -125,6 +126,9 @@ const ACTIONS = {
     'feed-plan-add': addPlanProduct,
     'feed-save': saveIrrigation,
     'feed-reset': resetFormToPlan,
+    'enter-test-mode': enterTestMode,
+    'exit-test-mode': exitTestMode,
+    'test-output': setTestOutput,
 };
 
 function wireActions() {
@@ -135,7 +139,10 @@ function wireActions() {
         const action = trigger.dataset.action;
         if (ACTIONS[action]) {
             event.preventDefault();
-            ACTIONS[action]();
+            // The element is passed so a handler can read its data-* attributes:
+            // which output a relay button belongs to lives there, not in a
+            // closure rebuilt on every render.
+            ACTIONS[action](trigger);
             return;
         }
         if (action === 'close-modal') {

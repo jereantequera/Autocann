@@ -27,6 +27,9 @@ from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
+    TEST_MODE_KEY,
+    TEST_MODE_OUTPUTS_KEY,
+    ControlTuning,
     IndoorSensors,
     control_tuning_from_env,
     indoor_sensors_from_env,
@@ -141,12 +144,25 @@ class Relays:
         self._specs = {o["name"]: o for o in get_outputs()}
         self._devices: Dict[str, Any] = {name: None for name in self._specs}
         self._state: Dict[str, bool] = {name: False for name in self._specs}
+        #: Whether transitions reach the event log at all. Test mode turns it
+        #: off for the whole mode rather than at each call site: the paths that
+        #: switch a relay without being asked to — the shutdown handler, the
+        #: catch-all in the loop — are exactly the ones that would forget, and
+        #: a bench session leaving one row per shutdown in the history is the
+        #: promise of "nothing is stored" quietly broken.
+        self.log_events = True
+        #: Monotonic time of each output's last real transition. Unset means it
+        #: has not switched in this process's lifetime, so nothing is waiting.
+        #: Used only by the manual path: the automatic one gets its minimum
+        #: on/off times from the controller's own state machine.
+        self._changed_at: Dict[str, float] = {}
 
     def setup(self) -> None:
         if self.mode == RELAY_MODE_REMOTE:
             for spec in self._specs.values():
                 print(f"📡 {spec['label']} → nodo remoto")
             self.all_off(log_event=False)
+            self.publish_outputs()
             return
 
         import gpiozero  # imported lazily so this module stays importable off-Pi
@@ -159,6 +175,7 @@ class Relays:
             )
             print(f"🔌 {spec['label']} → BCM {spec['pin_bcm']}")
         self.all_off(log_event=False)
+        self.publish_outputs()
 
     def apply(self, action: str, *, overrides: Optional[Dict[str, bool]] = None,
               log_event: bool = True) -> None:
@@ -188,6 +205,22 @@ class Relays:
             self.set_output(name, False, log_event=log_event)
         self.publish_state()
 
+    def publish_outputs(self) -> None:
+        """
+        Write every output's state to Redis whether or not it just changed.
+
+        `set_output` short-circuits when nothing changed, which is right for the
+        pin and for the event log, but it means an output that has never
+        switched has no key at all. The dashboard reads a missing key as
+        "unknown" and draws a dash over a relay that is known to be off — which
+        is most visible in test mode, where someone is looking straight at the
+        cards waiting for one to move.
+        """
+        for name, spec in self._specs.items():
+            redis_key = spec.get("redis_key")
+            if redis_key:
+                _set_redis(redis_key, "true" if self._state[name] else "false")
+
     def publish_state(self) -> None:
         """
         Publish the whole desired state, timestamped, on every cycle.
@@ -208,7 +241,14 @@ class Relays:
         }
         _set_redis(DESIRED_OUTPUTS_KEY, json.dumps(payload))
 
-    def set_output(self, name: str, on: bool, *, log_event: bool = True) -> None:
+    def set_output(self, name: str, on: bool, *, log_event: bool = True,
+                   now: Optional[float] = None) -> None:
+        """
+        `now` is the monotonic reading to stamp the transition with. It is a
+        parameter rather than read here so that a caller working from one clock
+        reading — the loop does, and so do the tests — records the same instant
+        it is reasoning about.
+        """
         spec = self._specs.get(name)
         if spec is None or self._state.get(name) == on:
             return
@@ -226,13 +266,55 @@ class Relays:
                 return
 
         self._state[name] = on
+        self._changed_at[name] = monotonic() if now is None else now
         redis_key = spec.get("redis_key")
         if redis_key:
             _set_redis(redis_key, "true" if on else "false")
-        if log_event:
+        if log_event and self.log_events:
             # Only transitions are recorded. The old loop logged an event on
             # every iteration, which added ~29k rows per day.
             store_control_event(name, "on" if on else "off")
+
+    def hold_remaining(self, name: str, tuning: ControlTuning, now: float) -> float:
+        """
+        Seconds this output must stay as it is before it may switch again.
+
+        An output that is on owes its minimum *on* time; one that is off owes
+        its minimum *off* time.
+        """
+        changed_at = self._changed_at.get(name)
+        if changed_at is None:
+            return 0.0
+        minimum = tuning.min_on_seconds if self._state.get(name) else tuning.min_off_seconds
+        return max(0.0, minimum - (now - changed_at))
+
+    def apply_manual(self, desired: Dict[str, bool], *, tuning: ControlTuning,
+                     now: float) -> Dict[str, float]:
+        """
+        Drive the outputs to exactly what was asked, with nothing deciding
+        behind them. Returns the outputs held back, with the seconds left.
+
+        Two things this does not do, both deliberate:
+
+        - **It logs no control events.** Test mode writes nothing to the
+          database; a bench session toggling relays by hand is not history.
+        - **It does not waive the minimum on/off times.** Those protect the
+          equipment, and the equipment does not care whether the command came
+          from a person or from the controller. A command that has to wait is
+          *reported*, not dropped, so the dashboard can say why a relay did not
+          move instead of looking broken.
+        """
+        held: Dict[str, float] = {}
+        for name in self._specs:
+            want = bool(desired.get(name, False))
+            if want != self._state.get(name, False):
+                remaining = self.hold_remaining(name, tuning, now)
+                if remaining > 0:
+                    held[name] = round(remaining, 1)
+                    continue
+            self.set_output(name, want, log_event=False, now=now)
+        self.publish_state()
+        return held
 
     def close(self) -> None:
         for device in self._devices.values():
@@ -242,6 +324,84 @@ class Relays:
                     device.close()
             except Exception:
                 pass
+
+
+def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTuning,
+                        until: int, now: float) -> None:
+    """
+    One cycle with the controller switched off.
+
+    The relays follow what was asked by hand. The sensors are still read and
+    published, so the dashboard does not go dark while someone is working on the
+    tent — but nothing is accumulated and nothing is stored, which is the point.
+
+    The desired state is still published every cycle. The remote node
+    de-energises after 60 s without a poll, so a loop that went quiet in test
+    mode would drop the relays once a minute and make the bench test useless.
+    """
+    held = relays.apply_manual(read_test_mode_outputs(), tuning=tuning, now=now)
+
+    reading = sensors.read()
+    payload = dict(reading or {})
+    payload.update(
+        {
+            "mode": "test",
+            "test_mode_until": until,
+            "timestamp": int(_now_local().timestamp()),
+            "datetime": _now_local().strftime("%Y-%m-%d %H:%M:%S"),
+            # There is no target and no decision in test mode. Publishing the
+            # last ones would leave the dashboard showing a controller that
+            # looks like it is still working.
+            "stage": None,
+            "target_humidity": None,
+            "vpd_in_range": None,
+            "control_action": None,
+            "control_reason": "modo prueba: el lazo no decide",
+            "held_outputs": held,
+        }
+    )
+    _set_redis("sensors", json.dumps(payload))
+
+    if reading is None:
+        sensors.publish_status(indoor_ok=False, indoor_error="Sin lectura válida (modo prueba)")
+    else:
+        sensors.publish_status(indoor_ok=True)
+
+
+def read_test_mode_deadline() -> Optional[int]:
+    """
+    The unix timestamp at which test mode ends, or None when it is not active.
+
+    Both the Redis TTL and the stored deadline are checked. The TTL is what
+    normally ends the mode; the deadline is the backstop for a key that somehow
+    outlives it, because the one thing this must never do is stay on forever.
+    """
+    try:
+        raw = redis_client.get(TEST_MODE_KEY)
+    except Exception:
+        # Redis unreachable: fall back to automatic control. Guessing "still in
+        # test mode" would leave the tent uncontrolled on an infrastructure
+        # fault.
+        return None
+    if not raw:
+        return None
+    try:
+        until = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return until if int(_now_local().timestamp()) < until else None
+
+
+def read_test_mode_outputs() -> Dict[str, bool]:
+    """What the operator last asked each output to do in test mode."""
+    try:
+        raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
+        requested = json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+    if not isinstance(requested, dict):
+        return {}
+    return {spec["name"]: bool(requested.get(spec["name"], False)) for spec in get_outputs()}
 
 
 def read_manual_overrides() -> Dict[str, bool]:
@@ -700,6 +860,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     last_db_save = monotonic()
     last_sensor_reinit = 0.0
     unknown_stage_warned: Optional[str] = None
+    in_test_mode = False
     # Every reading feeds this; one row per DB_SAVE_INTERVAL_SECONDS summarises
     # the whole interval instead of whichever reading happened to land on it.
     accumulator = SampleAccumulator()
@@ -709,6 +870,37 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
             loop_started = monotonic()
 
             try:
+                # Checked first and every cycle, before anything else: test mode
+                # needs neither an active grow, nor a valid stage, nor a usable
+                # reading. Those are preconditions for *deciding*, and in test
+                # mode nothing decides.
+                test_mode_until = read_test_mode_deadline()
+                if test_mode_until is not None:
+                    if not in_test_mode:
+                        in_test_mode = True
+                        relays.log_events = False
+                        ends = datetime.fromtimestamp(test_mode_until, ARGENTINA_TZ)
+                        print(f"🧪 Modo prueba hasta {ends.strftime('%H:%M:%S')} — "
+                              "el lazo no decide, los relés siguen lo que se pida "
+                              "a mano y no se guarda nada")
+                    run_test_mode_cycle(relays, sensors, config, test_mode_until, loop_started)
+                    sleep(LOOP_INTERVAL_SECONDS)
+                    continue
+
+                if in_test_mode:
+                    in_test_mode = False
+                    relays.log_events = True
+                    # The controller's state machine describes a tent it has not
+                    # been driving: its timers date from before the test. Starting
+                    # it fresh is what stops the first automatic decision from
+                    # thinking a relay has been on for hours. The stage is re-read
+                    # for the same reason.
+                    state = ControllerState()
+                    last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
+                    accumulator.reset()
+                    last_db_save = loop_started
+                    print("✅ Modo prueba terminado — vuelve el control automático")
+
                 if loop_started - last_stage_check >= STAGE_CHECK_INTERVAL_SECONDS:
                     last_stage_check = loop_started
                     active_grow = get_active_grow()

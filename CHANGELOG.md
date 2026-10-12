@@ -1,5 +1,70 @@
 # Changelog
 
+## Modo prueba
+
+Trabajo de banco con la carpa vacía: **el lazo deja de decidir y no se guarda
+nada**. Los relés quedan donde se los ponga desde el dashboard; ni las muestras
+ni los eventos de control llegan a SQLite, porque una sesión moviendo relés a
+mano no es historia del cultivo.
+
+**Se guarda como un vencimiento, no como un flag**, en Redis y con la TTL
+puesta: la clave venciendo *es* el modo terminando, y el timestamp adentro es un
+segundo chequeo por si la TTL se pierde. Un flag que alguien se olvida sobrevive
+reinicios y deja la carpa sin control por días sin que nada avise. Por lo mismo
+va en Redis y no en la base: perderlo vuelve a automático, que es la dirección
+segura para fallar.
+
+Lo que **no** se suspende, y por qué:
+
+- **Los mínimos de encendido/apagado.** Protegen el equipo, y al equipo no le
+  importa si la orden vino de una persona o del controlador. Un comando que
+  tiene que esperar se **informa** en la tarjeta — "esperando 33 s" — en vez de
+  descartarse en silencio, que es lo que hace que un botón parezca roto.
+- **Publicar el estado deseado en cada ciclo.** El nodo remoto desenergiza a los
+  60 s sin poll, así que un lazo que se callara en modo prueba haría caer los
+  relés una vez por minuto.
+
+Lo pedido manual existente **no se reutilizó**: esos overrides vencen solos a
+las 2 h, lo que pelea con el uso de banco, y sobre todo seguirían ahí cuando el
+modo prueba termine, pisando decisiones reales. El modo prueba escribe en su
+propia clave, que se ignora apenas deja de estar activo.
+
+**Un relé que no se movía no decía por qué.** Dos arreglos que sólo se ven en
+esta pantalla:
+
+- Una salida que nunca cambió de estado no tenía clave en Redis — `set_output`
+  corta cuando no hay cambio — y el dashboard leía "ausente" como "desconocido",
+  dibujando un guión sobre un relé que estaba apagado con certeza.
+- Al **matar el lazo estando en modo prueba**, el `all_off` de apagado escribía
+  un evento: los toggles de banco terminaban en el histórico, uno por sesión.
+  El silencio del log pasó a ser un estado del objeto `Relays` y no un
+  argumento en cada llamada, porque los caminos que desenergizan sin que nadie
+  se los pida — el handler de apagado, el catch-all del lazo — son justo los
+  que se olvidarían de pasarlo.
+
+## El sensor de arriba, visible y sin cruzar
+
+El segundo DHT22 está **encima de la lámpara a propósito**: interesa saber la
+temperatura ahí. Eso lo descalifica como testigo. El detector de deriva asume
+que el offset entre dos sensores es una constante de posición, así que un cambio
+delata a uno de los dos; con uno arriba y uno al nivel del canopy el offset se
+abre y se cierra con el fotoperíodo, y lo que mide es la luz. Medido acá: base
+aprendida +2.40 °C contra una diferencia instantánea de +0.9 °C — 1.5 °C de
+separación, que es exactamente el umbral de divergencia. Estaba por empezar a
+alarmar.
+
+Un sensor puede tener ahora un tercer rol, **`observer`**: se lee y se muestra,
+no controla y no se cruza. Sacarlo de la configuración lo habría sacado también
+del dashboard, que es lo contrario de para qué está.
+
+El dashboard dejó de deducir el cross-check contando tarjetas y pregunta si hay
+testigo, porque varios sensores no son un cross-check. Sin testigo el badge lo
+dice en voz alta en vez de quedarse en blanco: la deriva silenciosa no la está
+vigilando nadie, y un badge vacío se lee como "todo bien". Recuperarlo necesita
+un tercer DHT22 al lado del primario, en el mismo aire.
+
+---
+
 ## Los dos sensores interiores, visibles
 
 La carpa tiene dos DHT22 desde el armado del 11-10: `a` en GPIO 32 controla y
