@@ -1,18 +1,29 @@
         <!-- Indoor Sensors - one card per physical sensor -->
         <!--
-             The hero above shows the primary after the median filter and the
-             calibration offsets, which is the number control acts on. This
-             section shows what each sensor actually posted, which is the only
-             way to see the witness at all - and the only way to notice the two
-             disagreeing before the drift detector has enough samples to say so.
+             La pregunta que contesta esta sección no es "cuánto mide cada
+             sensor" sino "¿anda?". Antes había que deducirlo: el badge de
+             arriba venía del lazo de control, cada tarjeta de la antigüedad de
+             su propia lectura, y el cartel rojo de anomalías de la base de
+             datos — y los tres podían decir cosas distintas al mismo tiempo.
+             Ahora todo esto sale de /api/health, que es un solo veredicto, y
+             cada tarjeta dice en castellano qué le pasa y qué mirar.
+
+             El hero de arriba muestra el primario después del filtro de mediana
+             y de la calibración, que es el número sobre el que se controla.
+             Acá se ve lo que cada sensor posteó de verdad, que es la única
+             forma de ver al testigo — y de notar que los dos se están
+             contradiciendo antes de que el detector de deriva junte muestras
+             suficientes para decirlo.
         -->
-        <div class="section-header">
+        <div class="section-header section-header-row">
             <h2 class="section-title">
                 <span class="section-title-icon">📍</span>
-                Sensores Interiores
+                Sensores
             </h2>
-            <span class="sensor-badge" id="drift-badge">⏳</span>
+            <span class="sensor-badge" id="sensors-badge">⏳</span>
+            <a class="btn btn-ghost btn-mini" href="#/sistema" id="sensors-log-link">📜 Ver log del nodo</a>
         </div>
+
         <div class="sensors-grid" id="indoor-sensors-grid">
             <div class="sensor-card">
                 <div class="sensor-card-header">
@@ -20,6 +31,26 @@
                 </div>
             </div>
         </div>
+
+        <!--
+             Dos renglones que no son el estado de un sensor pero que se
+             confunden con él todo el tiempo: el lazo puede estar en pausa o
+             caído con los sensores perfectos, y el histórico puede no estar
+             guardándose con todo lo demás andando.
+        -->
+        <div class="health-rows">
+            <div class="health-row" id="health-loop">
+                <span class="health-row-name">Lazo de control</span>
+                <span class="health-row-state" id="health-loop-state">⏳</span>
+                <span class="health-row-detail" id="health-loop-detail"></span>
+            </div>
+            <div class="health-row" id="health-history">
+                <span class="health-row-name">Histórico</span>
+                <span class="health-row-state" id="health-history-state">⏳</span>
+                <span class="health-row-detail" id="health-history-detail"></span>
+            </div>
+        </div>
+
         <div class="sensors-note">
             Lecturas crudas, tal como las posteó el nodo: sin filtro de mediana
             ni calibración. Pueden diferir unas décimas de las tarjetas de arriba.

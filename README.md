@@ -139,10 +139,16 @@ http://<ip-de-tu-raspberry>:5000
 - `GET /api/sensor-history` - Historial de sensores con filtros (SQLite)
 - `GET /api/history/aggregated` - Datos agregados para gráficos (SQLite)
 - `GET /api/database-stats` - Estadísticas de la base de datos
+- `GET /api/health` - **¿Anda?** El veredicto único: estado de cada sensor, del
+  lazo de control y del histórico, con el motivo y qué mirar, en castellano
 - `GET /api/sensor-status` - Estado de conectividad de los sensores
 - `GET /api/sensors/indoor` - Todos los sensores interiores a la vez, con su rol
   (primario/testigo/observación), la antigüedad de cada lectura y el veredicto
   de deriva
+- `POST /api/node/log` - El reporte propio de un nodo ESP32: contadores por
+  sensor y las líneas que imprimió
+- `GET /api/node/log`, `GET /api/nodes` - Ese log y ese diagnóstico, para el
+  dashboard
 - `GET`/`POST /api/test-mode` - Modo prueba: el lazo deja de decidir
 - `POST /api/test-mode/outputs` - Accionar un relé a mano durante el modo prueba
 - `GET /api/output-status` - Estado de los relés y overrides activos
@@ -263,6 +269,63 @@ no aparece en pantalla. `scripts/start_services.sh` las exporta antes de arranca
 los dos procesos.
 
 El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
+
+### ¿Anda el sensor?
+
+Tres fuentes contestaban esa pregunta y podían contradecirse: el badge del hero
+salía de `sensor_status` (la opinión del lazo sobre el primario), cada tarjeta de
+la antigüedad de su propia lectura en Redis, y el cartel de anomalías de la
+antigüedad de la última fila en SQLite. Con el sistema en pausa las tres decían
+cosas distintas a la vez — un *"sensor posiblemente desconectado"* en rojo arriba
+de dos tarjetas verdes, con los sensores posteando perfecto.
+
+Ahora todo eso sale de `GET /api/health`, que mira las tres fuentes juntas y
+contesta una sola vez. Cada sensor cae en uno de cuatro estados, y cada uno manda
+a un lugar distinto:
+
+| Estado | Qué pasó | Qué mirar |
+|---|---|---|
+| **Posteando** | Lectura fresca | — |
+| **Postea, pero sospechoso** | Contesta en rango y el detector de deriva lo marcó | Un termómetro de referencia |
+| **Dejó de postear** | La última lectura venció | El log del nodo: WiFi, backend o DHT22 |
+| **Nunca posteó** | No hay ninguna lectura con ese id | El id en el firmware y el cableado |
+
+El panel muestra además dos renglones que **no** son el estado de un sensor y se
+confunden con él todo el tiempo: si el lazo está controlando, en pausa o caído, y
+si el histórico se está guardando. La carpa puede quedarse sin control con los
+sensores perfectos, y el histórico puede dejar de escribirse con todo lo demás
+andando.
+
+El detector de anomalías sigue leyendo la base — que es el lugar correcto para
+buscar un hueco en el histórico y el equivocado para buscar un sensor muerto: los
+dos son la misma cantidad de filas. Lo que encuentra se relee contra lo que está
+pasando ahora antes de salir: con el sistema en pausa el hueco es esperado y no
+se informa, y con los sensores posteando el cartel dice que el que no está
+guardando es el lazo, en vez de acusar al sensor.
+
+### El log del nodo, desde el navegador
+
+El ESP32 imprime por el puerto serie exactamente lo que está mal — un DHT22 que
+no contesta, un POST que volvió 400, el WiFi que se cayó — y eso era invisible:
+leerlo significa entrar a la carpa con una notebook y **desenchufar el nodo de su
+fuente para enchufarlo al USB**, lo que lo reinicia y borra justo el estado que
+se quería mirar.
+
+El nodo postea ahora su propio log a `POST /api/node/log` cada 30 s, y se lee en
+**Sistema → Nodos ESP32**, junto con su firmware, su IP, la señal WiFi, el motivo
+del último arranque y los contadores de lecturas y de POST por sensor. Lo que
+manda son **eventos** y un latido cada cinco minutos, no cada lectura: encolar la
+lectura de cada ciclo llenaría el log de números normales y tiraría afuera la
+línea que explica la falla. La Raspberry guarda las últimas 300 líneas en Redis.
+
+Los contadores por sensor son lo que distingue un DHT22 con un cable flojo de uno
+sano: una falla suelta cada tanto es normal en estos sensores, una de cada tres
+es un problema físico.
+
+> El `secrets.h` no cambia: la URL del log se deriva de `API_URL`, así que un
+> nodo ya grabado sólo necesita el sketch nuevo. Subí `FW_VERSION` cuando lo
+> toques — es lo único que permite saber, mirando la web, si el nodo tiene
+> grabado lo último.
 
 ## Modo prueba
 

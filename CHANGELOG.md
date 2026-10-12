@@ -1,5 +1,104 @@
 # Changelog
 
+## ¿Anda el sensor? Una sola respuesta
+
+Tres fuentes contestaban esa pregunta y ninguna sabía de las otras: el badge del
+hero salía de `sensor_status` — la opinión del lazo de control sobre el primario
+—, cada tarjeta de sensor de la antigüedad de su propia lectura en Redis, y el
+cartel de anomalías de la antigüedad de la última fila en SQLite.
+
+Con el sistema en pausa las tres decían cosas distintas **al mismo tiempo**, en
+la misma pantalla: un *"Último dato hace 238 minutos — sensor posiblemente
+desconectado"* en rojo, arriba de dos tarjetas verdes que decían "OK", con los
+dos sensores posteando cada diez segundos sin fallar uno. Y el badge verde del
+hero convivía con un VPD en `--`, porque en pausa el lazo no calcula VPD: el
+badge estaba hablando del sensor y la tarjeta mostraba lo que el lazo no había
+computado, pero nadie que mire la pantalla tiene por qué saber eso.
+
+El veredicto se calcula ahora **una vez**, mirando las tres fuentes juntas, y se
+sirve entero en `GET /api/health`. Dos elementos de la pantalla no pueden
+discrepar si leen del mismo objeto; esa es toda la idea.
+
+**Cuatro estados por sensor, no dos.** "Nunca posteó" y "dejó de postear" se ven
+iguales en una tarjeta que sólo sabe ok/error, y mandan a lugares distintos: la
+primera al id del firmware y al cableado, la segunda a la red y al log del nodo.
+El cuarto es "postea, pero sospechoso" — contesta, a tiempo, en rango, y el
+detector de deriva lo marcó. Ése es el que mejor esconde un badge verde, y es
+justo la falla para la que existe el testigo. Cada tarjeta dice además, en
+castellano, qué le pasa y qué mirar, y **apaga sus propios números cuando son
+viejos**: mostrar 21.6 °C en naranja fuerte cuando la lectura es de hace cuatro
+horas es, en sí mismo, decir algo falso.
+
+**El lazo y el histórico dejaron de ser estados del sensor.** Son dos renglones
+aparte en el panel, porque la carpa puede quedarse sin control con los sensores
+perfectos, y el histórico puede dejar de escribirse con todo lo demás andando.
+
+**Cada cartel habla sólo de lo suyo.** El badge del hero reporta el lazo y el
+sensor que controla, que son los dos de los que depende el número que esa tarjeta
+muestra — un hueco en el histórico es un problema real y no es de esa tarjeta. El
+cartel rojo de arriba de todo aparece sólo por sensores y por el lazo, porque el
+histórico ya lo cuenta el de anomalías y dos cajas rojas pegadas diciendo lo
+mismo es la forma más rápida de que alguien deje de leer las dos.
+
+**Las anomalías se releen contra lo que está pasando ahora.** `detect_anomalies`
+sigue mirando la base, que es el lugar correcto para buscar un hueco en el
+histórico y el equivocado para buscar un sensor muerto: los dos son la misma
+cantidad de filas. Lo que encuentra pasa ahora por el estado real antes de salir
+del backend — no sólo en el banner, así que cualquier consumidor de
+`/api/anomalies` ve lo mismo:
+
+- **Con el sistema en pausa el hueco es esperado y se descarta.** La barra de
+  pausa ya lo dice, en las palabras correctas. Esto importa más desde que la
+  pausa no vence sola: antes el número tenía techo de ocho horas, ahora crece
+  indefinidamente y el cartel rojo se vuelve permanente apenas alguien pausa y
+  se va.
+- **Con los sensores posteando, el que no está guardando es el lazo**, y eso es
+  lo que dice el mensaje. Un sensor vivo no se llama más "desconectado".
+- **Sin filas y sin lecturas se deja intacto**: ahí el sensor sí está
+  desconectado.
+
+El color de la tira se recalcula al filtrar. Dejar `status: "critical"` con todos
+los items críticos descartados mantenía el cartel rojo con nada rojo adentro.
+
+## El log del nodo, sin entrar a la carpa
+
+El ESP32 imprime por el puerto serie exactamente lo que está mal — un DHT22 que
+no contesta, un POST que volvió 400, el WiFi que se cayó, un arranque por
+brownout — y nada de eso se podía ver. Leer ese puerto significa entrar a la
+carpa con una notebook y **desenchufar el nodo de su fuente para enchufarlo al
+USB**, lo que lo reinicia y borra justo el estado que se quería mirar.
+
+Así que el nodo manda su propio log a `POST /api/node/log` cada 30 s, y se lee en
+**Sistema → Nodos ESP32** junto con su firmware, su IP, la señal, el motivo del
+último arranque, las reconexiones de WiFi y los contadores de lecturas y de POST
+**por sensor** — que es lo que distingue un DHT22 con un cable flojo de uno sano:
+una falla suelta cada tanto es normal en estos sensores, una de cada tres no.
+
+Lo que se encola son **eventos**, no cada lectura: fallas, recuperaciones,
+arranques y un latido cada cinco minutos. La lectura de cada ciclo sigue saliendo
+sólo por el serie, porque encolarla llenaría la cola de números normales y
+tiraría afuera justo la línea que explica la falla. Con 300 líneas guardadas, eso
+es alrededor de un día de historia en vez de media hora.
+
+Dos decisiones que se notan cuando algo se rompe de verdad:
+
+- **Las líneas no se descartan hasta que el backend las acepta.** Por eso una
+  caída de WiFi se puede leer después: las líneas que la cuentan sobreviven a la
+  caída que impidió mandarlas. Si la cola se llena se tira la más vieja — con el
+  nodo incomunicado hace rato, lo último que pasó explica mejor el estado actual
+  que lo primero — y se informa cuántas se perdieron.
+- **La hora la pone la Raspberry.** El ESP32 cuenta milisegundos desde que
+  arrancó, que es el único reloj que tiene; convertirlos a hora de pared lo hace
+  el único que sabe las dos cosas, cuánto hace que pasó y cuándo llegó el
+  reporte. Sin eso el log es una columna de números que no se puede alinear con
+  nada más de lo que pasó en la carpa.
+
+El endpoint no tiene autenticación, como el de sensores que tiene al lado, así
+que todo lo que entra viene acotado: el nombre del nodo se valida antes de entrar
+en una clave de Redis, las líneas se truncan y se limitan por reporte, y el log
+guardado tiene tope. `secrets.h` no cambió: la URL se deriva de `API_URL`, así que
+un nodo ya grabado sólo necesita el sketch nuevo.
+
 ## Modo prueba
 
 Trabajo de banco con la carpa vacía: **el lazo deja de decidir y no se guarda

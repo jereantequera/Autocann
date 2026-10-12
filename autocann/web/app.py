@@ -71,6 +71,11 @@ from autocann.hardware.outputs import (
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
+from autocann.web.diagnostics import (
+    health_snapshot,
+    reframe_history_anomalies,
+    register_diagnostics,
+)
 
 #: A desired-output state older than this means the control loop is not
 #: running. Roughly ten of its cycles: long enough that a slow iteration or
@@ -1175,7 +1180,13 @@ def create_app() -> Flask:
             grow_id = request.args.get("grow_id", type=int)
 
             anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
-            return jsonify(anomalies)
+            # El detector mira la base, que es el lugar correcto para buscar un
+            # hueco en el histórico y el equivocado para buscar un sensor
+            # muerto: los dos son la misma cantidad de filas. Con el sistema en
+            # pausa no hay filas a propósito, y eso salía como un "sensor
+            # posiblemente desconectado" en rojo arriba de dos tarjetas verdes.
+            return jsonify(reframe_history_anomalies(
+                anomalies, health_snapshot(redis_client)))
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1325,6 +1336,11 @@ def create_app() -> Flask:
             return jsonify({"error": "No existe ese riego"}), 404
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    # ¿Anda la instalación?, y el log de los nodos. En su propio módulo
+    # porque es lo único acá que no contesta sobre la carpa sino sobre el
+    # equipamiento que la mide.
+    register_diagnostics(app, redis_client)
 
     return app
 

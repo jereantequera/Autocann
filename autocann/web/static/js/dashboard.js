@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { config, state } from './state.js';
-import { escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, humidityDiffLabel } from './util.js';
+import { escapeHtml, fmtNum, formatDuration, humidityDiffLabel } from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
 
@@ -113,178 +113,9 @@ function updateCurrentData(data) {
         `Actualizado: ${new Date().toLocaleString('es-AR', { hour12: false })}`;
 }
 
-// ===============================
-// Indoor sensors
-// ===============================
-// The tent has two DHT22 on one node: a primary that drives control and a
-// witness that drives nothing. The witness exists to catch the primary
-// reporting a plausible wrong number, so it is only worth having if somebody
-// can see it - which is what this section is.
-
-const SENSOR_ROLES = {
-    primary: { icon: '🎯', label: 'Primario · controla' },
-    witness: { icon: '👁️', label: 'Testigo · sólo vigila' },
-    // Shown and nothing else. The sensor above the lamp is worth reading and
-    // useless as a witness: its offset against the primary moves with the
-    // photoperiod, not with the sensors' health.
-    observer: { icon: '📈', label: 'Observación · sólo informa' },
-};
-
-/** Same wording the control loop logs, so the two are recognisably the same fault. */
-const DRIFT_FLAG_LABELS = {
-    stuck: 'valor congelado',
-    railed: 'pegado al tope de escala',
-};
-
-function sensorName(sensor) {
-    return sensor.sensor_id
-        ? `Sensor ${String(sensor.sensor_id).toUpperCase()}`
-        : 'Sensor interior';
-}
-
-function sensorCardHtml(sensor) {
-    const role = SENSOR_ROLES[sensor.role] || { icon: '📍', label: sensor.role || '' };
-
-    // Three states, not two: a sensor that never posted and one whose reading
-    // went stale look identical on a card that only knows ok/error, and they
-    // call for different things - check the wiring vs. check the network.
-    let badge;
-    let stateClass;
-    if (!sensor.has_reading) {
-        badge = '<span class="sensor-badge error">❌ sin datos</span>';
-        stateClass = 'is-missing';
-    } else if (sensor.is_stale) {
-        badge = '<span class="sensor-badge error">⏱️ dato viejo</span>';
-        stateClass = 'is-stale';
-    } else {
-        badge = '<span class="sensor-badge ok">✅ OK</span>';
-        stateClass = 'is-ok';
-    }
-
-    const flags = (sensor.flags || [])
-        .map(flag => `<div class="sensor-flag">⚠️ ${escapeHtml(DRIFT_FLAG_LABELS[flag] || flag)}</div>`)
-        .join('');
-
-    return `
-        <div class="sensor-card ${stateClass}">
-            <div class="sensor-card-header">
-                <div class="sensor-card-name">${escapeHtml(sensorName(sensor))}</div>
-                ${badge}
-            </div>
-            <div class="sensor-card-role">${role.icon} ${escapeHtml(role.label)}</div>
-            <div class="sensor-card-readings">
-                <div>
-                    <div class="metric-label">Temperatura</div>
-                    <div class="metric-value sensor-temp">${fmtNum(sensor.temperature, 1)}<span class="metric-unit">°C</span></div>
-                </div>
-                <div>
-                    <div class="metric-label">Humedad</div>
-                    <div class="metric-value sensor-humidity">${fmtNum(sensor.humidity, 1)}<span class="metric-unit">%</span></div>
-                </div>
-            </div>
-            <div class="sensor-card-footer">
-                <span title="VPD del aire a la temperatura del sensor, no de la hoja">VPD aire ${fmtNum(sensor.vpd, 2)} kPa</span>
-                <span>${escapeHtml(formatAge(sensor.age_seconds))}</span>
-            </div>
-            ${flags}
-        </div>
-    `;
-}
-
-function driftVerdictHtml(drift) {
-    if (!drift) {
-        // sensor_status expires with the rest of the dashboard keys, so no
-        // verdict means the control loop is not publishing one.
-        return '<div class="sensor-flag">⏳ El lazo de control no publicó un veredicto</div>';
-    }
-    if (drift.ok) {
-        return '<div class="drift-verdict ok">✅ Sin deriva</div>';
-    }
-    const messages = (drift.messages || [])
-        .map(message => `<div class="sensor-flag">⚠️ ${escapeHtml(message)}</div>`)
-        .join('');
-    return messages || '<div class="sensor-flag">⚠️ Revisar los sensores</div>';
-}
-
-function comparisonCardHtml(payload) {
-    const delta = payload.delta;
-    const drift = payload.drift || null;
-    const baseline = drift && drift.baseline;
-
-    // The offset between two sensors in the same tent proves nothing on its own
-    // - position and airflow are real. It is the *change* from the learned
-    // baseline that means something, so the baseline is shown next to it.
-    const baselineText = baseline
-        ? `Base: ${fmtSigned(baseline.temperature, 2)} °C / ${fmtSigned(baseline.humidity, 2)} %`
-        : 'Base: aprendiendo (~200 muestras)';
-
-    // Styled as a value only when it is one: "sin par de lecturas frescas" set
-    // in the big lime numerals reads as a measurement at a glance.
-    const deltaText = delta
-        ? `${fmtSigned(delta.temperature, 1)} °C · ${fmtSigned(delta.humidity, 1)} %`
-        : 'sin par de lecturas frescas';
-    const deltaClass = delta ? 'metric-value sensor-delta' : 'sensor-delta-absent';
-
-    return `
-        <div class="sensor-card sensor-card-compare">
-            <div class="sensor-card-header">
-                <div class="sensor-card-name">Diferencia</div>
-            </div>
-            <div class="sensor-card-role">↔️ testigo − primario</div>
-            <div class="${deltaClass}">${escapeHtml(deltaText)}</div>
-            <div class="sensor-card-footer"><span>${escapeHtml(baselineText)}</span></div>
-            ${driftVerdictHtml(drift)}
-        </div>
-    `;
-}
-
-function updateDriftBadge(drift, hasWitness) {
-    const el = document.getElementById('drift-badge');
-    if (!el) return;
-
-    if (!hasWitness) {
-        // Said out loud on purpose: without a witness the silent-drift failure
-        // - a degraded sensor reporting a plausible wrong number - is not being
-        // watched by anything, and a blank badge would read as "all good".
-        el.className = 'sensor-badge';
-        el.textContent = 'sin control de deriva';
-    } else if (!drift) {
-        el.className = 'sensor-badge';
-        el.textContent = '⏳ sin veredicto';
-    } else if (drift.ok) {
-        el.className = 'sensor-badge ok';
-        el.textContent = '✅ sin deriva';
-    } else {
-        el.className = 'sensor-badge error';
-        el.textContent = '⚠️ revisar sensores';
-    }
-}
-
-function updateIndoorSensors(payload) {
-    const grid = document.getElementById('indoor-sensors-grid');
-    if (!grid) return;
-
-    const sensors = payload?.sensors || [];
-    if (!sensors.length) {
-        grid.innerHTML = `
-            <div class="sensor-card is-missing">
-                <div class="sensor-card-header">
-                    <div class="sensor-card-name">Sin sensores configurados</div>
-                </div>
-            </div>
-        `;
-        updateDriftBadge(null, false);
-        return;
-    }
-
-    const cards = sensors.map(sensorCardHtml);
-    // Gated on a witness existing, not on the number of sensors: an observer is
-    // not something to compare against, and a difference card next to one would
-    // claim a cross-check the installation does not have.
-    if (payload.has_witness) cards.push(comparisonCardHtml(payload));
-    grid.innerHTML = cards.join('');
-    updateDriftBadge(payload.drift, payload.has_witness);
-}
+// El estado de los sensores -y el de todo lo demas- vive en health.js, que
+// lo saca de /api/health: un solo veredicto para el badge del hero, las
+// tarjetas y el cartel de arriba, que antes podian decir cosas distintas.
 
 function updatePeriodSummary(data) {
     if (!data || data.sample_count === 0) return;
@@ -356,55 +187,6 @@ function updateDatabaseStats(stats) {
     }
     if (stats.grow_count) {
         document.getElementById('stat-grows').textContent = stats.grow_count;
-    }
-}
-
-function updateSensorStatus(data) {
-    const indoorEl = document.getElementById('sensor-status-indoor');
-    const outdoorEl = document.getElementById('sensor-status-outdoor');
-    const alertEl = document.getElementById('sensor-alert');
-    const alertMsgEl = document.getElementById('sensor-alert-message');
-
-    let errors = [];
-
-    const updateBadge = (el, ok, error) => {
-        if (!el) return;
-        if (ok === true) {
-            el.textContent = '✅ OK';
-            el.className = 'sensor-badge ok';
-        } else if (ok === false) {
-            el.textContent = '❌ Error';
-            el.className = 'sensor-badge error';
-        } else {
-            el.textContent = '⏳';
-            el.className = 'sensor-badge';
-        }
-    };
-
-    // Only the primary: this is the control loop's own view of the sensor it
-    // acts on. Each sensor's individual badge lives in the sensors section,
-    // fed by that sensor's own reading.
-    if (data.indoor?.ok === true) {
-        updateBadge(indoorEl, true);
-    } else if (data.indoor?.ok === false) {
-        updateBadge(indoorEl, false);
-        errors.push('Interior: ' + (data.indoor.error || 'Error'));
-    }
-
-    if (data.outdoor?.ok === true) {
-        updateBadge(outdoorEl, true);
-    } else if (data.outdoor?.ok === false) {
-        updateBadge(outdoorEl, false);
-        errors.push('Exterior: ' + (data.outdoor.error || 'Error'));
-    }
-
-    if (alertEl && alertMsgEl) {
-        if (errors.length > 0) {
-            alertMsgEl.textContent = errors.join(' • ');
-            alertEl.style.display = 'flex';
-        } else {
-            alertEl.style.display = 'none';
-        }
     }
 }
 
@@ -612,14 +394,6 @@ function fetchOutputsStatus() {
     apiGet('/api/output-status').then(data => { if (data) updateOutputsStatus(data); });
 }
 
-function fetchIndoorSensors() {
-    apiGet('/api/sensors/indoor').then(data => { if (data) updateIndoorSensors(data); });
-}
-
-function fetchSensorStatus() {
-    apiGet('/api/sensor-status').then(data => { if (data) updateSensorStatus(data); });
-}
-
 function fetchDatabaseStats() {
     apiGet('/api/database-stats').then(data => { if (data) updateDatabaseStats(data); });
 }
@@ -648,7 +422,7 @@ function fetchHistoricalData(days, interval, hours = null) {
 }
 
 export {
-    updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData, fetchIndoorSensors,
-    fetchOutputsStatus, fetchSensorStatus, fetchDatabaseStats, fetchHistoricalData,
+    updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData,
+    fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData,
     enterTestMode, exitTestMode, toggleTestMode, setTestOutput, renderSystemState,
 };

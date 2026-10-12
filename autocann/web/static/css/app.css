@@ -3054,3 +3054,244 @@ body {
         font-size: 0.78em;
     }
 }
+
+/* ===============================
+   ESTADO: ¿ANDA?
+   ===============================
+   Lo que contesta "¿anda el sensor?" en una sola lectura, de lejos y sin leer
+   números: el borde izquierdo de cada tarjeta, el renglón que dice qué está
+   roto, y el log del nodo en Sistema. */
+
+/* Título, badge y acción en una línea: el badge pegado al título y la acción
+   al borde, en vez del space-between que dejaba el badge flotando al medio. */
+.section-header-row {
+    gap: 12px;
+}
+
+.section-header-row .section-title {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Un badge ámbar tenía color pero no fondo, y al lado de uno verde o uno rojo
+   -que sí lo tienen- se leía como apagado en vez de como advertencia. */
+.sensor-badge.stale {
+    background: rgba(245, 158, 11, 0.18);
+    color: var(--vpd-adjusting);
+}
+
+/* El lazo y el histórico. No son el estado de un sensor y se confunden con él
+   todo el tiempo: la carpa puede estar sin control con los sensores perfectos. */
+.health-rows {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.health-row {
+    display: grid;
+    grid-template-columns: 110px auto 1fr;
+    gap: 10px;
+    align-items: baseline;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--border-accent);
+    background: var(--bg-secondary);
+    font-size: 0.84em;
+}
+
+.health-row.is-warn { border-left-color: var(--vpd-adjusting); }
+.health-row.is-error { border-left-color: var(--vpd-danger); }
+
+.health-row-name {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.86em;
+}
+
+.health-row-state { font-weight: 600; white-space: nowrap; }
+
+.health-row-detail {
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+/* Tarjetas de sensor: el estado, por qué, y qué mirar. */
+.sensor-card.is-suspect { border-left-color: var(--vpd-adjusting); }
+
+/* Una lectura vieja se muestra apagada. Mostrar 21.6 °C en naranja fuerte
+   cuando es de hace cuatro horas es, en sí mismo, decir algo falso. */
+.sensor-card-readings.is-cold {
+    opacity: 0.45;
+    filter: grayscale(0.7);
+}
+
+.sensor-why {
+    margin-top: 12px;
+    color: var(--text-secondary);
+    font-size: 0.82em;
+    line-height: 1.45;
+}
+
+.sensor-action {
+    margin-top: 8px;
+    color: var(--accent-lime);
+    font-size: 0.82em;
+    line-height: 1.45;
+}
+
+/* ===============================
+   NODOS ESP32 Y SU LOG
+   =============================== */
+
+.node-card.is-error { border-left: 3px solid var(--vpd-danger); }
+.node-card.is-warn { border-left: 3px solid var(--vpd-adjusting); }
+.node-card.is-ok { border-left: 3px solid var(--accent-green); }
+
+.node-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.node-card-name {
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.node-card-rows {
+    margin-top: 12px;
+    display: grid;
+    gap: 4px;
+}
+
+.node-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.8em;
+}
+
+.node-row-name { color: var(--text-muted); }
+
+.node-row-value {
+    font-family: 'JetBrains Mono', monospace;
+    text-align: right;
+    min-width: 0;
+}
+
+.node-sensors {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+    display: grid;
+    gap: 6px;
+}
+
+/* Los contadores por sensor son lo que distingue un DHT22 con un cable flojo
+   de uno sano: una falla suelta cada tanto es normal, una de cada tres no. */
+.node-sensor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 0.78em;
+    color: var(--text-secondary);
+}
+
+.node-sensor.is-bad { color: var(--vpd-adjusting); }
+
+.node-sensor-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.node-sensor-pin { color: var(--text-muted); }
+
+.node-sensor-posts { color: var(--vpd-danger); }
+
+.node-card-foot {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.76em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.node-log-picker {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8em;
+}
+
+.node-log-picker[hidden] { display: none; }
+
+.node-log-follow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+/* La consola. Alto fijo y scroll propio: el log crece sin límite y no puede
+   empujar al resto de la vista fuera de la pantalla. */
+.node-log {
+    height: 320px;
+    overflow-y: auto;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78em;
+    line-height: 1.6;
+}
+
+.node-log-empty {
+    color: var(--text-muted);
+    font-family: 'Outfit', sans-serif;
+}
+
+.node-log-line {
+    display: grid;
+    grid-template-columns: 64px 14px 1fr;
+    gap: 8px;
+    color: var(--text-secondary);
+}
+
+.node-log-line.is-warn { color: var(--vpd-adjusting); }
+.node-log-line.is-error { color: var(--vpd-danger); }
+
+.node-log-time { color: var(--text-muted); }
+
+.node-log-text { word-break: break-word; }
+
+@media (max-width: 768px) {
+    .health-row {
+        grid-template-columns: 1fr;
+        gap: 2px;
+    }
+
+    .node-log {
+        height: 240px;
+    }
+
+    .node-log-line {
+        /* La hora entera: "11:02:14" no entra en menos, y cortada a la mitad
+           deja de servir para alinear el log con lo que pasó en la carpa. */
+        grid-template-columns: 62px 12px 1fr;
+        font-size: 0.95em;
+    }
+}

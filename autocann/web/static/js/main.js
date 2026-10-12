@@ -3,10 +3,10 @@ import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } fro
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
-    exitTestMode, fetchCurrentData, fetchHistoricalData,
-    fetchIndoorSensors, fetchOutputsStatus, fetchPeriodSummary, fetchSensorStatus,
-    setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
+    exitTestMode, fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
+    fetchPeriodSummary, setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
 } from './dashboard.js';
+import { fetchHealth } from './health.js';
 import {
     addPlanProduct, fetchFeedPlan, fetchFeeding, resetFormToPlan, saveIrrigation,
     savePlan, togglePlanEditor, wireFeeding,
@@ -18,6 +18,7 @@ import {
 import { closeModal, closeTopModal } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { applyConfig, state } from './state.js';
+import { fetchNodeLog, fetchNodes, wireNodes } from './nodes.js';
 import { wireSystem } from './system.js';
 import { currentView, initViews } from './views.js';
 
@@ -39,10 +40,10 @@ import { currentView, initViews } from './views.js';
 const POLLERS = [
     { fn: fetchCurrentData, every: 3000, views: ['panel'] },
     { fn: fetchOutputsStatus, every: 3000, views: ['panel'] },
-    // The node posts each sensor every 10 s, so polling faster buys nothing
-    // but load on the Raspberry.
-    { fn: fetchIndoorSensors, every: 10000, views: ['panel'] },
-    { fn: fetchSensorStatus, every: 30000, views: ['panel'] },
+    // One call for the whole verdict - sensores, lazo e histórico - en vez de
+    // dos que podían contestar cosas distintas. The node posts each sensor
+    // every 10 s, so polling faster buys nothing but load on the Raspberry.
+    { fn: fetchHealth, every: 10000, views: ['panel'] },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000, views: ['stats'] },
@@ -53,6 +54,11 @@ const POLLERS = [
     { fn: fetchFeeding, every: 60000, views: ['panel', 'riego'] },
     { fn: fetchActiveGrow, every: 60000 },
     { fn: fetchAnomalies, every: 60000 },
+    // El log del nodo se mira mientras pasa algo: alguien abre Sistema
+    // justamente cuando está tocando el nodo, y un log que no avanza hasta que
+    // recargues la página no sirve para eso. El nodo reporta cada 30 s.
+    { fn: fetchNodeLog, every: 15000, views: ['sistema'] },
+    { fn: fetchNodes, every: 30000, views: ['sistema'] },
 ];
 
 let pollTimers = [];
@@ -214,6 +220,7 @@ async function start() {
     wireCalendar();
     wirePanel();
     wireSystem();
+    wireNodes();
     updateSummaryPeriodLabel();
     // The chart has to be in hand before the feeding panel can render a row
     // per product, so it is fetched once here rather than on the poll.

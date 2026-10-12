@@ -190,7 +190,7 @@ def test_the_humidity_card_cannot_render_a_difference_without_readings():
 def test_the_indoor_sensors_section_is_reachable_from_the_page():
     assert "partials/sensors.html" in _included(TEMPLATES_DIR / "index.html")
     assert 'id="indoor-sensors-grid"' in (TEMPLATES_DIR / "partials" / "sensors.html").read_text()
-    assert "indoor-sensors-grid" in (JS_DIR / "dashboard.js").read_text()
+    assert "indoor-sensors-grid" in (JS_DIR / "health.js").read_text()
 
 
 def test_every_nav_tab_points_at_a_view_that_exists():
@@ -282,15 +282,29 @@ def test_the_second_sensor_is_rendered_from_its_own_reading():
     Its badge used to be driven by `data.indoor` - the control loop's view of
     the *primary* - through an element that did not exist in any template.
     """
-    dashboard = (JS_DIR / "dashboard.js").read_text()
-    assert "sensor-status-indoor-2" not in dashboard
-    assert "/api/sensors/indoor" in dashboard
+    health = (JS_DIR / "health.js").read_text()
+    assert "sensor-status-indoor-2" not in health
+    assert "/api/health" in health
 
 
-def _js_object(name: str) -> str:
+def test_only_one_module_decides_whether_a_sensor_is_working():
+    """
+    El badge del hero, las tarjetas y el cartel de arriba salían de tres fuentes
+    distintas, y con el sistema en pausa decían tres cosas a la vez: "sensor
+    posiblemente desconectado" en rojo arriba de dos "OK" en verde. Ahora los
+    tres los pinta health.js con una sola respuesta; dashboard.js no puede
+    volver a tocar esos elementos sin que esto se entere.
+    """
+    dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
+    for element in ("sensor-status-indoor", "sensor-status-outdoor",
+                    "indoor-sensors-grid", "sensor-alert"):
+        assert element not in dashboard, element
+
+
+def _js_object(name: str, module: str = "health.js") -> str:
     match = re.search(
-        rf"const {name} = \{{(.*?)\n\}};", (JS_DIR / "dashboard.js").read_text(), re.S)
-    assert match, f"{name} desapareció de dashboard.js"
+        rf"const {name} = \{{(.*?)\n\}};", (JS_DIR / module).read_text(), re.S)
+    assert match, f"{name} desapareció de {module}"
     return match.group(1)
 
 
