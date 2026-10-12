@@ -172,6 +172,20 @@ def test_a_live_sensor_is_never_called_disconnected():
     assert out["anomalies"][0]["about"] == "history"
 
 
+def test_a_gap_that_already_closed_is_not_answered_with_the_state_of_right_now():
+    """
+    Un `data_gap` es un hueco *entre* dos filas guardadas: ya pasó, y decir
+    "pero los sensores están posteando" contesta con el estado de ahora una
+    pregunta sobre anoche. El texto original no acusa a nadie y se deja.
+    """
+    out = reframe_history_anomalies(
+        REPORT, {"loop": {"state": "running"}, "sensors": [POSTING]})
+
+    gap = out["warnings"][0]
+    assert gap["message"] == "Sin datos por 869 minutos"
+    assert gap["about"] == "history"
+
+
 def test_a_real_outage_is_left_alone():
     """Sin filas y sin lecturas, el sensor sí está desconectado: no se toca."""
     out = reframe_history_anomalies(

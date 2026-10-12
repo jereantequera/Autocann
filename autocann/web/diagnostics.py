@@ -480,9 +480,15 @@ def node_report(status: Optional[Dict], now: int, *, name: str) -> Dict:
 # ---------------------------------------------------------------------------
 
 #: The anomaly types `detect_anomalies` raises by looking at the database alone.
-#: Every one of them is a statement about stored rows, and every one of them is
-#: phrased as a statement about a sensor.
+#: Each one is a statement about stored rows.
 HISTORY_ANOMALY_TYPES = ("no_data", "stale_data", "data_gap")
+
+#: Of those, the ones that speak in the present tense and name the sensor as the
+#: suspect. A `data_gap` is a hole *between* two stored rows, so it is already
+#: in the past and says only "sin datos por N minutos", which stays true and
+#: blames nobody; adding "pero los sensores están posteando" to it would answer
+#: a question about last night with the state of right now.
+ONGOING_ANOMALY_TYPES = ("no_data", "stale_data")
 
 
 def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
@@ -517,10 +523,11 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
         issue = dict(issue)
         issue["severity"] = "warning"
         issue["about"] = "history"
-        issue["message"] = (
-            f"{issue.get('message', '')} — pero los sensores están posteando, "
-            "así que el que no está guardando es el lazo de control."
-        ).strip()
+        if issue["type"] in ONGOING_ANOMALY_TYPES:
+            issue["message"] = (
+                f"{issue.get('message', '')} — pero los sensores están posteando, "
+                "así que el que no está guardando es el lazo de control."
+            ).strip()
         return issue
 
     rewritten = {
