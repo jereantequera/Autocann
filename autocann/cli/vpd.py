@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import signal
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime
 from time import monotonic, sleep
@@ -114,6 +115,24 @@ DHT_RETRY_DELAY_SECONDS = 2.0
 #: DHT22 GPIO pins (BCM), used only in local-sensor mode.
 DHT22_INDOOR_PIN = 4
 DHT22_OUTDOOR_PIN = 13
+
+#: How often the outdoor sensor is read, on its own thread.
+#:
+#: The outdoor reading feeds a chart and nothing else — no decision in this
+#: program depends on it — so it is read at the cadence a chart needs rather
+#: than at the cadence of the control loop. It used to be read inline, which
+#: meant a dead DHT22 outside stalled the critical loop for about two seconds
+#: of retries and sleeps on every single cycle, for a number nobody decides
+#: anything with.
+OUTDOOR_READ_INTERVAL_SECONDS = 60.0
+
+#: A cached outdoor reading older than this is not served at all.
+#:
+#: The cache exists so the loop never blocks, not so the dashboard can be told
+#: something old as if it were current. Five of the reader's own cycles: long
+#: enough that a few failed reads in a row do not blink the number out, short
+#: enough that a sensor that died stops having an opinion about the weather.
+OUTDOOR_MAX_AGE_SECONDS = 5 * OUTDOOR_READ_INTERVAL_SECONDS
 
 _redis_cfg = redis_config_from_env()
 redis_client = redis.Redis(host=_redis_cfg.host, port=_redis_cfg.port, db=_redis_cfg.db)
@@ -470,6 +489,21 @@ def read_manual_overrides() -> Dict[str, bool]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class OutdoorReading:
+    """
+    One outdoor sample and the monotonic instant it was taken at.
+
+    The timestamp travels with the values on purpose: a cached reading that
+    cannot say how old it is would be served forever, and a chart drawing
+    yesterday's weather as today's is the failure this whole cache has to avoid.
+    """
+
+    temperature: float
+    humidity: float
+    at: float
+
+
 class Sensors:
     """Indoor (ESP32 via Redis, or local DHT22) and outdoor (local DHT22) readings."""
 
@@ -500,6 +534,14 @@ class Sensors:
         #: never trip.
         self.last_reading_at: Optional[float] = None
         self._last_warned: Dict[str, float] = {}
+        #: Last outdoor sample, written by the reader thread and read by the
+        #: control loop, so it is guarded. Starts empty: no reading is the
+        #: honest state until one arrives.
+        self._outdoor: Optional[OutdoorReading] = None
+        self._outdoor_error: Optional[str] = "Sin lectura exterior todavía"
+        self._outdoor_lock = threading.Lock()
+        self._outdoor_stop = threading.Event()
+        self._outdoor_thread: Optional[threading.Thread] = None
 
     def _warn_throttled(self, key: str, message: str) -> None:
         """Print a recurring warning at most once per WARN_INTERVAL_SECONDS."""
@@ -535,31 +577,50 @@ class Sensors:
                 print(f"🎚️  Calibración {name}: {cal.temperature_offset:+.1f}°C, "
                       f"{cal.humidity_offset:+.1f}%")
 
-    def init_dht22(self) -> None:
-        """(Re)initialise the local DHT22 sensors that are actually needed."""
+    def _init_dht22(self, attr: str, gpio_num: int, label: str) -> None:
+        """(Re)create one local DHT22 object."""
         try:
             import adafruit_dht
         except Exception as e:
-            print(f"⚠️ adafruit_dht unavailable, skipping local DHT22 sensors: {e}")
+            self._warn_throttled(
+                f"dht_import_{label}",
+                f"⚠️ adafruit_dht unavailable, skipping local DHT22 {label}: {e}")
             return
 
-        wanted = [("_dht_out", DHT22_OUTDOOR_PIN, "outdoor")]
-        if not self.use_esp32_indoor:
-            wanted.append(("_dht_in", DHT22_INDOOR_PIN, "indoor"))
-
-        for attr, gpio_num, label in wanted:
-            existing = getattr(self, attr)
-            if existing is not None:
-                try:
-                    existing.exit()
-                except Exception:
-                    pass
+        existing = getattr(self, attr)
+        if existing is not None:
             try:
-                setattr(self, attr, adafruit_dht.DHT22(self._board_pin(gpio_num), use_pulseio=False))
-                print(f"✅ DHT22 {label} initialised on GPIO {gpio_num}")
-            except Exception as e:
-                setattr(self, attr, None)
-                print(f"❌ DHT22 {label} init failed on GPIO {gpio_num}: {e}")
+                existing.exit()
+            except Exception:
+                pass
+        try:
+            setattr(self, attr, adafruit_dht.DHT22(self._board_pin(gpio_num), use_pulseio=False))
+            print(f"✅ DHT22 {label} initialised on GPIO {gpio_num}")
+        except Exception as e:
+            setattr(self, attr, None)
+            print(f"❌ DHT22 {label} init failed on GPIO {gpio_num}: {e}")
+
+    def init_indoor_dht22(self) -> None:
+        """
+        (Re)initialise the local indoor DHT22, when there is one.
+
+        Split from the outdoor sensor deliberately. The control loop calls this
+        from its failsafe branch, while the outdoor object belongs to the reader
+        thread; re-creating both from here would have two threads closing and
+        replacing the same device under each other.
+        """
+        if self.use_esp32_indoor:
+            return
+        self._init_dht22("_dht_in", DHT22_INDOOR_PIN, "indoor")
+
+    def init_outdoor_dht22(self) -> None:
+        """
+        (Re)initialise the outdoor DHT22.
+
+        Only the reader thread calls this, which is what makes `_dht_out` safe
+        to touch without a lock.
+        """
+        self._init_dht22("_dht_out", DHT22_OUTDOOR_PIN, "outdoor")
 
     def _read_dht22(self, sensor, name: str) -> Tuple[Optional[float], Optional[float]]:
         if sensor is None:
@@ -579,6 +640,92 @@ class Sensors:
                 sleep(DHT_RETRY_DELAY_SECONDS)
 
         return None, None
+
+    # -- outdoor, off the critical path ------------------------------------
+
+    def refresh_outdoor(self) -> Optional[OutdoorReading]:
+        """
+        Take one outdoor reading, blocking, and cache it.
+
+        Called from the reader thread. Exposed because it is also the whole of
+        the behaviour worth testing: a test calls it once and then reads the
+        cache, with no thread involved.
+
+        A failed read does **not** clear the cache. The last reading stays
+        valid for as long as it is fresh enough — a DHT22 that misses two
+        checksums in a row has not changed the weather — and ages out on its
+        own after that, which is what keeps a stale value from being served as
+        a current one.
+        """
+        temperature, humidity = self._read_dht22(self._dht_out, "outdoor")
+        with self._outdoor_lock:
+            if temperature is None or humidity is None:
+                self._outdoor_error = (
+                    "DHT22 exterior sin inicializar" if self._dht_out is None
+                    else "El DHT22 exterior no contestó")
+                return self._outdoor
+            self._outdoor = OutdoorReading(
+                float(temperature), float(humidity), monotonic())
+            self._outdoor_error = None
+            return self._outdoor
+
+    def outdoor_reading(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        The cached outdoor reading, or `(None, None)` when there is no fresh one.
+
+        Never blocks and never raises: this is what the control loop calls.
+        """
+        with self._outdoor_lock:
+            cached = self._outdoor
+        if cached is None or monotonic() - cached.at > OUTDOOR_MAX_AGE_SECONDS:
+            return None, None
+        return cached.temperature, cached.humidity
+
+    def outdoor_status(self) -> Dict[str, Any]:
+        """`{ok, error}` for the outdoor sensor, judged on its actual reading."""
+        temperature, _ = self.outdoor_reading()
+        if temperature is not None:
+            return {"ok": True, "error": None}
+        with self._outdoor_lock:
+            cached, error = self._outdoor, self._outdoor_error
+        if cached is not None and error is None:
+            # It read fine at some point and then went quiet long enough for the
+            # cache to expire, which no single failed read reports.
+            error = "La última lectura exterior quedó vieja"
+        return {"ok": False, "error": error or "Sin lectura exterior"}
+
+    def _outdoor_loop(self) -> None:
+        """Read the outdoor sensor forever, slowly, on its own thread."""
+        while not self._outdoor_stop.is_set():
+            try:
+                if self._dht_out is None:
+                    self.init_outdoor_dht22()
+                self.refresh_outdoor()
+            except Exception as e:
+                # This thread dying would freeze the outdoor reading at
+                # whatever it last was until the cache expired, and then show
+                # nothing, with no explanation anywhere.
+                self._warn_throttled("outdoor_thread", f"⚠️ Lector exterior: {e}")
+            self._outdoor_stop.wait(OUTDOOR_READ_INTERVAL_SECONDS)
+
+    def start_outdoor_reader(self) -> None:
+        """Start the background reader, unless it is already running."""
+        if self._outdoor_thread is not None and self._outdoor_thread.is_alive():
+            return
+        self._outdoor_stop.clear()
+        # A daemon thread: the loop's shutdown path must not wait out a DHT22
+        # read to de-energise the relays.
+        self._outdoor_thread = threading.Thread(
+            target=self._outdoor_loop, name="outdoor-dht22", daemon=True)
+        self._outdoor_thread.start()
+        print(f"🌤️  Sensor exterior: leído aparte cada "
+              f"{OUTDOOR_READ_INTERVAL_SECONDS:.0f}s, nunca en el lazo")
+
+    def stop_outdoor_reader(self) -> None:
+        self._outdoor_stop.set()
+        thread = self._outdoor_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
     # -- ESP32 over Redis --------------------------------------------------
 
@@ -689,7 +836,7 @@ class Sensors:
 
         if temperature is None or humidity is None:
             if self._dht_in is None and not self.use_esp32_indoor:
-                self.init_dht22()
+                self.init_indoor_dht22()
             temperature, humidity = self._read_dht22(self._dht_in, "indoor")
             if temperature is not None:
                 self.indoor_source = "dht22_local"
@@ -718,7 +865,11 @@ class Sensors:
             "indoor_source": self.indoor_source,
         }
 
-        outside_temp, outside_humidity = self._read_dht22(self._dht_out, "outdoor")
+        # Read from the cache the background thread fills, never from the
+        # sensor: the DHT22 outside retries with sleeps between attempts, and
+        # paying ~2 s of that per cycle left the relays unsupervised for a
+        # number that feeds a chart and no decision at all.
+        outside_temp, outside_humidity = self.outdoor_reading()
         if outside_temp is not None and outside_humidity is not None:
             data["outside_temperature_raw"] = round(outside_temp, 2)
             data["outside_humidity_raw"] = round(outside_humidity, 2)
@@ -745,10 +896,10 @@ class Sensors:
     def publish_status(self, indoor_ok: bool, indoor_error: Optional[str] = None) -> None:
         status = {
             "indoor": {"ok": indoor_ok, "error": indoor_error, "source": self.indoor_source},
-            "outdoor": {
-                "ok": self._dht_out is not None,
-                "error": None if self._dht_out is not None else "DHT22 outdoor not initialised",
-            },
+            # Judged on whether there is a fresh reading, not on whether the
+            # sensor object exists. An initialised DHT22 that answers nothing
+            # used to report "ok" while the charts drew an empty outdoor curve.
+            "outdoor": self.outdoor_status(),
         }
         if self.drift_report is not None:
             # A drifting sensor still reads "ok": it answers, in range, on time.
@@ -771,6 +922,9 @@ class Sensors:
         _set_redis("sensor_status", json.dumps(status))
 
     def close(self) -> None:
+        # The reader thread owns `_dht_out`, so it is stopped before the device
+        # is released rather than after.
+        self.stop_outdoor_reader()
         for sensor in (self._dht_in, self._dht_out):
             try:
                 if sensor is not None:
@@ -878,7 +1032,10 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     relays.setup()
     sensors.load_calibration()
     sensors.load_drift_baseline()
-    sensors.init_dht22()
+    sensors.init_indoor_dht22()
+    # The outdoor sensor initialises itself inside its own thread, so a DHT22
+    # that takes seconds to come up does not delay the first control decision.
+    sensors.start_outdoor_reader()
 
     print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
           else "🔌 Indoor sensor: local DHT22")
@@ -1010,11 +1167,13 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     if decision.changed:
                         print(f"⚠️ No valid sensor data ({decision.reason}) — all outputs off")
                     # Re-creating the sensor objects every 3s achieves nothing and
-                    # floods the log, so back off between attempts.
+                    # floods the log, so back off between attempts. Only the
+                    # indoor one: the outdoor sensor re-initialises itself on
+                    # its own thread, and it is not why the loop is in failsafe.
                     if loop_started - last_sensor_reinit >= SENSOR_REINIT_INTERVAL_SECONDS:
                         last_sensor_reinit = loop_started
                         print("🔄 Reinitialising sensors...")
-                        sensors.init_dht22()
+                        sensors.init_indoor_dht22()
                     sleep(LOOP_INTERVAL_SECONDS)
                     continue
 

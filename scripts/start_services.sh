@@ -69,6 +69,25 @@ export AUTOCANN_INDOOR_OBSERVERS="${AUTOCANN_INDOOR_OBSERVERS:-b}"
 export AUTOCANN_RELAY_MODE="${AUTOCANN_RELAY_MODE:-remote}"
 export AUTOCANN_RELAY_NODE_NAME="${AUTOCANN_RELAY_NODE_NAME:-ESP32 relés (192.168.100.77)}"
 
+#   AUTOCANN_PIN: el PIN del tablero. VACÍO POR DEFECTO, a propósito: sin él
+#   nada pide nada y todo se comporta igual que siempre. Un deploy que se olvida
+#   la variable no puede dejar afuera a nadie de su propio tablero — no ver la
+#   carpa es peor falla que ser legible desde la LAN en la que ya estás.
+#
+#   Con un valor, el tablero pide el PIN una vez por navegador y la sesión dura
+#   30 días (cookie firmada). Se usa desde el celular parado en la carpa: pedirlo
+#   todos los días es cómo termina escrito al lado de la puerta.
+#
+#   ⚠️  Lo que el PIN NO cubre, y no puede cubrir, son los dos nodos ESP32:
+#   `GET /api/outputs/desired`, `POST /api/sensor/indoor` y `POST /api/node/log`.
+#   El firmware se graba a mano, con un cable USB, parado en la carpa: no puede
+#   mandar una cookie porque el servidor empezó a pedirla. Y el primero es el
+#   peor: el nodo de relés lo pide cada 2 s y **se desenergiza solo a los 60 s
+#   sin un poll exitoso**. Un 401 ahí abre todos los relés de la carpa un minuto
+#   después. Están exentos en autocann/web/auth.py, con el motivo escrito al
+#   lado. No los "arregles".
+export AUTOCANN_PIN="${AUTOCANN_PIN:-}"
+
 if pgrep -f "$BACKEND_PATTERN" > /dev/null 2>&1; then
     echo "ℹ️  Backend ya está corriendo"
 else

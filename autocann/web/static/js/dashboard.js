@@ -1,8 +1,10 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
+import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config, state } from './state.js';
 import {
     escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
+    withGrow,
 } from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
@@ -180,8 +182,8 @@ function fetchPeriodSummary() {
     } else {
         url = `/api/period-summary?days=${state.period}`;
     }
-    
-    apiGet(url, { key: 'summary' })
+
+    apiGet(withGrow(url, state.growId), { key: 'summary' })
         .then(data => { if (data) updatePeriodSummary(data); })
         .catch(error => console.error('Error fetching period summary:', error));
 }
@@ -395,27 +397,32 @@ function updateOutputsStatus(payload) {
 
 async function enterTestMode() {
     // Said plainly because it is now true: nothing ends this but a person.
-    if (!confirm(
-        'El lazo deja de controlar la carpa: los relés van a quedar donde vos los pongas '
-        + 'y no se va a guardar nada en el histórico.\n\n'
-        + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
-        + 'reinicie la Raspberry.'
-    )) return;
+    const confirmed = await confirmDialog({
+        title: 'Pausar el control de la carpa',
+        message: 'El lazo deja de controlar: los relés van a quedar donde vos los '
+            + 'pongas y no se va a guardar nada en el histórico.\n\n'
+            + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
+            + 'reinicie la Raspberry.',
+        confirmLabel: 'Pausar el sistema',
+    });
+    if (!confirmed) return;
 
     const result = await apiPost('/api/test-mode', { enabled: true });
     if (!result.ok) {
-        alert(`❌ No se pudo pausar: ${result.error}`);
+        await alertDialog({ title: 'No se pudo pausar', message: result.error });
         return;
     }
+    toast('Sistema en pausa', { kind: 'error' });
     fetchOutputsStatus();
 }
 
 async function exitTestMode() {
     const result = await apiPost('/api/test-mode', { enabled: false });
     if (!result.ok) {
-        alert(`❌ No se pudo reanudar: ${result.error}`);
+        await alertDialog({ title: 'No se pudo reanudar', message: result.error });
         return;
     }
+    toast('Control automático de vuelta');
     fetchOutputsStatus();
 }
 
@@ -434,7 +441,7 @@ async function setTestOutput(trigger) {
         state: trigger.dataset.state === 'true',
     });
     if (!result.ok) {
-        alert(`❌ ${result.error}`);
+        await alertDialog({ title: 'No se pudo mover el relé', message: result.error });
     }
     // Refresh either way: on failure the buttons must go back to showing what
     // is actually requested, not what was clicked.
@@ -457,7 +464,7 @@ function fetchDatabaseStats() {
 
 function fetchHistoricalData(days, interval, hours = null) {
     let url;
-    
+
     if (hours !== null) {
         const now = Math.floor(Date.now() / 1000);
         const start = now - (hours * 3600);
@@ -465,21 +472,48 @@ function fetchHistoricalData(days, interval, hours = null) {
     } else {
         url = `/api/history/aggregated?days=${days}&interval=${interval}`;
     }
-    
+
     // Keyed by endpoint, not by URL, so switching time range cancels
     // nothing but still never stacks two history requests.
-    apiGet(url, { key: 'history' }).then(data => {
+    apiGet(withGrow(url, state.growId), { key: 'history' }).then(data => {
         if (!data) return;
         updateHistoricalCharts(hours !== null
             ? { data: data.data || [], count: data.count || 0, aggregated: false }
             : data);
+        renderGrowScopeNote(data);
         // The x-axis just changed, so the markers need repositioning.
-        if (state.timeline) renderStageMarkers(state.timeline);
+        // Only for the active grow: the markers come from its stage timeline,
+        // and drawing them over another grow's curve would date its stages
+        // from somebody else's calendar.
+        if (state.timeline && state.growId === null) renderStageMarkers(state.timeline);
     });
+}
+
+/**
+ * Say which grow the charts are about, when it is not the obvious one.
+ *
+ * The scope is resolved on the server — leaving the parameter out means "the
+ * active grow" — so a chart that does not ask has no way to label itself, and
+ * one whose meaning changes the moment somebody activates another grow,
+ * silently, is worse than one with no label.
+ */
+function renderGrowScopeNote(payload) {
+    const note = document.getElementById('grow-scope-note');
+    if (!note) return;
+
+    const scope = payload?.grow_scope;
+    if (scope === 'all') {
+        note.textContent = 'Todos los cultivos. Las curvas se cortan en cada cambio de cultivo.';
+    } else if (scope === 'none') {
+        note.textContent = 'No hay ningún cultivo activo: nada que mostrar hasta que arranques uno.';
+    } else {
+        note.textContent = '';
+    }
+    note.hidden = !note.textContent;
 }
 
 export {
     updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData,
-    fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData,
+    fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData, renderGrowScopeNote,
     enterTestMode, exitTestMode, toggleTestMode, setTestOutput, renderSystemState,
 };

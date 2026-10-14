@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autocann — PIN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
+</head>
+<!--
+     The second page this app has. It is its own document rather than a modal
+     over the dashboard: the dashboard polls a dozen endpoints the moment it
+     loads, and every one of them would answer 401 behind the dialog.
+-->
+<body class="login-body">
+    <main class="login-card">
+        <div class="login-logo">
+            <div class="logo-icon">🌿</div>
+            <h1>Auto<span>cann</span></h1>
+        </div>
+
+        <p class="login-intro">
+            Esta pantalla conmuta relés. Poné el PIN para entrar.
+        </p>
+
+        <form class="login-form" id="login-form">
+            <label class="form-label" for="login-pin">PIN</label>
+            <!--
+                 inputmode numeric, not type="number": a number input brings
+                 spinners, drops leading zeros and lets the wheel change the
+                 value. This only has to bring up the phone's numeric keypad.
+            -->
+            <input class="form-control" id="login-pin" name="pin" type="password"
+                   inputmode="numeric" autocomplete="current-password"
+                   autofocus required>
+            <div class="login-error" id="login-error" role="alert" hidden></div>
+            <button class="btn btn-primary login-submit" type="submit" id="login-submit">
+                Entrar
+            </button>
+        </form>
+
+        <p class="login-note">
+            Queda abierto en este navegador por 30 días.
+        </p>
+    </main>
+
+    <script type="module" src="{{ url_for('static', filename='js/login.js') }}?v={{ asset_version }}"></script>
+</body>
+</html>

@@ -8,6 +8,7 @@ not need one to run the suite either.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -156,17 +157,36 @@ def _page_html() -> str:
     return "\n".join(parts)
 
 
-def test_every_template_is_reachable_from_the_page():
+#: Templates that are pages in their own right rather than partials. The PIN
+#: screen is the second one: it cannot be a modal over the dashboard, because
+#: the dashboard fires a dozen requests the moment it loads and every one of
+#: them would answer 401 behind the dialog.
+ENTRY_POINTS = ("index.html", "login.html")
+
+
+def test_every_template_is_reachable_from_a_page():
     """
     A partial nobody includes renders nothing and fails silently. The views sit
     between index.html and the partials now, so reachability has to be followed
     through the chain rather than looked for in one file.
     """
-    reachable = _included(TEMPLATES_DIR / "index.html") | {"index.html"}
+    reachable = set(ENTRY_POINTS)
+    for entry in ENTRY_POINTS:
+        reachable |= _included(TEMPLATES_DIR / entry)
     on_disk = {
         str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
     }
     assert on_disk - reachable == set()
+
+
+def test_every_entry_point_is_actually_served():
+    """A page template nothing renders is a 500 waiting for the right moment."""
+    import autocann.web.app as web
+
+    app_py = (Path(web.__file__)).read_text()
+    auth_py = (Path(web.__file__).parent / "auth.py").read_text()
+    for entry in ENTRY_POINTS:
+        assert entry in app_py or entry in auth_py, entry
 
 def test_the_humidity_card_cannot_render_a_difference_without_readings():
     """
@@ -312,6 +332,149 @@ def test_the_quiet_hours_editor_never_offers_to_switch_a_relay():
     quiet_js = _strip_js_comments((JS_DIR / "quiet.js").read_text())
     assert "/api/output-control" not in quiet_js
     assert "/api/test-mode/outputs" not in quiet_js
+
+
+def test_the_statistics_view_lets_you_choose_which_grow():
+    """
+    Filtering by time alone drew ten months of an empty tent and a real crop as
+    one curve as soon as the window reached past the changeover. The default is
+    the active grow; "todos los cultivos" has to be reachable, and asked for.
+    """
+    page = _page_html()
+    assert 'id="grow-filter"' in page
+    assert 'id="grow-scope-note"' in page
+
+    grows_js = (JS_DIR / "grows.js").read_text()
+    assert "grow-filter" in grows_js
+    assert "Todos los cultivos" in grows_js
+
+
+def test_every_history_request_carries_the_grow_scope():
+    """
+    One of these left out is one chart answering a different question from the
+    others on the same screen.
+    """
+    for module, endpoints in (
+        ("dashboard.js", ("/api/sensor-history", "/api/history/aggregated",
+                          "/api/period-summary")),
+        ("analytics.js", ("/api/vpd-score",)),
+    ):
+        code = _strip_js_comments((JS_DIR / module).read_text())
+        assert "withGrow" in code, module
+        for endpoint in endpoints:
+            assert endpoint in code, f"{module}: {endpoint}"
+
+
+def test_the_grow_scope_is_never_hardcoded_into_a_url():
+    """
+    `grow_id=${...}` built by hand is how a selector set to "todos" turns into
+    `grow_id=null` in a URL, which the backend rejects — so the chart just goes
+    blank. withGrow() is the one place that decides.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        if path.name == "util.js":
+            continue  # where withGrow itself lives
+        code = _strip_js_comments(path.read_text())
+        if re.search(r"grow_id=\$\{", code) or "grow_id=' +" in code:
+            offenders.append(path.name)
+    assert offenders == []
+
+
+def test_no_native_confirm_or_alert_remains():
+    """
+    They freeze the whole tab — every poller included — until somebody clicks,
+    they cannot be styled, and the confirm button says "OK" on a dialog about
+    ending a grow.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        code = _strip_js_comments(path.read_text())
+        # `alertDialog(` and `confirmDialog(` are ours; the bare globals are not.
+        for call in re.findall(r"(?<![\w.])(alert|confirm|prompt)\s*\(", code):
+            offenders.append(f"{path.name}: {call}()")
+    assert offenders == []
+
+
+def test_the_focus_is_trapped_in_the_modal_and_given_back_on_close():
+    """
+    Backlog #9 plus what was left of Fase 0. Tabbing out of an open modal lands
+    on the buttons behind it, which a keyboard or screen-reader user cannot see
+    are covered; and closing one dropped focus on <body>, so the next Tab
+    started from the top of the document.
+    """
+    modals = _strip_js_comments((JS_DIR / "modals.js").read_text())
+
+    # Both directions. Fixing only Tab leaves a trap you walk out of with
+    # Shift+Tab, which is the half that usually gets forgotten.
+    assert "shiftKey" in modals
+    assert "nextFocus" in modals
+    assert "'Tab'" in modals
+
+    # And the way back: stored on open, focused on close.
+    assert "openers.set" in modals
+    assert "openers.get" in modals
+    assert "opener.focus()" in modals
+
+
+def test_only_modals_js_opens_or_closes_a_modal():
+    """
+    Escape, the backdrop and the close button are three ways out of the same
+    dialog. One of them flipping the class by hand is one of them skipping the
+    part that puts focus back — which is how closing by backdrop used to leave
+    focus on <body>.
+
+    The `.show` class is not modals-only (the anomaly strip uses it too), so
+    what is checked is that nothing else reaches for a `.modal` at all.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        if path.name == "modals.js":
+            continue
+        code = _strip_js_comments(path.read_text())
+        # An import of the module, and `data-action="close-modal"` routing to
+        # closeModal(), are the two legitimate mentions.
+        code = re.sub(r"^import .*?from '\./modals\.js';$", "", code, flags=re.M)
+        code = code.replace("'close-modal'", "").replace("dataset.modal", "")
+        for match in re.finditer(r"['\"`][^'\"`]*\.modal[^'\"`]*['\"`]", code):
+            offenders.append(f"{path.name}: {match.group(0)}")
+    assert offenders == []
+
+
+def test_a_destructive_confirmation_names_what_it_does():
+    """
+    "OK" is what the native dialog said. A button on a destructive action has
+    to say which act it is about to perform.
+    """
+    modals = _strip_js_comments((JS_DIR / "modals.js").read_text())
+    # No default for confirmLabel: forgetting it has to be a visible mistake,
+    # not a dialog that quietly says "Confirmar".
+    assert re.search(r"confirmLabel\s*=", modals) is None
+
+    labels = []
+    for name in ("grows.js", "feeding.js", "dashboard.js"):
+        code = (JS_DIR / name).read_text()
+        labels += re.findall(r"confirmLabel:\s*'([^']+)'", code)
+
+    assert "Finalizar cultivo" in labels
+    assert "Borrar riego" in labels
+    assert "Pausar el sistema" in labels
+    for label in labels:
+        assert label.lower() not in ("ok", "aceptar", "sí", "confirmar"), label
+
+
+def test_the_dialog_shell_is_in_the_page_and_wired():
+    """Built from markup like every other modal, so it looks like one."""
+    page = _page_html()
+    for element in ('id="appDialog"', 'id="dialog-title"', 'id="dialog-message"',
+                    'id="dialog-confirm"', 'id="dialog-cancel"', 'id="toast-tray"'):
+        assert element in page, element
+    assert 'aria-modal="true"' in page
+
+    modals = (JS_DIR / "modals.js").read_text()
+    # textContent, never innerHTML: some of what goes in is a server error.
+    assert "innerHTML" not in _strip_js_comments(modals)
+    assert "textContent" in modals
 
 
 def test_the_weekly_report_is_a_view_rather_than_a_modal():
@@ -588,3 +751,30 @@ def test_two_real_control_loops_are_still_reported(monkeypatch):
         subprocess, "run",
         lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=fake, stderr=""))
     assert check_system.count_control_loops() == 2
+
+
+def test_the_asset_version_changes_when_the_assets_do():
+    """
+    index.html says the query string on every stylesheet and module busts the
+    browser cache on a deploy. It was `__version__`, frozen at "0.1.0" since
+    the first commit, so that had never once been true: the tablet on the tent
+    wall kept its old app.css against freshly deployed markup, which looks
+    exactly like the deploy having broken the page.
+
+    Nobody has to remember to bump anything now - the token is the newest mtime
+    under static/, which `git pull` moves for us.
+    """
+    from autocann.web.app import static_asset_version
+
+    before = static_asset_version()
+    assert before, "el token quedó vacío"
+
+    asset = STATIC_DIR / "css" / "app.css"
+    stamp = asset.stat()
+    try:
+        os.utime(asset, (stamp.st_atime, stamp.st_mtime + 3600))
+        assert static_asset_version() != before
+    finally:
+        os.utime(asset, (stamp.st_atime, stamp.st_mtime))
+
+    assert static_asset_version() == before

@@ -13,9 +13,9 @@ import {
 } from './feeding.js';
 import {
     activateGrow, createGrow, endGrow, fetchActiveGrow, showNewGrowModal,
-    showStageModal, updateStage, wireGrowListActions,
+    showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
-import { closeModal, closeTopModal } from './modals.js';
+import { closeModal, initModals } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
 import { applyConfig, state } from './state.js';
@@ -175,16 +175,10 @@ function wireActions() {
         }
     });
 
-    // Click on the backdrop closes the modal.
-    window.addEventListener('click', event => {
-        if (event.target.classList.contains('modal')) {
-            event.target.classList.remove('show');
-        }
-    });
-
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') closeTopModal();
-    });
+    // Escape, the backdrop and the focus trap all live in modals.js now: they
+    // are three halves of one behaviour, and keeping them here is how closing
+    // by backdrop ended up skipping the part that puts focus back.
+    initModals();
 
     document.querySelectorAll('.time-btn').forEach(btn => {
         btn.addEventListener('click', () => handleTimeBtnClick(btn));
@@ -220,6 +214,7 @@ async function start() {
     initCharts();
     wireActions();
     wireGrowListActions();
+    wireGrowFilter();
     wireFeeding();
     wireCalendar();
     wirePanel();

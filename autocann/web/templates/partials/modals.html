@@ -30,6 +30,33 @@
         </div>
     </div>
 
+    <!--
+         The shell behind confirmDialog() and alertDialog(), which replaced the
+         native confirm() and alert(). The markup is here rather than built in
+         JavaScript so a dialog looks like every other modal by construction;
+         the text and the button labels are written in with textContent,
+         because some of it is a server error message.
+    -->
+    <div id="appDialog" class="modal" role="dialog" aria-modal="true"
+         aria-labelledby="dialog-title" aria-describedby="dialog-message"
+         aria-hidden="true">
+        <div class="modal-content modal-dialog">
+            <div class="modal-header" id="dialog-title"></div>
+            <div class="dialog-message" id="dialog-message"></div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" type="button" id="dialog-cancel">Cancelar</button>
+                <button class="btn btn-primary" type="button" id="dialog-confirm">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
+         Where "se guardó" goes. Something that worked does not need to be
+         acknowledged, and swapping a blocking native alert for a blocking
+         custom one would have kept the part that was actually annoying.
+    -->
+    <div class="toast-tray" id="toast-tray" role="status" aria-live="polite"></div>
+
     <div id="stageModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">Cambiar Etapa</div>

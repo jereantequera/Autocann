@@ -165,10 +165,13 @@ bloques `<style>`/`<script>` inline, que Chart.js no venga de un CDN, que todo
 `import` resuelva a un `export` real y que los rangos por etapa no estén
 hardcodeados en el front. `make test-js` los corre; si no hay node, se saltean.
 
-### Lo que quedó pendiente de esta fase
+### Lo que quedó pendiente de esta fase — ✅ cerrado
 
-- Atrapar el foco dentro de los modales (el cierre con Escape ya está).
-- Reemplazar `confirm()` y `alert()` nativos (está en el backlog, #9).
+- ~~Atrapar el foco dentro de los modales~~ — hecho, en las dos direcciones, y
+  el foco vuelve al elemento que abrió el modal cuando se cierra. Vale para las
+  tres salidas: Escape, el fondo y el botón de cerrar.
+- ~~Reemplazar `confirm()` y `alert()` nativos~~ — hecho, con el backlog #9.
+  Hay un test-guardia que falla si vuelve alguno.
 
 ---
 
@@ -853,13 +856,31 @@ y no hay apuro; si falla el 30%, es la primera compra.
 
 | # | Feature | Por qué | Esfuerzo |
 |---|---|---|---|
-| 7 | **PIN o login** | La API conmuta hardware y hoy no tiene auth. Debería estar antes de exponer el dashboard fuera de la LAN | bajo |
+| ~~7~~ | ~~**PIN o login**~~ | ✅ **Hecho.** `AUTOCANN_PIN` + sesión por cookie de 30 días. Sin la variable no pide nada, que es el comportamiento de siempre. Los tres endpoints de los nodos quedan exentos a propósito — ver abajo | bajo |
 | 8 | **PWA instalable** | Icono en el celular, shell offline, pantalla completa | bajo |
-| 9 | **Reemplazar `confirm()` y `alert()`** | Hoy usa diálogos nativos bloqueantes; quedan feos y frenan la UI | bajo |
+| ~~9~~ | ~~**Reemplazar `confirm()` y `alert()`**~~ | ✅ **Hecho**, junto con lo que faltaba de la Fase 0: foco atrapado en el modal y devuelto al cerrarlo. Los confirmatorios dicen qué hacen — "Finalizar cultivo", "Borrar riego" — y lo que salió bien va a un toast, que no frena nada | bajo |
 | 10 | **Diario del cultivo** con fotos | Notas fechadas que se cruzan con el timeline de etapas | medio |
 | 11 | **Control de ventilación** | Tiene pin y endpoint pero ninguna lógica automática | medio |
 | 12 | **CO₂** | Si se suma un SCD41 (ver HARDWARE.md) | medio |
 | 13 | **Curvas objetivo por día de etapa** | VPD objetivo que se mueve con el día del cultivo en vez de una banda fija | alto |
+
+### Lo que el PIN (#7) no cubre, y no puede cubrir
+
+`GET /api/outputs/desired`, `POST /api/sensor/indoor` y `POST /api/node/log`
+**nunca** piden PIN. El firmware de los nodos se graba a mano, con un cable USB,
+parado en la carpa: no puede mandar una cookie porque el servidor empezó a
+pedirla.
+
+El primero es el crítico. El nodo de relés lo pide cada 2 segundos y **se
+desenergiza solo a los 60 segundos sin un poll exitoso** — un failsafe
+deliberado, para que una Raspberry muerta no deje un humidificador prendido. Un
+401 ahí es indistinguible de una Raspberry muerta: pone todos los relés de la
+carpa en cero un minuto después, de madrugada, sin nada en pantalla que lo
+explique.
+
+La lista vive en `autocann/web/auth.py` con el motivo escrito al lado, y hay un
+test que falla si alguno de esos tres endpoints se renombra y pierde la
+exención en silencio.
 
 ---
 

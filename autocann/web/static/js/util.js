@@ -115,6 +115,81 @@ function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
     return { state: 'too-high', text: `↑ ${absDiff}% por encima` };
 }
 
+// ===============================
+// Feeding
+// ===============================
+// The panel tile and the Riego tab render the same plan from the same payload,
+// so the arithmetic and the wording live here rather than once in each: two
+// copies of "25 ml" is how one of them ends up rounding differently.
+
+/** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
+function fmtDose(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+    return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
+}
+
+/**
+ * What actually goes in the watering can: the per-litre dose times the volume.
+ *
+ * Rounded to a tenth because nobody measures a fertiliser finer than that -
+ * the same rounding the backend applies to `total`, so a locally recomputed
+ * amount and a served one agree.
+ */
+function doseAmount(item, litres) {
+    const total = (Number(item?.dose) || 0) * (Number(litres) || 0);
+    return `${fmtDose(Math.round(total * 10) / 10)} ${item?.unit === 'g/L' ? 'g' : 'ml'}`;
+}
+
+/** Days before an unwatered tent is worth saying out loud. */
+const STALE_AFTER_DAYS = 4;
+
+/**
+ * How long since the last watering, in words, from its "YYYY-MM-DD".
+ *
+ * Measured midnight to midnight rather than now minus then: a watering logged
+ * this morning is "hoy" all day, and one logged last night does not become
+ * "hace 2 días" the moment the clock passes the hour it happened at.
+ *
+ * @returns {?{days: number, text: string, stale: boolean}}  null with no log
+ */
+function lastWateringLabel(date) {
+    if (!date) return null;
+    const then = new Date(`${date}T00:00:00`);
+    if (isNaN(then.getTime())) return null;
+
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const days = Math.round((midnight - then) / 86400000);
+
+    const text = days <= 0 ? 'Hoy'
+        : days === 1 ? 'Ayer'
+            : `Hace ${days} días`;
+    return { days, text, stale: days >= STALE_AFTER_DAYS };
+}
+
+// ===============================
+// Grow scope
+// ===============================
+// Which grow the history is about travels in the query string, and the absence
+// of the parameter means "the active one". Building it here rather than at each
+// call site keeps a selector set to "todos" from turning into `grow_id=null` in
+// a URL — which the backend rejects, so the chart would just go blank.
+
+/** The `grow_id` parameter for a scope, or '' when the default is wanted. */
+function growParam(growId) {
+    if (growId === null || growId === undefined || growId === '') return '';
+    if (growId === 'all') return 'grow_id=all';
+    const id = Number(growId);
+    return Number.isInteger(id) ? `grow_id=${id}` : '';
+}
+
+/** `url` with the grow scope appended, whichever separator it needs. */
+function withGrow(url, growId) {
+    const param = growParam(growId);
+    if (!param) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}${param}`;
+}
+
 /**
  * El borne que hay que ir a medir para una salida: el número corto para la
  * tarjeta, y la frase entera para el title.
@@ -174,58 +249,6 @@ function relaySourceLabel(source) {
     return { text: '', title: '' };
 }
 
-// ===============================
-// Feeding
-// ===============================
-// The panel tile and the Riego tab render the same plan from the same payload,
-// so the arithmetic and the wording live here rather than once in each: two
-// copies of "25 ml" is how one of them ends up rounding differently.
-
-/** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
-function fmtDose(value) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
-    return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
-}
-
-/**
- * What actually goes in the watering can: the per-litre dose times the volume.
- *
- * Rounded to a tenth because nobody measures a fertiliser finer than that -
- * the same rounding the backend applies to `total`, so a locally recomputed
- * amount and a served one agree.
- */
-function doseAmount(item, litres) {
-    const total = (Number(item?.dose) || 0) * (Number(litres) || 0);
-    return `${fmtDose(Math.round(total * 10) / 10)} ${item?.unit === 'g/L' ? 'g' : 'ml'}`;
-}
-
-/** Days before an unwatered tent is worth saying out loud. */
-const STALE_AFTER_DAYS = 4;
-
-/**
- * How long since the last watering, in words, from its "YYYY-MM-DD".
- *
- * Measured midnight to midnight rather than now minus then: a watering logged
- * this morning is "hoy" all day, and one logged last night does not become
- * "hace 2 días" the moment the clock passes the hour it happened at.
- *
- * @returns {?{days: number, text: string, stale: boolean}}  null with no log
- */
-function lastWateringLabel(date) {
-    if (!date) return null;
-    const then = new Date(`${date}T00:00:00`);
-    if (isNaN(then.getTime())) return null;
-
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    const days = Math.round((midnight - then) / 86400000);
-
-    const text = days <= 0 ? 'Hoy'
-        : days === 1 ? 'Ayer'
-            : `Hace ${days} días`;
-    return { days, text, stale: days >= STALE_AFTER_DAYS };
-}
-
 function getScoreClass(score) {
     if (score >= 85) return 'excellent';
     if (score >= 70) return 'good';
@@ -242,7 +265,7 @@ function getScoreLabel(score) {
 
 export {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, humidityDiffLabel, outputPinLabel, relaySourceLabel,
-    getScoreClass, getScoreLabel,
+    formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
+    outputPinLabel, relaySourceLabel,
     STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel,
 };

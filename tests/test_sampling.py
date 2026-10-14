@@ -240,3 +240,53 @@ def test_points_without_a_timestamp_are_passed_through():
 def test_a_nonsensical_threshold_disables_the_check_instead_of_erroring(interval, factor):
     points = series(0, 99_999)
     assert insert_gaps(points, interval, factor=factor) == points
+
+
+# ---------------------------------------------------------------------------
+# insert_gaps across two grows
+# ---------------------------------------------------------------------------
+
+
+def grow_series(*pairs, step=300):
+    """`(grow_id, timestamp)` points, in the order a scoped query returns them."""
+    return [{"grow_id": grow_id, "timestamp": ts, "temperature": 24.0}
+            for grow_id, ts in pairs]
+
+
+def test_two_grows_back_to_back_are_not_drawn_as_one_curve():
+    """
+    The samples are five minutes apart, so no time threshold catches this: one
+    crop ended and the next began. Joining them draws a line from the end of
+    one grow to the start of the other as if the tent had carried on.
+    """
+    points = grow_series((1, 0), (1, 300), (2, 600), (2, 900))
+    out = insert_gaps(points, 300, series_key="grow_id")
+
+    gaps = [p for p in out if p.get("gap")]
+    assert len(gaps) == 1
+    assert gaps[0]["series_change"] == "grow_id"
+    assert gaps[0]["timestamp"] == 450                  # between the two runs
+    assert len(out) == 5                                # no real sample dropped
+
+
+def test_one_grow_is_untouched_by_the_series_check():
+    points = grow_series((1, 0), (1, 300), (1, 600))
+    assert insert_gaps(points, 300, series_key="grow_id") == points
+
+
+def test_a_grow_change_breaks_the_series_even_with_the_time_check_off():
+    """
+    The two reasons to break are independent: a change of grow is not an
+    outage, and a threshold of zero must not let two crops merge.
+    """
+    points = grow_series((1, 0), (2, 300))
+    out = insert_gaps(points, 0, series_key="grow_id")
+    assert [p.get("gap") for p in out] == [None, True, None]
+
+
+def test_both_reasons_can_apply_without_producing_two_markers():
+    points = grow_series((1, 0), (2, 90_000))
+    gaps = [p for p in insert_gaps(points, 300, series_key="grow_id") if p.get("gap")]
+    assert len(gaps) == 1
+    assert gaps[0]["series_change"] == "grow_id"
+    assert gaps[0]["gap_seconds"] == 90_000
