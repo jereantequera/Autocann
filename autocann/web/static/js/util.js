@@ -167,6 +167,29 @@ function lastWateringLabel(date) {
     return { days, text, stale: days >= STALE_AFTER_DAYS };
 }
 
+// ===============================
+// Grow scope
+// ===============================
+// Which grow the history is about travels in the query string, and the absence
+// of the parameter means "the active one". Building it here rather than at each
+// call site keeps a selector set to "todos" from turning into `grow_id=null` in
+// a URL — which the backend rejects, so the chart would just go blank.
+
+/** The `grow_id` parameter for a scope, or '' when the default is wanted. */
+function growParam(growId) {
+    if (growId === null || growId === undefined || growId === '') return '';
+    if (growId === 'all') return 'grow_id=all';
+    const id = Number(growId);
+    return Number.isInteger(id) ? `grow_id=${id}` : '';
+}
+
+/** `url` with the grow scope appended, whichever separator it needs. */
+function withGrow(url, growId) {
+    const param = growParam(growId);
+    if (!param) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}${param}`;
+}
+
 function getScoreClass(score) {
     if (score >= 85) return 'excellent';
     if (score >= 70) return 'good';
@@ -183,6 +206,6 @@ function getScoreLabel(score) {
 
 export {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, humidityDiffLabel, getScoreClass, getScoreLabel,
+    formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
     STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel,
 };

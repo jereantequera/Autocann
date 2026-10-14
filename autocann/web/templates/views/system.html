@@ -67,4 +67,24 @@
                     <div class="metric-value metric-value-sm" id="stat-span">--</div>
                 </div>
             </div>
+
+            <!--
+                 Sólo aparece cuando hay PIN configurado. Sin PIN no hay sesión
+                 que cerrar, y un botón que no hace nada en la mayoría de las
+                 instalaciones es peor que no tenerlo.
+            -->
+            <div id="session-section" hidden>
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <span class="section-title-icon">🔒</span>
+                        Sesión
+                    </h2>
+                </div>
+                <div class="sys-note">
+                    Este navegador entró con el PIN. Cerrar la sesión lo deja
+                    afuera hasta que lo vuelvas a poner — útil si el tablero
+                    quedó abierto en un teléfono prestado.
+                </div>
+                <button class="btn btn-ghost" data-sys="logout">🔒 Cerrar sesión</button>
+            </div>
         </section>

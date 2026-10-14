@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from time import monotonic, sleep
+
 import pytest
 
-from autocann.cli.vpd import Sensors
+from autocann.cli.vpd import (
+    DHT_READ_ATTEMPTS,
+    DHT_RETRY_DELAY_SECONDS,
+    OUTDOOR_MAX_AGE_SECONDS,
+    Sensors,
+)
 from autocann.control.humidity import IDLE, ControllerConfig, ControllerState, decide
+from autocann.control.sampling import Calibration
 
 
 @pytest.fixture
@@ -59,8 +68,122 @@ def test_a_missing_outdoor_sensor_is_left_empty_not_copied_from_indoor(sensors, 
 
 def test_outdoor_values_are_used_when_available(sensors, monkeypatch):
     monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    sensors.refresh_outdoor()
     data = _feed(sensors, monkeypatch, (24.0, 60.0))
     assert (data["outside_temperature"], data["outside_humidity"]) == (12.0, 80.0)
+
+
+# ---------------------------------------------------------------------------
+# The outdoor sensor, off the critical path
+# ---------------------------------------------------------------------------
+
+
+def test_a_dead_outdoor_sensor_does_not_stall_the_control_loop(sensors, monkeypatch):
+    """
+    A DHT22 that does not answer costs DHT_READ_ATTEMPTS attempts with a sleep
+    between them. Read inline, that was ~2 s of every 3 s cycle spent on a
+    number no decision uses, with the relays unsupervised meanwhile.
+    """
+    calls = []
+
+    def slow(sensor, name):
+        calls.append(name)
+        sleep(DHT_RETRY_DELAY_SECONDS * DHT_READ_ATTEMPTS)
+        return None, None
+
+    monkeypatch.setattr(sensors, "_read_dht22", slow)
+
+    started = monotonic()
+    data = _feed(sensors, monkeypatch, (24.0, 60.0))
+    elapsed = monotonic() - started
+
+    assert calls == [], f"el lazo leyó el DHT22 en línea: {calls}"
+    assert elapsed < 0.5
+    # And the reading is still honest about having no outdoor value.
+    assert data["outside_temperature"] is None
+    assert data["outside_humidity"] is None
+
+
+def test_the_outdoor_row_carries_both_the_raw_and_the_corrected_reading(sensors, monkeypatch):
+    """A correction clamps humidity, so inverting it does not recover the raw."""
+    sensors.outdoor_calibration = Calibration(temperature_offset=2.5, humidity_offset=-4.0)
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    sensors.refresh_outdoor()
+
+    data = _feed(sensors, monkeypatch, (24.0, 60.0))
+    assert (data["outside_temperature_raw"], data["outside_humidity_raw"]) == (12.0, 80.0)
+    assert (data["outside_temperature"], data["outside_humidity"]) == (14.5, 76.0)
+
+
+def test_a_failed_read_keeps_the_last_outdoor_value_while_it_is_still_fresh(sensors, monkeypatch):
+    """One missed checksum has not changed the weather."""
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    sensors.refresh_outdoor()
+
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (None, None))
+    sensors.refresh_outdoor()
+
+    assert sensors.outdoor_reading() == (12.0, 80.0)
+    assert sensors.outdoor_status()["ok"] is True
+
+
+def test_a_cached_outdoor_reading_is_not_served_once_it_is_old(sensors, monkeypatch):
+    """
+    The cache exists so the loop never blocks, not so an old number can be
+    shown as a current one.
+    """
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    sensors.refresh_outdoor()
+    assert sensors.outdoor_reading() == (12.0, 80.0)
+
+    cached = sensors._outdoor
+    sensors._outdoor = replace(cached, at=cached.at - OUTDOOR_MAX_AGE_SECONDS - 1)
+
+    assert sensors.outdoor_reading() == (None, None)
+    data = _feed(sensors, monkeypatch, (24.0, 60.0))
+    assert data["outside_temperature"] is None
+    assert "outside_temperature_raw" not in data
+
+
+def test_the_outdoor_status_reports_the_reading_not_the_device(sensors, monkeypatch):
+    """
+    It used to answer "is the object initialised", so a DHT22 that came up and
+    then answered nothing for hours kept a green badge on screen.
+    """
+    assert sensors.outdoor_status()["ok"] is False
+    assert sensors.outdoor_status()["error"]
+
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    sensors.refresh_outdoor()
+    assert sensors.outdoor_status() == {"ok": True, "error": None}
+
+
+def test_the_published_status_carries_the_outdoor_verdict(sensors, monkeypatch):
+    published = {}
+    monkeypatch.setattr("autocann.cli.vpd._set_redis",
+                        lambda key, value, ttl=None: published.update({key: value}))
+
+    sensors.publish_status(indoor_ok=True)
+    import json
+    assert json.loads(published["sensor_status"])["outdoor"]["ok"] is False
+
+
+def test_the_background_reader_fills_the_cache_and_stops(sensors, monkeypatch):
+    """The thread is the only thing that touches the outdoor device in production."""
+    monkeypatch.setattr("autocann.cli.vpd.OUTDOOR_READ_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
+    monkeypatch.setattr(sensors, "init_outdoor_dht22", lambda: None)
+
+    sensors.start_outdoor_reader()
+    try:
+        deadline = monotonic() + 2.0
+        while sensors.outdoor_reading() == (None, None) and monotonic() < deadline:
+            sleep(0.01)
+        assert sensors.outdoor_reading() == (12.0, 80.0)
+    finally:
+        sensors.stop_outdoor_reader()
+
+    assert not sensors._outdoor_thread.is_alive()
 
 
 def test_median_filtering_smooths_a_spiky_sensor(sensors, monkeypatch):

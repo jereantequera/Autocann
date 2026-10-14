@@ -36,6 +36,7 @@ from autocann.control.vpd_math import (
     humidity_range_for_stage,
 )
 from autocann.db import (
+    ALL_GROWS,
     create_grow,
     delete_irrigation,
     detect_anomalies,
@@ -71,6 +72,7 @@ from autocann.hardware.outputs import (
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
+from autocann.web.auth import register_auth
 from autocann.web.diagnostics import (
     health_snapshot,
     reframe_history_anomalies,
@@ -100,13 +102,64 @@ def _with_gaps(points, expected_interval_seconds):
     temperature fell smoothly" rather than "there is no data here". Each marker
     carries a datetime so it still gets an axis label, and no measurements, so
     every series plots a gap at that point.
+
+    `grow_id` breaks the series too. Two grows one after the other are not one
+    continuous curve: without this, a 90-day window spanning the end of one
+    crop and the start of the next drew a single line through the changeover,
+    which is the most misleading shape this chart can take.
     """
-    marked = insert_gaps(points, expected_interval_seconds)
+    marked = insert_gaps(points, expected_interval_seconds, series_key="grow_id")
     for point in marked:
-        if point.get("gap"):
+        if point.get("gap") and point.get("timestamp") is not None:
             point["datetime"] = datetime.fromtimestamp(
                 point["timestamp"], ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
     return marked
+
+
+def _requested_grow():
+    """
+    The `grow_id` query parameter, in the form the database layer wants.
+
+    A string rather than `type=int` so that `grow_id=all` can be asked for at
+    all: an integer has no spelling for "every grow", and leaving the parameter
+    out has to keep meaning "whatever grow is active", which is what the
+    dashboard is about.
+
+    Raises ValueError on anything else, so a typo is a 400 rather than a
+    silent fall back to a different scope than the caller asked for.
+    """
+    raw = (request.args.get("grow_id") or "").strip().lower()
+    if not raw:
+        return None
+    if raw == ALL_GROWS:
+        return ALL_GROWS
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(
+            f"'grow_id' debe ser un número o '{ALL_GROWS}', no {raw!r}") from None
+
+
+def _grow_scope(grow_id):
+    """
+    How a response says which grow it is about.
+
+    Served on every scoped endpoint. The dashboard cannot infer it: the default
+    is resolved server-side, so a chart that does not ask gets the active grow
+    and has no way to label it — and a chart whose meaning changes when
+    somebody activates another grow, without saying so, is worse than one with
+    no label at all.
+    """
+    if grow_id == ALL_GROWS:
+        return {"grow_id": None, "grow_scope": ALL_GROWS}
+    if grow_id is not None:
+        return {"grow_id": int(grow_id), "grow_scope": "grow"}
+    active = get_active_grow()
+    return {
+        "grow_id": int(active["id"]) if active else None,
+        "grow_name": active["name"] if active else None,
+        "grow_scope": "active" if active else "none",
+    }
 
 
 def _indoor_delta(readings):
@@ -133,6 +186,36 @@ def _indoor_delta(readings):
     }
 
 
+
+def static_asset_version() -> str:
+    """
+    A cache-busting token that changes when the files behind it do.
+
+    It used to be `__version__`, which has read "0.1.0" since the first commit
+    and has never been bumped once. Every stylesheet and every module shipped
+    since then went out behind the same query string, so the promise in
+    index.html - that a deploy busts the browser cache - had never been kept:
+    the tablet on the tent wall kept its old app.css against freshly deployed
+    markup, which is worse than no cache-busting, because it looks like the
+    deploy broke the page.
+
+    The newest mtime under static/ answers it exactly, and without anyone
+    having to remember anything: `git pull` stamps every file it rewrites, so
+    the token moves on the deploys that changed an asset and stays put on the
+    ones that did not. The version stays in front of it so the string is still
+    recognisable as this app's.
+    """
+    try:
+        newest = max(
+            (path.stat().st_mtime for path in STATIC_DIR.rglob("*") if path.is_file()),
+            default=0.0,
+        )
+    except OSError:
+        # An unreadable static dir is a problem, but not this function's to
+        # report: serving a stale token is better than failing to build the app.
+        return __version__
+    return f"{__version__}-{int(newest):x}" if newest else __version__
+
 def create_app() -> Flask:
     app = Flask(
         __name__,
@@ -141,11 +224,16 @@ def create_app() -> Flask:
         static_url_path="/static",
     )
 
+    # Computed once, here: the services restart on every deploy, so there is
+    # nothing a per-request stat would catch that this misses, and walking
+    # static/ on every page load would be a directory scan per visit.
+    asset_version = static_asset_version()
+
     @app.context_processor
     def inject_version():
         # Appended to static URLs so a deploy busts the browser cache without
         # having to serve the assets with no-cache.
-        return {"asset_version": __version__}
+        return {"asset_version": asset_version}
     redis_cfg = redis_config_from_env()
     redis_client = redis.Redis(host=redis_cfg.host, port=redis_cfg.port, db=redis_cfg.db)
 
@@ -852,6 +940,13 @@ def create_app() -> Flask:
     def get_sensor_history():
         """
         Endpoint to get sensor history from SQLite database.
+
+        Scoped to a grow. `grow_id=<n>` picks one, `grow_id=all` asks for every
+        grow at once, and leaving it out means the active grow — which is what
+        the rest of the dashboard is about, so it is what a chart with no
+        selector should show. Filtering by time alone used to put ten months of
+        an empty tent and a real crop on the same curve as soon as the window
+        reached back past the changeover.
         """
         try:
             period = request.args.get("period")
@@ -859,6 +954,11 @@ def create_app() -> Flask:
             end = request.args.get("end", type=int)
             limit = request.args.get("limit", type=int)
             aggregate = request.args.get("aggregate", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            scope = _grow_scope(grow_id)
 
             if period:
                 current_time = datetime.now(ARGENTINA_TZ)
@@ -883,8 +983,9 @@ def create_app() -> Flask:
             if start is None and end is None:
                 if limit is None:
                     limit = 100
-                data = get_latest_sensor_data(limit=limit)
-                return jsonify({"data": data, "count": len(data), "aggregated": False})
+                data = get_latest_sensor_data(limit=limit, grow_id=grow_id)
+                return jsonify({"data": data, "count": len(data),
+                                "aggregated": False, **scope})
 
             # Fill in whichever bound is missing: a None would reach the SQL
             # comparison and silently match nothing.
@@ -900,7 +1001,8 @@ def create_app() -> Flask:
             if aggregate:
                 if aggregate < 1:
                     return jsonify({"error": "'aggregate' must be a positive number of seconds"}), 400
-                data = _with_gaps(get_aggregated_data(start, end, aggregate), aggregate)
+                data = _with_gaps(
+                    get_aggregated_data(start, end, aggregate, grow_id), aggregate)
                 return jsonify(
                     {
                         "data": data,
@@ -909,16 +1011,22 @@ def create_app() -> Flask:
                         "end": end,
                         "aggregated": True,
                         "interval_seconds": aggregate,
+                        **scope,
                     }
                 )
 
             # get_sensor_data_range returns newest first; the gap check needs
-            # chronological order, and so do the charts.
+            # chronological order, and so do the charts. Sorted by grow as well,
+            # so two grows arrive as two runs rather than interleaved — which is
+            # what lets the gap marker land between them instead of on every
+            # other point.
             data = _with_gaps(
-                sorted(get_sensor_data_range(start, end, limit), key=lambda r: r["timestamp"]),
+                sorted(get_sensor_data_range(start, end, limit, grow_id),
+                       key=lambda r: (r["grow_id"], r["timestamp"])),
                 SAMPLE_INTERVAL_SECONDS,
             )
-            return jsonify({"data": data, "count": len(data), "start": start, "end": end, "aggregated": False})
+            return jsonify({"data": data, "count": len(data), "start": start,
+                            "end": end, "aggregated": False, **scope})
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -980,12 +1088,17 @@ def create_app() -> Flask:
     def period_summary():
         """
         Get summary statistics (avg, min, max) for a time period.
-        Query params: hours (float) or days (int), grow_id (optional)
+
+        Query params: hours (float) or days (int), grow_id (optional: an id,
+        `all`, or absent for the active grow).
         """
         try:
             hours = request.args.get("hours", type=float)
             days = request.args.get("days", type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             current_time = datetime.now(ARGENTINA_TZ)
             end_timestamp = int(current_time.timestamp())
@@ -999,7 +1112,7 @@ def create_app() -> Flask:
                 start_timestamp = end_timestamp - (24 * 3600)
 
             summary = get_period_summary(start_timestamp, end_timestamp, grow_id)
-            return jsonify(summary)
+            return jsonify({**summary, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1008,7 +1121,10 @@ def create_app() -> Flask:
         try:
             days = request.args.get("days", default=7, type=int)
             interval = request.args.get("interval", default="hourly", type=str)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             interval_map = {"hourly": 3600, "6hourly": 6 * 3600, "daily": 24 * 3600}
             if interval not in interval_map:
@@ -1030,9 +1146,9 @@ def create_app() -> Flask:
                     "count": len(data),
                     "days": days,
                     "interval": interval,
-                    "grow_id": grow_id,
                     "start_datetime": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
                     "end_datetime": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                    **_grow_scope(grow_id),
                 }
             )
         except Exception as e:
@@ -1144,14 +1260,23 @@ def create_app() -> Flask:
     def vpd_score_endpoint():
         """
         Get VPD score (% of time in optimal range).
-        Query params: days (int, default 7), grow_id (optional)
+
+        Query params: days (int, default 7), grow_id (optional). `all` is
+        refused here on purpose: the score measures time inside *a stage's*
+        band, and one number over several grows scores readings against bands
+        they were never held to.
         """
         try:
             days = request.args.get("days", default=7, type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             score = get_vpd_score(days=days, grow_id=grow_id)
-            return jsonify(score)
+            if score.get("error"):
+                return jsonify(score)
+            return jsonify({**score, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1159,13 +1284,21 @@ def create_app() -> Flask:
     def weekly_report_endpoint():
         """
         Get comprehensive weekly report.
-        Query params: grow_id (optional)
+
+        Query params: grow_id (optional). Scoped to one grow, including the
+        previous-week comparison: a trend measured against a week the tent
+        stood empty is not a trend.
         """
         try:
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             report = get_weekly_report(grow_id=grow_id)
-            return jsonify(report)
+            if report.get("error"):
+                return jsonify(report)
+            return jsonify({**report, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1177,7 +1310,10 @@ def create_app() -> Flask:
         """
         try:
             hours = request.args.get("hours", default=24, type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
             # El detector mira la base, que es el lugar correcto para buscar un
@@ -1341,6 +1477,12 @@ def create_app() -> Flask:
     # porque es lo único acá que no contesta sobre la carpa sino sobre el
     # equipamiento que la mide.
     register_diagnostics(app, redis_client)
+
+    # El PIN va último, después de que existan todas las rutas: el gate es un
+    # before_request sobre la app entera, así que no puede quedar ninguna ruta
+    # registrada después que se le escape. Sin AUTOCANN_PIN no instala nada y
+    # todo se comporta exactamente como antes.
+    register_auth(app)
 
     return app
 

@@ -11,8 +11,8 @@ import { test } from 'node:test';
 
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
-    formatDuration, getScoreClass, getScoreLabel, humidityDiffLabel,
-    lastWateringLabel, parseLocalDatetime,
+    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
+    lastWateringLabel, parseLocalDatetime, withGrow,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -234,4 +234,32 @@ test('lastWateringLabel returns nothing for a tent with no log yet', () => {
     for (const value of [undefined, null, '', 'ayer', {}]) {
         assert.equal(lastWateringLabel(value), null, `fecha ${String(value)}`);
     }
+});
+
+test('growParam leaves the default unspoken so the backend picks the active grow', () => {
+    // The selector's own "Cultivo activo" option has value "", and nothing
+    // sets state.growId before the first fetch.
+    for (const empty of [null, undefined, '']) {
+        assert.equal(growParam(empty), '');
+    }
+});
+
+test('growParam spells every grow and names one by id', () => {
+    assert.equal(growParam('all'), 'grow_id=all');
+    assert.equal(growParam(7), 'grow_id=7');
+    assert.equal(growParam('7'), 'grow_id=7');
+});
+
+test('growParam refuses a scope that is not one instead of sending it', () => {
+    // The backend answers 400 for these, which on screen is a blank chart with
+    // no explanation. Nothing asked for is better than something invented.
+    for (const bogus of [NaN, 'todos', 1.5, {}, [1, 2]]) {
+        assert.equal(growParam(bogus), '', String(bogus));
+    }
+});
+
+test('withGrow appends with whichever separator the url already needs', () => {
+    assert.equal(withGrow('/api/vpd-score?days=7', 3), '/api/vpd-score?days=7&grow_id=3');
+    assert.equal(withGrow('/api/weekly-report', 'all'), '/api/weekly-report?grow_id=all');
+    assert.equal(withGrow('/api/weekly-report', null), '/api/weekly-report');
 });

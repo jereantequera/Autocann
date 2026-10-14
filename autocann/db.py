@@ -15,7 +15,48 @@ from autocann.time import ARGENTINA_TZ
 #: The control loop and the web app both write, so they do collide.
 BUSY_TIMEOUT_SECONDS = 10.0
 
+#: Ask for every grow at once, on purpose.
+#:
+#: `grow_id=None` means "the grow the dashboard is about", so without this there
+#: was no way to spell "all of them" — and the only query that ever returned
+#: every grow was the one that did it by accident, when no grow happened to be
+#: active. Crossing ten months of empty tent with a real crop should take saying
+#: so.
+ALL_GROWS = "all"
+
+#: Returned by `_resolve_grow_filter` when the caller asked for the active grow
+#: and there is not one. Distinct from `None`, which there means "no filter".
+_NO_GROW = object()
+
 _schema_ready = False
+
+
+def _resolve_grow_filter(grow_id):
+    """
+    Which grow a query should filter on.
+
+    Three answers, and the third is the point:
+
+    - an **integer** — that grow;
+    - **`ALL_GROWS`** — `None`, i.e. no `WHERE grow_id`;
+    - **`None`** (the default) — the active grow, or `_NO_GROW` when there is
+      none.
+
+    That last case used to fall through to no filter at all, which is how the
+    history silently became "every grow ever recorded" in exactly the window
+    that matters: between ending one grow and starting the next. An empty
+    answer is the honest one there — there is no active grow to report on — and
+    it leaves "all of them" as something somebody chose rather than something
+    that happened.
+    """
+    if isinstance(grow_id, str) and grow_id.strip().lower() == ALL_GROWS:
+        return None
+    if grow_id is not None:
+        return int(grow_id)
+    active_grow = get_active_grow()
+    if active_grow:
+        return int(active_grow["id"])
+    return _NO_GROW
 
 
 def _open(row_factory: bool = False) -> sqlite3.Connection:
@@ -1279,17 +1320,18 @@ def get_sensor_data_range(
     start_timestamp: Optional[int] = None,
     end_timestamp: Optional[int] = None,
     limit: Optional[int] = None,
-    grow_id: Optional[int] = None,
+    grow_id=None,
 ) -> List[Dict]:
     """
-    Get sensor data within a time range.
+    Get sensor data within a time range, for one grow or for all of them.
+
+    `grow_id` follows `_resolve_grow_filter`: an id, `ALL_GROWS`, or None for
+    the active grow.
     """
     try:
-        # Get grow_id if not provided
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
+        grow_id = _resolve_grow_filter(grow_id)
+        if grow_id is _NO_GROW:
+            return []
 
         ensure_schema()
         conn = _open(row_factory=True)
@@ -1332,17 +1374,20 @@ def get_aggregated_data(
     start_timestamp: int,
     end_timestamp: int,
     interval_seconds: int = 3600,
-    grow_id: Optional[int] = None,
+    grow_id=None,
 ) -> List[Dict]:
     """
     Get aggregated (averaged) sensor data for a time range.
+
+    Across several grows the bucket is split per grow rather than averaged
+    together: one bucket holding the mean of two different crops' tents is a
+    number about nothing. Each point carries its `grow_id` so a caller can
+    break the series where the grow changes.
     """
     try:
-        # Get grow_id if not provided
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
+        grow_id = _resolve_grow_filter(grow_id)
+        if grow_id is _NO_GROW:
+            return []
 
         ensure_schema()
         conn = _open(row_factory=True)
@@ -1351,6 +1396,7 @@ def get_aggregated_data(
         query = """
             SELECT
                 (timestamp / ?) * ? as interval_start,
+                grow_id as grow_id,
                 AVG(temperature) as avg_temperature,
                 AVG(humidity) as avg_humidity,
                 AVG(vpd) as avg_vpd,
@@ -1381,7 +1427,11 @@ def get_aggregated_data(
             query += " AND grow_id = ?"
             params.append(grow_id)
 
-        query += " GROUP BY interval_start ORDER BY interval_start ASC"
+        # Grouped by grow as well as by bucket. With a single grow that changes
+        # nothing; across grows it is what stops one bucket from averaging two
+        # crops together.
+        query += (" GROUP BY interval_start, grow_id"
+                  " ORDER BY interval_start ASC, grow_id ASC")
 
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -1390,6 +1440,7 @@ def get_aggregated_data(
         for row in rows:
             data_point = {
                 "timestamp": row["interval_start"],
+                "grow_id": row["grow_id"],
                 "datetime": datetime.fromtimestamp(row["interval_start"], ARGENTINA_TZ).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
@@ -1426,7 +1477,7 @@ def get_aggregated_data(
         return []
 
 
-def get_latest_sensor_data(limit: int = 100, grow_id: Optional[int] = None) -> List[Dict]:
+def get_latest_sensor_data(limit: int = 100, grow_id=None) -> List[Dict]:
     """
     Get the most recent sensor readings.
     """
@@ -1465,17 +1516,15 @@ def cleanup_old_data(days_to_keep: int = 90) -> Tuple[int, int]:
 def get_period_summary(
     start_timestamp: int,
     end_timestamp: int,
-    grow_id: Optional[int] = None,
+    grow_id=None,
 ) -> Dict:
     """
     Get summary statistics (avg, min, max) for a time period.
     """
     try:
-        # Get grow_id if not provided
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
+        grow_id = _resolve_grow_filter(grow_id)
+        if grow_id is _NO_GROW:
+            return {"sample_count": 0}
 
         ensure_schema()
         conn = _open(row_factory=True)
@@ -1603,36 +1652,58 @@ def get_database_stats() -> Dict:
 
 
 
+def _is_all_grows(grow_id) -> bool:
+    return isinstance(grow_id, str) and grow_id.strip().lower() == ALL_GROWS
+
+
+def _grow_identity(grow_id: int) -> Tuple[str, str]:
+    """`(name, stage)` for a grow, with usable fallbacks if the row is gone."""
+    try:
+        ensure_schema()
+        conn = _open()
+        row = conn.execute(
+            "SELECT name, stage FROM grows WHERE id = ?", (grow_id,)).fetchone()
+        conn.close()
+    except Exception as e:
+        print(f"Error reading grow {grow_id}: {e}")
+        return "Unknown", "early_veg"
+    if row is None:
+        return "Unknown", "early_veg"
+    return row[0], row[1]
+
+
+#: Refused by the statistics that score readings against a stage's band.
+_ALL_GROWS_IS_NOT_A_GROW = (
+    "Estas estadísticas son por cultivo: el score mide tiempo dentro de la "
+    "banda de una etapa, y cada cultivo pasó por etapas distintas. Elegí uno."
+)
+
+
 def get_vpd_score(
     days: int = 1,
-    grow_id: Optional[int] = None,
+    grow_id=None,
     start_ts: Optional[int] = None,
     end_ts: Optional[int] = None,
 ) -> Dict:
     """
     Calculate VPD score: percentage of time VPD was in optimal range.
     Returns daily scores for the specified number of days.
-    
+
     If start_ts and end_ts are provided, uses calendar days within that range.
     Otherwise, uses rolling periods of 24 hours.
+
+    `ALL_GROWS` is refused rather than answered: see
+    `_ALL_GROWS_IS_NOT_A_GROW`.
     """
     try:
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
-                stage = active_grow.get("stage", "early_veg")
-            else:
-                return {"error": "No active grow found"}
-        else:
-            # Get stage for specified grow
-            ensure_schema()
-            conn = _open()
-            cursor = conn.cursor()
-            cursor.execute("SELECT stage FROM grows WHERE id = ?", (grow_id,))
-            row = cursor.fetchone()
-            conn.close()
-            stage = row[0] if row else "early_veg"
+        if _is_all_grows(grow_id):
+            return {"error": _ALL_GROWS_IS_NOT_A_GROW}
+
+        resolved = _resolve_grow_filter(grow_id)
+        if resolved is _NO_GROW:
+            return {"error": "No active grow found"}
+        grow_id = resolved
+        _, stage = _grow_identity(grow_id)
 
         vpd_min, vpd_max = VPD_RANGES.get(stage, (0.6, 1.5))
 
@@ -1773,29 +1844,25 @@ def get_vpd_score(
 
 
 def get_weekly_report(
-    grow_id: Optional[int] = None,
+    grow_id=None,
 ) -> Dict:
     """
     Generate a comprehensive weekly report with statistics and insights.
+
+    Scoped to one grow, for the reason in `_ALL_GROWS_IS_NOT_A_GROW`. Note that
+    the "previous week" comparison is scoped too, so the first week of a grow
+    compares against nothing and reports no trend — which is the truth, rather
+    than a trend measured against the tent standing empty.
     """
     try:
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
-                grow_name = active_grow.get("name", "Unknown")
-                stage = active_grow.get("stage", "early_veg")
-            else:
-                return {"error": "No active grow found"}
-        else:
-            ensure_schema()
-            conn = _open()
-            cursor = conn.cursor()
-            cursor.execute("SELECT name, stage FROM grows WHERE id = ?", (grow_id,))
-            row = cursor.fetchone()
-            conn.close()
-            grow_name = row[0] if row else "Unknown"
-            stage = row[1] if row else "early_veg"
+        if _is_all_grows(grow_id):
+            return {"error": _ALL_GROWS_IS_NOT_A_GROW}
+
+        resolved = _resolve_grow_filter(grow_id)
+        if resolved is _NO_GROW:
+            return {"error": "No active grow found"}
+        grow_id = resolved
+        grow_name, stage = _grow_identity(grow_id)
 
         current_time = datetime.now(ARGENTINA_TZ)
         
@@ -1933,7 +2000,7 @@ def get_weekly_report(
 
 def detect_anomalies(
     hours: int = 24,
-    grow_id: Optional[int] = None,
+    grow_id=None,
 ) -> Dict:
     """
     Detect anomalies in sensor data:
@@ -1941,19 +2008,33 @@ def detect_anomalies(
     - Sudden spikes/drops in temperature or humidity
     - Values outside physically possible ranges
     - Stuck values (sensor malfunction)
+
+    Scoped like the rest, and with no active grow it reports the "no data"
+    anomaly rather than falling back to every grow. Reading a closed grow's
+    last rows as "the tent is fine" is the opposite of what a detector is for:
+    with no active grow nothing is being written, and that is worth saying.
     """
     try:
-        if grow_id is None:
-            active_grow = get_active_grow()
-            if active_grow:
-                grow_id = int(active_grow["id"])
-
         anomalies = []
         warnings = []
 
         current_time = datetime.now(ARGENTINA_TZ)
         end_timestamp = int(current_time.timestamp())
         start_timestamp = end_timestamp - (hours * 3600)
+
+        resolved = _resolve_grow_filter(grow_id)
+        if resolved is _NO_GROW:
+            return {
+                "status": "critical",
+                "anomalies": [{
+                    "type": "no_data",
+                    "severity": "critical",
+                    "message": f"No hay datos en las últimas {hours} horas",
+                    "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                }],
+                "warnings": [],
+            }
+        grow_id = resolved
 
         ensure_schema()
         conn = _open(row_factory=True)

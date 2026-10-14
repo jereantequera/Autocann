@@ -195,19 +195,31 @@ def _clamp_humidity(value: float) -> float:
 
 
 def insert_gaps(points: Sequence[Dict], expected_interval_seconds: float,
-                factor: float = 2.0, timestamp_key: str = "timestamp") -> List[Dict]:
+                factor: float = 2.0, timestamp_key: str = "timestamp",
+                series_key: Optional[str] = None) -> List[Dict]:
     """
-    Break a series wherever samples are further apart than expected.
+    Break a series wherever it stops being one series.
 
     Returns a new list with a `{timestamp, gap: True}` marker inserted between
-    any two points more than `factor * expected_interval_seconds` apart. A chart
-    plotting null for those markers shows the outage instead of drawing a
+    any two points that do not belong to the same continuous run. A chart
+    plotting null for those markers shows the break instead of drawing a
     straight line across it.
 
-    Points are assumed ordered by timestamp; anything without a usable timestamp
-    is passed through untouched.
+    Two things break a run:
+
+    - **time** — the points are more than `factor * expected_interval_seconds`
+      apart, which is an outage;
+    - **`series_key`** — the points disagree on that field, which is a
+      *different series*. Used for `grow_id`: two grows back to back are not a
+      continuous curve, however little time separates them, and joining them
+      would draw a line from the end of one crop to the start of the next as if
+      the tent had simply carried on.
+
+    Points are assumed ordered by timestamp; anything without a usable
+    timestamp is passed through untouched.
     """
-    if expected_interval_seconds <= 0 or factor <= 0:
+    by_time = expected_interval_seconds > 0 and factor > 0
+    if not by_time and series_key is None:
         return list(points)
 
     threshold = expected_interval_seconds * factor
@@ -217,17 +229,27 @@ def insert_gaps(points: Sequence[Dict], expected_interval_seconds: float,
     for point in points:
         current_ts = point.get(timestamp_key)
         previous_ts = previous.get(timestamp_key) if previous else None
+        timed = isinstance(current_ts, (int, float)) and isinstance(previous_ts, (int, float))
 
-        if (
-            isinstance(current_ts, (int, float))
-            and isinstance(previous_ts, (int, float))
-            and current_ts - previous_ts > threshold
-        ):
-            out.append({
-                timestamp_key: int((previous_ts + current_ts) / 2),
-                "gap": True,
-                "gap_seconds": int(current_ts - previous_ts),
-            })
+        changed_series = (
+            series_key is not None
+            and previous is not None
+            and point.get(series_key) != previous.get(series_key)
+        )
+        too_far = by_time and timed and current_ts - previous_ts > threshold
+
+        if changed_series or too_far:
+            marker: Dict = {"gap": True}
+            if timed:
+                marker[timestamp_key] = int((previous_ts + current_ts) / 2)
+                marker["gap_seconds"] = int(current_ts - previous_ts)
+            elif isinstance(current_ts, (int, float)):
+                marker[timestamp_key] = int(current_ts)
+            if changed_series:
+                # Named, because a reader of the chart deserves to know the
+                # break is a change of grow and not an outage.
+                marker["series_change"] = series_key
+            out.append(marker)
 
         out.append(point)
         previous = point

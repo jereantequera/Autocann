@@ -13,6 +13,20 @@
                     Estadísticas
                     <span class="section-subtitle" id="summary-period-label"></span>
                 </h2>
+                <!--
+                     Qué cultivo, antes de qué rango de tiempo: una ventana de
+                     30 o 90 días cruzaba el final de un cultivo con el arranque
+                     del siguiente y los dibujaba como una sola curva. El valor
+                     por defecto es el cultivo activo, que es de lo que habla
+                     todo el resto del tablero; "todos" sigue estando, pero hay
+                     que pedirlo.
+                -->
+                <div class="grow-selector">
+                    <label class="grow-selector-label" for="grow-filter">Cultivo</label>
+                    <select class="form-control" id="grow-filter">
+                        <option value="">Cultivo activo</option>
+                    </select>
+                </div>
                 <div class="time-selector" id="time-selector">
                     <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
                     <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
@@ -25,6 +39,13 @@
                     <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
                 </div>
             </div>
+
+            <!--
+                 Qué cultivo está mirando, cuando no es el obvio. El alcance se
+                 resuelve en el servidor, así que un gráfico que no pregunta no
+                 tiene con qué etiquetarse.
+            -->
+            <div class="grow-scope-note" id="grow-scope-note" hidden></div>
 
 {% include "partials/summary.html" %}
 {% include "partials/charts.html" %}

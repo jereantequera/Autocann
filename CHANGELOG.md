@@ -1,5 +1,276 @@
 # Changelog
 
+## El foco se queda adentro del modal, y los diálogos dicen qué hacen
+
+Backlog #9, más lo último que quedaba de la Fase 0.
+
+### Con un modal abierto, el Tab se iba a la página de atrás
+
+El cierre con Escape ya estaba; atrapar el foco, no. Con el modal de "Nuevo
+cultivo" abierto, tabular salía del diálogo y empezaba a recorrer los botones
+que el modal estaba tapando — los de pausar el sistema y cambiar de etapa,
+entre otros. Con el mouse eso no se ve nunca: el fondo oscuro deja claro qué
+está activo. Con el teclado o con un lector de pantalla no hay fondo oscuro,
+así que lo que pasa es que estás operando una pantalla que no podés ver.
+
+Ahora el Tab da la vuelta adentro del modal, **en las dos direcciones**:
+Shift+Tab sobre el primer elemento va al último, igual que Tab sobre el último
+va al primero. Arreglar sólo la dirección de ida es cómo queda una trampa de la
+que se sale caminando para atrás. Y si el foco se escapó por otro lado — un
+click en la página de atrás, un re-render que se llevó el elemento que lo tenía
+— el próximo Tab lo trae de vuelta en lugar de seguir desde afuera.
+
+La decisión de a dónde va el foco quedó como una función pura (`nextFocus`),
+que es la única parte de esto que se puede probar sin un navegador. Tiene su
+propia suite en `tests/js/`.
+
+### Y al cerrarlo, el foco volvía a `<body>`
+
+Es decir: a ninguna parte. El siguiente Tab arrancaba desde arriba de todo del
+documento, no desde el botón que acababas de apretar. Ahora se guarda quién
+abrió cada modal y se le devuelve el foco al cerrarlo — salvo que ese elemento
+ya no exista, que pasa seguido: la lista de cultivos se vuelve a dibujar después
+de activar uno.
+
+Las tres salidas —Escape, el fondo y el botón de cerrar— pasan por la misma
+función. Estaban repartidas entre `main.js` y `modals.js`, y es exactamente así
+como el cierre por el fondo se salteaba la parte que devuelve el foco.
+
+### `confirm()` y `alert()` se fueron
+
+Congelan la pestaña entera —los pollers incluidos— hasta que alguien hace
+click, no se pueden pintar, y el botón que confirma dice "OK" en un diálogo que
+está preguntando si querés cerrar un cultivo.
+
+Ahora hay diálogos propios, armados sobre el mismo `.modal` que el resto, así
+que heredan el foco atrapado y el Escape sin que haya que acordarse. **El
+botón que confirma nombra el acto**: "Finalizar cultivo", "Borrar riego",
+"Pausar el sistema" — nunca "OK". `confirmLabel` no tiene valor por defecto a
+propósito: olvidarlo tiene que ser un error visible, no un diálogo que dice
+"Confirmar" sin que nadie lo haya elegido. Y el foco arranca en **Cancelar**,
+porque un Enter distraído sobre un "Finalizar cultivo" autofocado es justo el
+accidente que el diálogo existe para evitar.
+
+Los textos dicen qué va a pasar, no sólo si estás seguro: finalizar un cultivo
+aclara que el histórico no se borra y se puede seguir mirando, pero que el
+cultivo no se puede reabrir. Borrar un riego nombra la fecha del riego que se
+va.
+
+### Lo que salió bien no se confirma: va a un toast
+
+Cambiar un `alert('✅ Cultivo creado')` bloqueante por un diálogo propio
+igualmente bloqueante hubiera dejado intacta la parte que molestaba. Algo que
+funcionó no hay que acusarlo de recibo. Va a un cartelito abajo que se va solo
+a los cuatro segundos.
+
+Los **errores siguen siendo diálogo**, y ahí la asimetría es a propósito: un
+error que se desvanece a los cuatro segundos es un error que nadie vio.
+
+### De paso: el borrado de riego dejó de ser dos clicks
+
+Era un botón que al primer click cambiaba a "Confirmar borrado". No bloqueaba
+la página, que era el punto, pero no decía **qué** se estaba por borrar — y en
+una lista que se refresca sola, la fila armada se desarma abajo del dedo cuando
+llega el poll. Ahora es el mismo diálogo que el resto, nombrando la fecha.
+
+### Y `make test-js` corría una sola suite
+
+Decía `node --test tests/js/util.test.mjs`, con el nombre escrito a mano. O sea
+que `health.test.mjs` se agregó hace meses y el comando siguió diciendo que
+todo pasaba sin haberla corrido nunca; el test de Python que las busca con un
+glob sí la corría, así que las dos puertas miraban conjuntos distintos. Ahora
+las dos usan un glob: 23 tests pasaron a ser 38 sin escribir ninguno.
+
+## Un PIN adelante de la mitad que mueve relés
+
+La API conmuta hardware y no pedía nada. Cualquiera en la LAN podía cerrar un
+relé, pausar el controlador o borrar el plan de riego — backlog #7, y lo que
+había que resolver antes de que esto fuera alcanzable desde algo que no sea la
+red de la carpa.
+
+Ahora hay un PIN, con tres decisiones que son más interesantes que el PIN mismo.
+
+### Sin la variable, no cambia nada
+
+`AUTOCANN_PIN` vacía o sin definir y la aplicación se comporta **exactamente**
+como antes: nada pide nada. No es pereza, es la elección correcta entre dos
+fallas. Un deploy que se olvida la variable, con el default al revés, deja al
+dueño afuera de su propio tablero: no poder mirar la carpa es peor que ser
+legible desde una red en la que ya estás parado. El que quiere el candado lo
+pone; el que se olvida de ponerlo no pierde la carpa.
+
+### Los nodos no pueden pasar por el PIN, y eso manda
+
+`GET /api/outputs/desired`, `POST /api/sensor/indoor` y `POST /api/node/log`
+quedan exentos. No es una excepción de conveniencia: **el firmware se graba a
+mano, con un cable USB, parado en la carpa**. No le podés agregar una cookie ni
+un header porque el servidor empezó a pedirlos.
+
+Y el primero es el que de verdad decide esto. El nodo de relés lo pide cada 2
+segundos y **se desenergiza solo a los 60 segundos sin un poll exitoso** — un
+failsafe deliberado, para que una Raspberry muerta no deje un humidificador
+prendido toda la noche. Para el nodo, un 401 y una Raspberry muerta son la misma
+cosa: poner ese endpoint atrás del PIN **abre todos los relés de la carpa un
+minuto después**, de madrugada, sin nada en pantalla que lo explique. Los dos
+POST del sensor son más silenciosos pero no inofensivos: sin lecturas el lazo
+declara el sensor viejo a los 60 segundos y entra en failsafe, que también
+suelta los relés.
+
+El motivo está escrito **al lado de la lista**, en `autocann/web/auth.py`, no en
+este changelog: alguien va a ver tres endpoints sin autenticar y va a querer
+ordenarlos. Hay un test que falla si alguno se renombra y pierde la exención sin
+que nadie se entere.
+
+Lo que hace que esto sea aceptable y no un agujero es que ninguno de los tres
+conmuta nada. El primero es de sólo lectura. El segundo toma dos números dentro
+de rangos físicos y un `sensor_id` contra un patrón estricto antes de que sea
+parte de una clave de Redis. El tercero mete líneas de log en un buffer
+circular con tope. Lo que hay que proteger es la mitad de la API que mueve
+relés, y esa está cubierta: relés, pausa, cultivos, plan de riego, calibración
+y franjas de silencio.
+
+### La sesión dura 30 días
+
+El tablero se usa desde el celular, parado en la carpa, con las manos mojadas.
+Un PIN por día es cómo termina escrito con fibrón al lado de la puerta. Cookie
+firmada, 30 días, y la clave de firma se deriva del PIN salvo que
+`AUTOCANN_SECRET_KEY` diga otra cosa — si fuera aleatoria por arranque, cada
+deploy mandaría al teléfono y a la tablet de vuelta al login. Derivarla del PIN
+no regala nada: quien pueda falsificar una cookie con eso ya sabe el PIN, que es
+toda la autorización que hay.
+
+La sesión guarda una **huella del PIN**, no un flag, así que cambiarlo cierra
+las sesiones abiertas con el anterior. Hay un botón para cerrar sesión en
+**Sistema → Sesión**, que aparece sólo cuando hay PIN configurado. Y después de
+10 intentos fallidos esa IP espera 5 minutos: cuatro dígitos son diez mil
+pruebas, que un script en la misma LAN hace en segundos. No vuelve fuerte al
+PIN; vuelve lento al que lo adivina.
+
+### Dos detalles del front
+
+El login es una **página aparte**, no un modal sobre el tablero: el tablero
+dispara una docena de pedidos apenas carga y todos contestarían 401 atrás del
+diálogo. Y `api.js` recarga la página ante un 401, en vez de dejar en pantalla
+números de antes de que la sesión venciera mientras la consola se llena de
+errores.
+
+## El histórico es de un cultivo, no de una carpa
+
+Las ventanas de 30 y 90 días filtraban por tiempo y se llevaban puesto lo que
+hubiera atrás. Con el cultivo de prueba por cerrarse y uno real por arrancar,
+eso significa que el promedio de 30 días del cultivo nuevo iba a venir mezclado
+con semanas de carpa vacía — y la curva iba a ir de la última muestra de uno a
+la primera del otro **con una línea recta**, como si la carpa hubiera seguido
+andando sola.
+
+### El default es el cultivo activo, y se defiende solo
+
+Todo lo demás en pantalla ya está dicho en el contexto de un cultivo: la barra
+de arriba dice cuál es, la etapa, el día dentro de la etapa, la banda objetivo
+contra la que se mide el VPD. Un promedio de 30 días que incluye el cultivo
+anterior es un número **etiquetado con el contexto equivocado**: dice
+"Floración · día 25" arriba de una media que incluye dos meses de otra cosa. La
+alternativa — que el default sea "todo" — arruina la vista que se usa todos los
+días para abaratar una que se usa una vez por cultivo.
+
+Así que "todos los cultivos" **sigue estando y hay que pedirlo**: `grow_id=all`
+en la API, una opción en el selector nuevo de Estadísticas. Cruzar diez meses de
+carpa vacía con un cultivo real es una decisión, no algo que pase.
+
+### Lo que estaba roto no era que no filtrara
+
+La capa de base *sí* resolvía el cultivo activo cuando no le pasaban ninguno. El
+problema era el camino de abajo: **si no había cultivo activo, no filtraba por
+nada** y contestaba con todos. Y ese caso no es raro, es exactamente el momento
+que importa — los minutos (o los días) entre cerrar un cultivo y crear el
+siguiente. La única consulta que alguna vez devolvía todos los cultivos era la
+que lo hacía sin querer.
+
+Ahora `None` significa "el cultivo activo" y, sin uno, la respuesta es vacía.
+Vacío es la verdad ahí: no hay cultivo del que informar. `/api/sensor-history`
+además acepta `grow_id`, que antes no aceptaba: no había forma de mirar un
+cultivo cerrado.
+
+**El detector de anomalías es la excepción deliberada.** Sin cultivo activo no
+se queda callado: contesta "no hay datos en las últimas 24 horas", que es
+exactamente lo que está pasando, porque el lazo no está guardando nada. Leer las
+últimas filas de un cultivo cerrado como "la carpa está bien" es lo contrario de
+para lo que existe un detector. En la otra dirección, `/api/health` pregunta a
+propósito por **todos** los cultivos: ahí la pregunta es si la instalación sigue
+escribiendo, que es sobre la Raspberry y no sobre un cultivo, y acotarla al
+activo haría que "el histórico se cortó" apareciera justo mientras no hay nada
+roto.
+
+### Los huecos no pueden unir dos cultivos
+
+Los marcadores de corte miraban sólo el tiempo, y entre el final de un cultivo y
+el arranque del otro suele haber cinco minutos: ningún umbral de outage lo
+agarra. `insert_gaps` ahora corta también cuando cambia el cultivo, con el punto
+marcado como `series_change` para que se lea como lo que es — un cambio de
+cultivo, no un corte de datos.
+
+Y el bucket de agregación se agrupa por cultivo además de por intervalo. Una
+hora que contiene el promedio de dos carpas distintas es un número sobre nada.
+
+### Las estadísticas por etapa se niegan a promediar cultivos
+
+`/api/vpd-score` y `/api/weekly-report` rechazan `grow_id=all` en vez de
+contestar algo. El score es el porcentaje de tiempo dentro de la banda de **una
+etapa**, y cada cultivo pasó por etapas distintas: un solo porcentaje sobre
+todos puntúa lecturas contra bandas a las que nunca estuvieron sujetas. El
+cartel lo dice en pantalla en lugar de dejar el número en `--%` sin explicación.
+
+De yapa, la comparación "contra la semana anterior" del reporte quedó acotada
+también: la primera semana de un cultivo ahora compara contra nada y no reporta
+tendencia, que es la verdad, en vez de medir una tendencia contra la carpa
+vacía.
+
+## El sensor de afuera dejó de frenar el lazo
+
+El DHT22 exterior se leía **adentro del lazo de control**, en la misma llamada
+que produce la lectura con la que se decide. Un DHT22 que no contesta cuesta
+`DHT_READ_ATTEMPTS` intentos con un `sleep` de dos segundos entre ellos, así que
+un sensor exterior muerto le comía al lazo cerca de dos segundos de cada ciclo
+de tres. Durante esos dos segundos nadie estaba mirando la carpa: ni se evaluaba
+la humedad, ni se refrescaba el estado deseado que el nodo de relés necesita
+escuchar — y ese nodo se desenergiza solo a los 60 segundos de silencio.
+
+Lo peor es por qué pasaba: **el exterior no alimenta ninguna decisión**. No entra
+en el VPD, no entra en la banda de la etapa, no entra en el failsafe. Se grafica.
+El lazo crítico se estaba frenando por un número decorativo.
+
+Ahora lo lee un hilo de fondo, una vez por minuto, y el lazo toma el último valor
+cacheado. La elección entre "hilo con caché" y "leerlo cada tantos ciclos" se
+resolvió por el caso peor: leerlo cada N ciclos sigue poniendo la espera adentro
+del lazo, sólo más espaciada, y el ciclo que le toca es igual de ciego que antes.
+Un hilo saca la espera del camino de una vez y para siempre.
+
+**La caché envejece y se apaga.** Está ahí para que el lazo no se bloquee, no
+para poder mostrar un número viejo como si fuera de ahora. Cada lectura guarda el
+instante monotónico en que se tomó, y pasados cinco minutos — cinco ciclos del
+lector — deja de servirse: los campos salen en `None` y la tarjeta vuelve a
+`--`. Una lectura fallida sola, en cambio, **no** borra la caché: un checksum
+perdido no cambió el clima afuera.
+
+**Sin lectura exterior, los campos van en `None`.** Sigue valiendo lo de siempre
+y por el mismo motivo: copiar ahí los valores de interior dibujaba un exterior
+falso, idéntico al interior, en el gráfico de comparación. La fila guarda crudo y
+calibrado como antes.
+
+**El estado `outdoor` ahora dice la verdad sobre la lectura, no sobre el objeto.**
+Antes contestaba `ok` si el objeto `DHT22` existía, así que un sensor que arrancó
+bien y después se quedó mudo durante horas mantenía un badge verde arriba de un
+gráfico vacío. Ahora `ok` significa "hay una lectura fresca", y cuando no la hay
+el error distingue tres casos distintos: nunca se inicializó, no contestó, o la
+última quedó vieja.
+
+**El reinicio de sensores se partió en dos.** El lazo, en failsafe, reintentaba
+crear los dos DHT22; el exterior ahora es del hilo que lo lee, y dos hilos
+cerrando y reemplazando el mismo dispositivo por debajo del otro es una carrera
+que no hace falta tener. `init_indoor_dht22()` es del lazo, `init_outdoor_dht22()`
+del lector, y el exterior tampoco es el motivo por el que el lazo está en
+failsafe.
+
 ## ¿Anda el sensor? Una sola respuesta
 
 Tres fuentes contestaban esa pregunta y ninguna sabía de las otras: el badge del
