@@ -1,5 +1,78 @@
 # Changelog
 
+## Un PIN adelante de la mitad que mueve relés
+
+La API conmuta hardware y no pedía nada. Cualquiera en la LAN podía cerrar un
+relé, pausar el controlador o borrar el plan de riego — backlog #7, y lo que
+había que resolver antes de que esto fuera alcanzable desde algo que no sea la
+red de la carpa.
+
+Ahora hay un PIN, con tres decisiones que son más interesantes que el PIN mismo.
+
+### Sin la variable, no cambia nada
+
+`AUTOCANN_PIN` vacía o sin definir y la aplicación se comporta **exactamente**
+como antes: nada pide nada. No es pereza, es la elección correcta entre dos
+fallas. Un deploy que se olvida la variable, con el default al revés, deja al
+dueño afuera de su propio tablero: no poder mirar la carpa es peor que ser
+legible desde una red en la que ya estás parado. El que quiere el candado lo
+pone; el que se olvida de ponerlo no pierde la carpa.
+
+### Los nodos no pueden pasar por el PIN, y eso manda
+
+`GET /api/outputs/desired`, `POST /api/sensor/indoor` y `POST /api/node/log`
+quedan exentos. No es una excepción de conveniencia: **el firmware se graba a
+mano, con un cable USB, parado en la carpa**. No le podés agregar una cookie ni
+un header porque el servidor empezó a pedirlos.
+
+Y el primero es el que de verdad decide esto. El nodo de relés lo pide cada 2
+segundos y **se desenergiza solo a los 60 segundos sin un poll exitoso** — un
+failsafe deliberado, para que una Raspberry muerta no deje un humidificador
+prendido toda la noche. Para el nodo, un 401 y una Raspberry muerta son la misma
+cosa: poner ese endpoint atrás del PIN **abre todos los relés de la carpa un
+minuto después**, de madrugada, sin nada en pantalla que lo explique. Los dos
+POST del sensor son más silenciosos pero no inofensivos: sin lecturas el lazo
+declara el sensor viejo a los 60 segundos y entra en failsafe, que también
+suelta los relés.
+
+El motivo está escrito **al lado de la lista**, en `autocann/web/auth.py`, no en
+este changelog: alguien va a ver tres endpoints sin autenticar y va a querer
+ordenarlos. Hay un test que falla si alguno se renombra y pierde la exención sin
+que nadie se entere.
+
+Lo que hace que esto sea aceptable y no un agujero es que ninguno de los tres
+conmuta nada. El primero es de sólo lectura. El segundo toma dos números dentro
+de rangos físicos y un `sensor_id` contra un patrón estricto antes de que sea
+parte de una clave de Redis. El tercero mete líneas de log en un buffer
+circular con tope. Lo que hay que proteger es la mitad de la API que mueve
+relés, y esa está cubierta: relés, pausa, cultivos, plan de riego, calibración
+y franjas de silencio.
+
+### La sesión dura 30 días
+
+El tablero se usa desde el celular, parado en la carpa, con las manos mojadas.
+Un PIN por día es cómo termina escrito con fibrón al lado de la puerta. Cookie
+firmada, 30 días, y la clave de firma se deriva del PIN salvo que
+`AUTOCANN_SECRET_KEY` diga otra cosa — si fuera aleatoria por arranque, cada
+deploy mandaría al teléfono y a la tablet de vuelta al login. Derivarla del PIN
+no regala nada: quien pueda falsificar una cookie con eso ya sabe el PIN, que es
+toda la autorización que hay.
+
+La sesión guarda una **huella del PIN**, no un flag, así que cambiarlo cierra
+las sesiones abiertas con el anterior. Hay un botón para cerrar sesión en
+**Sistema → Sesión**, que aparece sólo cuando hay PIN configurado. Y después de
+10 intentos fallidos esa IP espera 5 minutos: cuatro dígitos son diez mil
+pruebas, que un script en la misma LAN hace en segundos. No vuelve fuerte al
+PIN; vuelve lento al que lo adivina.
+
+### Dos detalles del front
+
+El login es una **página aparte**, no un modal sobre el tablero: el tablero
+dispara una docena de pedidos apenas carga y todos contestarían 401 atrás del
+diálogo. Y `api.js` recarga la página ante un 401, en vez de dejar en pantalla
+números de antes de que la sesión venciera mientras la consola se llena de
+errores.
+
 ## El histórico es de un cultivo, no de una carpa
 
 Las ventanas de 30 y 90 días filtraban por tiempo y se llevaban puesto lo que

@@ -3467,3 +3467,72 @@ body {
         grid-column: span 2;
     }
 }
+
+/* ===============================
+   LOGIN
+   ===============================
+   The PIN page, which is its own document: the dashboard fires a dozen
+   requests on load and every one of them would answer 401 behind a dialog. */
+
+.login-body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: var(--shadow-lg);
+}
+
+.login-logo {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.login-logo h1 {
+    font-size: 1.6em;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+}
+
+.login-logo h1 span {
+    color: var(--accent-green);
+}
+
+.login-intro {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.login-submit {
+    justify-content: center;
+    margin-top: 4px;
+}
+
+.login-error {
+    color: var(--vpd-danger);
+    font-size: 0.9em;
+}
+
+.login-note {
+    margin-top: 20px;
+    color: var(--text-muted);
+    font-size: 0.85em;
+}

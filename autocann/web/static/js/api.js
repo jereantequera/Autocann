@@ -44,6 +44,14 @@ async function apiGet(url, { key = url } = {}) {
 
     try {
         const response = await fetch(url, { signal: controller.signal });
+        if (response.status === 401) {
+            // The session ran out, or the PIN changed under us. Every poller is
+            // about to get the same answer, so go to the login page once
+            // instead of filling the console and leaving the dashboard showing
+            // numbers from before.
+            window.location.reload();
+            return null;
+        }
         if (!response.ok && response.status >= 500) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -78,6 +86,12 @@ async function apiPost(url, body) {
             body: JSON.stringify(body ?? {}),
         });
         const data = await response.json().catch(() => ({}));
+        if (response.status === 401 && data.auth_required) {
+            // Same as in apiGet: the PIN is gone, so the page is, too. Said
+            // out loud as well, because this one was a button press.
+            window.location.reload();
+            return { ok: false, error: 'La sesión expiró: hace falta el PIN otra vez' };
+        }
         if (!response.ok) return { ok: false, error: data.error || `HTTP ${response.status}` };
         return { ok: true, data };
     } catch (error) {

@@ -72,6 +72,7 @@ from autocann.hardware.outputs import (
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
+from autocann.web.auth import register_auth
 from autocann.web.diagnostics import (
     health_snapshot,
     reframe_history_anomalies,
@@ -1441,6 +1442,12 @@ def create_app() -> Flask:
     # porque es lo único acá que no contesta sobre la carpa sino sobre el
     # equipamiento que la mide.
     register_diagnostics(app, redis_client)
+
+    # El PIN va último, después de que existan todas las rutas: el gate es un
+    # before_request sobre la app entera, así que no puede quedar ninguna ruta
+    # registrada después que se le escape. Sin AUTOCANN_PIN no instala nada y
+    # todo se comporta exactamente como antes.
+    register_auth(app)
 
     return app
 

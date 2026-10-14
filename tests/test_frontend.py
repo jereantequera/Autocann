@@ -156,17 +156,36 @@ def _page_html() -> str:
     return "\n".join(parts)
 
 
-def test_every_template_is_reachable_from_the_page():
+#: Templates that are pages in their own right rather than partials. The PIN
+#: screen is the second one: it cannot be a modal over the dashboard, because
+#: the dashboard fires a dozen requests the moment it loads and every one of
+#: them would answer 401 behind the dialog.
+ENTRY_POINTS = ("index.html", "login.html")
+
+
+def test_every_template_is_reachable_from_a_page():
     """
     A partial nobody includes renders nothing and fails silently. The views sit
     between index.html and the partials now, so reachability has to be followed
     through the chain rather than looked for in one file.
     """
-    reachable = _included(TEMPLATES_DIR / "index.html") | {"index.html"}
+    reachable = set(ENTRY_POINTS)
+    for entry in ENTRY_POINTS:
+        reachable |= _included(TEMPLATES_DIR / entry)
     on_disk = {
         str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
     }
     assert on_disk - reachable == set()
+
+
+def test_every_entry_point_is_actually_served():
+    """A page template nothing renders is a 500 waiting for the right moment."""
+    import autocann.web.app as web
+
+    app_py = (Path(web.__file__)).read_text()
+    auth_py = (Path(web.__file__).parent / "auth.py").read_text()
+    for entry in ENTRY_POINTS:
+        assert entry in app_py or entry in auth_py, entry
 
 def test_the_humidity_card_cannot_render_a_difference_without_readings():
     """
