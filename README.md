@@ -54,6 +54,12 @@ El loop de control descarta datos de más de 60 segundos y apaga las salidas.
 - GND → GND
 - DATA → GPIO 13 (con pull-up de 4.7k–10k a 3.3V)
 
+El exterior **no alimenta ninguna decisión**: sólo se grafica. Por eso se lee en
+un hilo aparte, una vez por minuto, y el lazo de control toma el último valor
+cacheado sin bloquearse nunca. Si el sensor deja de contestar, el valor envejece
+y a los cinco minutos se apaga: los campos salen en `None` y la tarjeta queda en
+`--`. Nunca se copian ahí los valores de interior.
+
 ## Instalación
 
 ### Instalación Rápida

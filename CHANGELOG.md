@@ -1,5 +1,51 @@
 # Changelog
 
+## El sensor de afuera dejó de frenar el lazo
+
+El DHT22 exterior se leía **adentro del lazo de control**, en la misma llamada
+que produce la lectura con la que se decide. Un DHT22 que no contesta cuesta
+`DHT_READ_ATTEMPTS` intentos con un `sleep` de dos segundos entre ellos, así que
+un sensor exterior muerto le comía al lazo cerca de dos segundos de cada ciclo
+de tres. Durante esos dos segundos nadie estaba mirando la carpa: ni se evaluaba
+la humedad, ni se refrescaba el estado deseado que el nodo de relés necesita
+escuchar — y ese nodo se desenergiza solo a los 60 segundos de silencio.
+
+Lo peor es por qué pasaba: **el exterior no alimenta ninguna decisión**. No entra
+en el VPD, no entra en la banda de la etapa, no entra en el failsafe. Se grafica.
+El lazo crítico se estaba frenando por un número decorativo.
+
+Ahora lo lee un hilo de fondo, una vez por minuto, y el lazo toma el último valor
+cacheado. La elección entre "hilo con caché" y "leerlo cada tantos ciclos" se
+resolvió por el caso peor: leerlo cada N ciclos sigue poniendo la espera adentro
+del lazo, sólo más espaciada, y el ciclo que le toca es igual de ciego que antes.
+Un hilo saca la espera del camino de una vez y para siempre.
+
+**La caché envejece y se apaga.** Está ahí para que el lazo no se bloquee, no
+para poder mostrar un número viejo como si fuera de ahora. Cada lectura guarda el
+instante monotónico en que se tomó, y pasados cinco minutos — cinco ciclos del
+lector — deja de servirse: los campos salen en `None` y la tarjeta vuelve a
+`--`. Una lectura fallida sola, en cambio, **no** borra la caché: un checksum
+perdido no cambió el clima afuera.
+
+**Sin lectura exterior, los campos van en `None`.** Sigue valiendo lo de siempre
+y por el mismo motivo: copiar ahí los valores de interior dibujaba un exterior
+falso, idéntico al interior, en el gráfico de comparación. La fila guarda crudo y
+calibrado como antes.
+
+**El estado `outdoor` ahora dice la verdad sobre la lectura, no sobre el objeto.**
+Antes contestaba `ok` si el objeto `DHT22` existía, así que un sensor que arrancó
+bien y después se quedó mudo durante horas mantenía un badge verde arriba de un
+gráfico vacío. Ahora `ok` significa "hay una lectura fresca", y cuando no la hay
+el error distingue tres casos distintos: nunca se inicializó, no contestó, o la
+última quedó vieja.
+
+**El reinicio de sensores se partió en dos.** El lazo, en failsafe, reintentaba
+crear los dos DHT22; el exterior ahora es del hilo que lo lee, y dos hilos
+cerrando y reemplazando el mismo dispositivo por debajo del otro es una carrera
+que no hace falta tener. `init_indoor_dht22()` es del lazo, `init_outdoor_dht22()`
+del lector, y el exterior tampoco es el motivo por el que el lazo está en
+failsafe.
+
 ## ¿Anda el sensor? Una sola respuesta
 
 Tres fuentes contestaban esa pregunta y ninguna sabía de las otras: el badge del
