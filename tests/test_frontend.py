@@ -374,20 +374,126 @@ def test_every_drift_flag_the_monitor_emits_has_a_label():
 def test_the_pause_is_announced_on_screen_while_it_lasts():
     """
     The one failure this feature can produce is somebody walking away without
-    noticing the tent is uncontrolled, so the banner is not optional. It
-    matters more now than when it expired after eight hours: nothing but a
-    person ends it, so saying so is the whole safety story.
+    noticing the tent is uncontrolled, so the announcement is not optional, and
+    it matters more now than when the pause expired after eight hours: nothing
+    but a person ends it, so saying so is the whole safety story.
+
+    What changed is where it is said, not whether. It used to be a full-width
+    amber banner under the header *and* an amber chip inside it, three
+    sentences apart, saying the same three things - and two elements saying one
+    thing is how a reader learns to skip both. The chip is the announcement
+    now: it is in the header, so it is on every view, it goes amber and keeps
+    its dot pulsing, it says how long it has been, and the verb that ends it is
+    on it.
     """
     header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
-    assert 'id="pause-bar"' in header
+    assert 'id="system-state"' in header
+    assert 'data-action="toggle-pause"' in header
+    # How long it has been - the one thing the banner carried that a chip did not.
     assert 'id="pause-elapsed"' in header
-    assert 'data-action="resume-system"' in header
-    # Says out loud that it does not end on its own; a banner that only reports
-    # the state reads like something that will clear up by itself.
-    assert "No se reanuda solo" in header
 
-    dashboard = (JS_DIR / "dashboard.js").read_text()
+    dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
     assert "renderSystemState" in dashboard
+    # The class the stylesheet hangs the amber fill, the border and the glow on.
+    # Without it the chip is a grey label, which is not an announcement.
+    assert "'is-paused', paused" in dashboard
+    assert ".system-state.is-paused {" in (STATIC_DIR / "css" / "app.css").read_text()
+    # Says out loud that it does not end on its own; a state that only reports
+    # itself reads like something that will clear up by itself.
+    assert "No se reanuda solo" in dashboard
+
+
+def test_the_pause_is_announced_in_exactly_one_place():
+    """
+    The banner under the header repeated the chip above it word for word. The
+    grower's reaction to the panel - "ese banner duplica info" - is the whole
+    reason it is gone, and nothing may quietly grow back in its place.
+    """
+    page = _page_html()
+    assert "pause-bar" not in page
+    assert page.count('data-action="toggle-pause"') == 1
+    assert page.count('id="pause-elapsed"') == 1
+
+    for name in ("pause-bar", "resume-system"):
+        assert name not in _strip_js_comments((JS_DIR / "dashboard.js").read_text()), name
+        assert name not in _strip_js_comments((JS_DIR / "main.js").read_text()), name
+    assert ".pause-bar" not in (STATIC_DIR / "css" / "app.css").read_text()
+
+
+def test_the_panel_answers_its_three_questions_in_order():
+    """
+    The panel is the screen somebody reads standing in the tent, and it is read
+    for three things in this order: cómo está el ambiente, qué relés están
+    prendidos, con qué hay que regar hoy. They are three bands top to bottom so
+    that each is found by looking at one part of the screen - the readings and
+    the relays used to be in two columns with six diagnostic cards between them,
+    and the watering plan was not on this screen at all.
+    """
+    panel = (TEMPLATES_DIR / "views" / "panel.html").read_text()
+    order = [panel.index(f'{{% include "partials/{name}.html" %}}')
+             for name in ("hero", "outputs", "today-feed")]
+    assert order == sorted(order), "el orden de las tres bandas del panel cambió"
+
+    # Ambiente is one band: the outside air is read in the same glance as the
+    # inside, not two sections down the right-hand column.
+    assert 'include "partials/outdoor.html"' in (
+        TEMPLATES_DIR / "partials" / "hero.html").read_text()
+
+
+def test_the_sensor_diagnostics_are_not_on_the_panel():
+    """
+    Six cards of raw readings, roles, ages and drift verdicts were taking half
+    of the screen that exists to be read from across the room, restating in
+    small type the numbers the Ambiente band shows in large. They belong next
+    to the calibration, the connectivity and the node log.
+
+    What the panel keeps is the one line that says whether to believe the rest
+    of it, computed from the same /api/health response - so the strip and the
+    cards cannot say different things about the same sensor.
+    """
+    assert 'include "partials/sensors.html"' in (
+        TEMPLATES_DIR / "views" / "system.html").read_text()
+    assert "sensors.html" not in (TEMPLATES_DIR / "views" / "panel.html").read_text()
+
+    assert 'include "partials/health-strip.html"' in (
+        TEMPLATES_DIR / "views" / "panel.html").read_text()
+    assert 'id="health-sensors-state"' in (
+        TEMPLATES_DIR / "partials" / "health-strip.html").read_text()
+
+    health = _strip_js_comments((JS_DIR / "health.js").read_text())
+    assert "health-sensors-state" in health
+    assert "sensorsBadge(health.sensors)" in health
+
+    # And the poller that feeds both has to run on both views, or whichever one
+    # is not listed sits at the loading ellipsis forever.
+    pollers = re.search(r"const POLLERS = \[(.*?)\n\];",
+                        _strip_js_comments((JS_DIR / "main.js").read_text()), re.S)
+    fetch_health = re.search(r"\{ fn: fetchHealth[^}]*\}", pollers.group(1))
+    assert fetch_health, "el poller de /api/health desapareció"
+    assert "'panel'" in fetch_health.group(0)
+    assert "'sistema'" in fetch_health.group(0)
+
+
+def test_the_panel_watering_tile_never_fetches_its_own_plan():
+    """
+    A previous version of this tile was deleted for drifting out of step with
+    the Riego tab. It renders the payload the feeding module already fetched,
+    handed over by `feeding:updated`, and the arithmetic that turns a dose per
+    litre into what goes in the jug is one shared helper - so "40 ml" on the
+    panel and "40 ml" in the form are the same multiplication.
+    """
+    panel_js = _strip_js_comments((JS_DIR / "panel.js").read_text())
+    assert "feeding:updated" in panel_js
+    assert "/api/feeding/today" not in panel_js
+    assert "/api/irrigations" not in panel_js
+
+    for module in ("panel.js", "feeding.js"):
+        code = _strip_js_comments((JS_DIR / module).read_text())
+        assert "doseAmount(" in code, module
+        assert "lastWateringLabel(" in code, module
+        # Neither may keep a private copy of either.
+        assert "function doseAmount" not in code, module
+        assert "function lastWateringLabel" not in code, module
 
 
 def test_the_pause_is_reachable_from_every_view():

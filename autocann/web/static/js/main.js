@@ -3,7 +3,7 @@ import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } fro
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
-    exitTestMode, fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
+    fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
     fetchPeriodSummary, setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
 } from './dashboard.js';
 import { fetchHealth } from './health.js';
@@ -44,7 +44,9 @@ const POLLERS = [
     // One call for the whole verdict - sensores, lazo e histórico - en vez de
     // dos que podían contestar cosas distintas. The node posts each sensor
     // every 10 s, so polling faster buys nothing but load on the Raspberry.
-    { fn: fetchHealth, every: 10000, views: ['panel'] },
+    // Panel y Sistema: las tarjetas de sensores viven allá y el renglón que las
+    // resume, acá. Las dos salen de esta misma respuesta.
+    { fn: fetchHealth, every: 10000, views: ['panel', 'sistema'] },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000, views: ['stats'] },
@@ -145,10 +147,11 @@ const ACTIONS = {
     'feed-plan-add': addPlanProduct,
     'feed-save': saveIrrigation,
     'feed-reset': resetFormToPlan,
-    // One control in the header, so which way it goes depends on the state.
+    // One control, in the header, so which way it goes depends on the state.
+    // There used to be a second one - the banner's own Reanudar button - which
+    // went away with the banner: a state with two ways out is two things to
+    // keep in step for no gain.
     'toggle-pause': toggleTestMode,
-    // The bar under the header only ever ends a pause; it is never the way in.
-    'resume-system': exitTestMode,
     'test-output': setTestOutput,
 };
 

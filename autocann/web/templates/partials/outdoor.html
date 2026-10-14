@@ -1,23 +1,23 @@
-        <!-- Exterior: the live readings only -->
-        <!--
-             The period averages that used to be here moved to Estadísticas,
-             next to the indoor ones: they answered a question about a range
-             selected on another part of the page.
-        -->
-        <div class="section-header">
-            <h2 class="section-title">
-                <span class="section-title-icon">🌤️</span>
-                Exterior
-            </h2>
-            <span class="sensor-badge" id="sensor-status-outdoor">⏳</span>
-        </div>
-        <div class="outdoor-grid">
-            <div class="outdoor-card">
-                <div class="metric-label">Temperatura</div>
-                <div class="metric-value" id="current-outdoor-temp">--<span class="metric-unit">°C</span></div>
+            <!-- Exterior: the live readings only -->
+            <!--
+                 A card inside the Ambiente row rather than a section of its
+                 own. The period averages that used to be here moved to
+                 Estadísticas, next to the indoor ones: they answered a question
+                 about a range selected on another part of the page.
+            -->
+            <div class="hero-card hero-outdoor">
+                <div class="hero-header">
+                    <div class="hero-label">🌤️ Exterior</div>
+                    <span class="sensor-badge" id="sensor-status-outdoor">⏳</span>
+                </div>
+                <div class="outdoor-pair">
+                    <div class="outdoor-reading">
+                        <div class="metric-label">Temperatura</div>
+                        <div class="metric-value" id="current-outdoor-temp">--<span class="metric-unit">°C</span></div>
+                    </div>
+                    <div class="outdoor-reading">
+                        <div class="metric-label">Humedad</div>
+                        <div class="metric-value" id="current-outdoor-humidity">--<span class="metric-unit">%</span></div>
+                    </div>
+                </div>
             </div>
-            <div class="outdoor-card">
-                <div class="metric-label">Humedad</div>
-                <div class="metric-value" id="current-outdoor-humidity">--<span class="metric-unit">%</span></div>
-            </div>
-        </div>

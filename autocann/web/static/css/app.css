@@ -484,15 +484,6 @@ body {
     color: var(--humidity-high);
 }
 
-.hero-card.hero-target .hero-value {
-    color: var(--accent-green);
-}
-
-.hero-card.hero-target {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.08) 100%);
-    border-color: var(--accent-green-dim);
-}
-
 /* Humidity Bar */
 .humidity-bar-container {
     margin-top: 16px;
@@ -699,21 +690,22 @@ body {
 .summary-stat-value.min { color: var(--temp-cool); }
 .summary-stat-value.max { color: var(--temp-hot); }
 
-/* Outdoor Section */
-.outdoor-grid {
+/* Outdoor: a card in the Ambiente row rather than a section of its own.
+   Inside and outside are read in one glance - the second is usually the reason
+   the first is drifting - and they used to be two stops apart on the page. */
+.hero-card.hero-outdoor {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.08) 100%);
+    border-color: rgba(20, 184, 166, 0.45);
+}
+
+.outdoor-pair {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 10px;
 }
 
-.outdoor-card {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.1) 100%);
-    border: 1px solid var(--accent-teal);
-    border-radius: 12px;
-    padding: 20px;
-}
-
-.outdoor-card .metric-label {
+.outdoor-reading .metric-label {
     color: var(--accent-teal);
 }
 
@@ -847,55 +839,49 @@ body {
 }
 
 .output-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.3em;
     font-weight: 600;
 }
 
+/* The lamp, before the word. "¿Qué relés están prendidos?" is answered from
+   across the room by which cards are lit, and reading three states off three
+   identically grey cards is not answering it. */
+.output-state::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: currentColor;
+}
+
 .output-state.on { color: var(--accent-green); }
-.output-state.off { color: var(--vpd-danger); }
+.output-state.off { color: var(--text-muted); }
 .output-state.unknown { color: var(--text-muted); }
 
-/* Paused */
-.pause-bar {
-    display: none;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 20px;
-    padding: 16px 20px;
-    border-radius: 12px;
-    /* Amber, not red: nothing is broken. Something is switched off on purpose
-       and must not be forgotten, which is a different thing to say. */
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid var(--vpd-adjusting);
+.output-state.on::before {
+    box-shadow: 0 0 12px var(--accent-green);
+    animation: pulse 2s infinite;
 }
 
-.pause-bar.show {
-    display: flex;
+/* Off is not a fault, so it is not red any more - it is simply quiet, and the
+   card recedes. Only the running ones are lit. */
+.output-card.is-on {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.12) 100%);
+    border-color: var(--accent-green-dim);
 }
 
-.pause-bar-icon {
-    font-size: 1.6em;
-}
-
-.pause-bar-content {
-    flex: 1;
-}
-
-.pause-bar-title {
-    font-weight: 600;
-    color: var(--vpd-adjusting);
-    margin-bottom: 2px;
-}
-
-.pause-bar-message {
+.output-card.is-off .output-name {
     color: var(--text-secondary);
-    font-size: 0.85em;
-    line-height: 1.5;
 }
 
-.pause-bar-message strong {
-    color: var(--text-primary);
+/* Nothing known about it at all: neither on nor off, which is a third thing. */
+.output-card.is-unknown {
+    border-style: dashed;
 }
 
 .output-card.is-manual {
@@ -2196,9 +2182,30 @@ body {
     color: var(--accent-green);
 }
 
+/* The banner that used to repeat this below the header is gone, so the chip is
+   the whole announcement and is sized like one: amber fill, amber border, and
+   a dot that keeps pulsing. Nothing but a person ends a pause, which is the
+   reason it has to stay loud for as long as it lasts. */
 .system-state.is-paused {
-    background: rgba(245, 158, 11, 0.12);
+    background: rgba(245, 158, 11, 0.16);
     border-color: var(--vpd-adjusting);
+    box-shadow: 0 0 0 1px var(--vpd-adjusting), 0 0 18px rgba(245, 158, 11, 0.25);
+}
+
+/* How long it has been - the one thing the banner said that a chip did not. */
+.system-state-since {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--vpd-adjusting);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.system-state-since:empty {
+    display: none;
 }
 
 .system-state.is-paused .system-state-text {
@@ -2206,10 +2213,11 @@ body {
     font-weight: 600;
 }
 
+/* Still pulsing, unlike before: a pause is a live state somebody has to come
+   back from, not a settled one. */
 .system-state.is-paused .status-dot {
     background: var(--vpd-adjusting);
-    box-shadow: none;
-    animation: none;
+    box-shadow: 0 0 10px var(--vpd-adjusting);
 }
 
 .system-state.is-paused:hover .system-state-action {
@@ -2249,9 +2257,12 @@ body {
    there to scroll it. Everything here is read, not filled in.
 */
 
+/* Riego on the left, the 24 h chart on the right: the tile is the only thing
+   on this screen anybody acts on, so it gets the first half of the reading
+   order, and the chart is the context that explains the relays above. */
 .panel-grid {
     display: grid;
-    grid-template-columns: 1.7fr 1fr;
+    grid-template-columns: minmax(300px, 1fr) 1.6fr;
     gap: 24px;
     align-items: start;
 }
@@ -2294,37 +2305,33 @@ body {
     margin-top: 12px;
 }
 
+/* Tight, but not touching: three stacked sections need a seam between them or
+   the relay row reads as part of the Ambiente grid above it. The first header
+   in the view keeps the zero top margin the rule further up gives it. */
 .view-panel .section-header {
-    margin: 0 0 12px 0;
+    margin: 20px 0 12px 0;
 }
 
 .view-panel .section-title {
     font-size: 1.1em;
 }
 
-/* Three relays across a narrow column rather than stacked: the state is two
-   words, and stacking them costs 200px of a screen that has none to give. */
+/* Across the full width rather than down a narrow column: which relays are
+   closed is one of the three things this screen exists to say, and it was
+   being answered in the margin. */
 .view-panel .outputs-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 12px;
+    margin-bottom: 20px;
 }
 
 .view-panel .output-card,
-.view-panel .outdoor-card,
 .view-panel .sensor-card {
     padding: 14px;
 }
 
-.view-panel .outdoor-grid {
-    gap: 12px;
-}
-
-.view-panel .outdoor-card .metric-value {
-    font-size: 1.6em;
-}
-
-.view-panel .sensors-note {
-    display: none;
+.view-panel .outdoor-reading .metric-value {
+    font-size: 1.5em;
 }
 
 .chart-container-panel {
@@ -2341,8 +2348,12 @@ body {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* The watering tile: how long it has been, and what today's plan asks for. */
+/* The watering tile: how long it has been, how much solution, and what goes
+   in it. Three slots saying three different things - the panel used to be full
+   of pairs of boxes saying one thing twice. */
 .panel-feed {
+    display: flex;
+    flex-direction: column;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--humidity-high);
@@ -2354,9 +2365,20 @@ body {
     border-left-color: var(--vpd-adjusting);
 }
 
+.panel-feed-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.panel-feed-since-block {
+    min-width: 0;
+}
+
 .panel-feed-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.9em;
+    font-size: 1.8em;
     font-weight: 700;
     line-height: 1;
     color: var(--humidity-high);
@@ -2369,16 +2391,123 @@ body {
 .panel-feed-label {
     color: var(--text-secondary);
     font-size: 0.85em;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
-.panel-feed-detail {
+/* The volume the doses below were scaled against, so the tile reads as one
+   instruction: "10 L, y en esos 10 L va esto". */
+.panel-feed-litres {
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.panel-feed-litres small {
+    margin-left: 2px;
+    font-size: 0.5em;
+    font-weight: 500;
     color: var(--text-muted);
-    font-size: 0.82em;
-    margin-top: 10px;
-    padding-top: 10px;
+}
+
+.panel-feed-doses {
+    margin: 14px 0 4px 0;
+    padding-top: 12px;
     border-top: 1px solid var(--border-color);
-    line-height: 1.4;
+}
+
+/* A chart with twelve products in a week would otherwise push the relays and
+   the chart off a wall screen entirely. Capped and scrollable: the tile keeps
+   the height the rest of the view was budgeted against, and the overflow is
+   one flick away rather than a page that got 400px taller overnight.
+
+   The padding is for the scrollbar, which otherwise sits on top of the last
+   column and eats the "/L" off every dose. */
+.view-panel .panel-feed-doses {
+    max-height: 210px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding-right: 6px;
+}
+
+/* Name, what to pour, dose per litre. The middle column is what gets measured
+   into the jug, so it is the one set in the monospace. */
+.panel-feed-dose {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 0;
+    font-size: 0.9em;
+}
+
+.panel-feed-dose + .panel-feed-dose {
+    border-top: 1px dashed var(--border-color);
+}
+
+.panel-feed-dose-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-feed-dose-total {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--accent-lime);
+}
+
+.panel-feed-dose-rate {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    color: var(--text-muted);
+}
+
+.panel-feed-note {
+    color: var(--text-secondary);
+    font-size: 0.86em;
+    line-height: 1.45;
+}
+
+.panel-feed-cta {
+    margin-top: 14px;
+    justify-content: center;
+    text-align: center;
+}
+
+/* Estado: three lines at the foot of the panel. The sensor cards they summarise
+   live in Sistema now, and the Sensores row is the link that goes there. */
+/* A footnote, not a section: denser than the rows in Sistema, because what it
+   is competing for space with is the answer to "¿cómo está la carpa?". */
+.health-strip {
+    margin-top: 16px;
+    gap: 6px;
+}
+
+.health-strip .health-row {
+    padding: 6px 12px;
+    font-size: 0.8em;
+}
+
+.health-row-link {
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.health-row-link:hover {
+    background: var(--bg-card-hover);
+    border-left-color: var(--accent-green);
+}
+
+.health-row-link .health-row-detail {
+    color: var(--text-muted);
+    text-align: right;
 }
 
 /* ===============================
@@ -2915,6 +3044,15 @@ body {
 
     .chart-wrapper-panel {
         height: 280px;
+    }
+
+    /* The cap exists to protect a fold that a single column does not have: a
+       phone is scrolled anyway, and a scroll region inside a scrolling page is
+       the worse of the two. */
+    .view-panel .panel-feed-doses {
+        max-height: none;
+        overflow-y: visible;
+        padding-right: 0;
     }
 }
 

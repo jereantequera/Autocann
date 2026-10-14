@@ -1,6 +1,6 @@
 import { apiGet } from './api.js';
 import { config } from './state.js';
-import { escapeHtml } from './util.js';
+import { doseAmount, escapeHtml, fmtDose, lastWateringLabel } from './util.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -36,17 +36,6 @@ function announce() {
     document.dispatchEvent(new CustomEvent('feeding:updated', {
         detail: { today, irrigations: history },
     }));
-}
-
-/** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
-function dose(value) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
-    return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
-}
-
-function amountLabel(item, litres) {
-    const total = (Number(item.dose) || 0) * (Number(litres) || 0);
-    return `${dose(Math.round(total * 10) / 10)} ${item.unit === 'g/L' ? 'g' : 'ml'}`;
 }
 
 function stageName(stage) {
@@ -93,8 +82,8 @@ function renderToday() {
         <div class="feed-dose-row">
             <span class="feed-dose-name">${escapeHtml(item.name)}</span>
             <span class="feed-dose-amount">
-                ${escapeHtml(amountLabel(item, litres))}
-                <small>${escapeHtml(dose(item.dose))} ${escapeHtml(item.unit)}</small>
+                ${escapeHtml(doseAmount(item, litres))}
+                <small>${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}</small>
             </span>
         </div>`).join('');
 }
@@ -131,11 +120,11 @@ function renderForm() {
                    aria-label="${escapeHtml(product.name)}">
             <span class="feed-product-name">
                 ${escapeHtml(product.name)}
-                <small>${planned ? `plan ${escapeHtml(dose(planned))} ${escapeHtml(product.unit)}`
+                <small>${planned ? `plan ${escapeHtml(fmtDose(planned))} ${escapeHtml(product.unit)}`
                                  : escapeHtml(product.unit)}</small>
             </span>
             <input type="number" class="feed-product-dose" min="0" step="0.5"
-                   inputmode="decimal" value="${planned ? dose(planned).replace(',', '.') : ''}"
+                   inputmode="decimal" value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
                    aria-label="Dosis de ${escapeHtml(product.name)}">
             <span class="feed-product-total"></span>
         </label>`;
@@ -156,7 +145,7 @@ function refreshTotals() {
 
         row.classList.toggle('on', active);
         total.textContent = active && product
-            ? amountLabel({ dose: value, unit: product.unit }, litres)
+            ? doseAmount({ dose: value, unit: product.unit }, litres)
             : '--';
     });
 }
@@ -200,12 +189,14 @@ function renderHistory() {
         return;
     }
 
-    if (badge) {
-        const last = new Date(`${history[0].date}T12:00:00`);
-        const days = Math.round((Date.now() - last.getTime()) / 86400000);
-        badge.textContent = days <= 0 ? 'regado hoy'
-            : `hace ${days} ${days === 1 ? 'día' : 'días'}`;
-        badge.classList.toggle('stale', days >= 4);
+    // The same helper the panel tile reads, so the two badges cannot disagree
+    // about how long it has been - they used to count from different hours of
+    // the day and cross over at different moments.
+    const since = lastWateringLabel(history[0].date);
+    if (badge && since) {
+        badge.textContent = since.days <= 0 ? 'regado hoy'
+            : `hace ${since.days} ${since.days === 1 ? 'día' : 'días'}`;
+        badge.classList.toggle('stale', since.stale);
     }
 
     box.innerHTML = history.map(entry => {
@@ -213,21 +204,21 @@ function renderHistory() {
         const items = (entry.items || []).map(item => `
             <span class="feed-pill${item.on_plan ? '' : ' off'}">
                 ${escapeHtml(item.name)}
-                ${escapeHtml(dose(item.dose))} ${escapeHtml(item.unit)}
-                · ${escapeHtml(amountLabel(item, entry.litres))}
+                ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
+                · ${escapeHtml(doseAmount(item, entry.litres))}
             </span>`).join('') || '<span class="feed-pill">Solo agua</span>';
 
         const measures = [
             entry.stage ? `${escapeHtml(stageName(entry.stage))} S${Number(entry.week) || '?'}` : '',
-            Number.isFinite(entry.ph) ? `pH ${escapeHtml(dose(entry.ph))}` : '',
-            Number.isFinite(entry.ec) ? `EC ${escapeHtml(dose(entry.ec))}` : '',
+            Number.isFinite(entry.ph) ? `pH ${escapeHtml(fmtDose(entry.ph))}` : '',
+            Number.isFinite(entry.ec) ? `EC ${escapeHtml(fmtDose(entry.ec))}` : '',
         ].filter(Boolean).map(text => `<span class="feed-tag">${text}</span>`).join('');
 
         return `
         <div class="feed-entry">
             <div class="feed-entry-head">
                 <span class="feed-entry-date">${escapeHtml(entry.date)}</span>
-                <span class="feed-entry-litres">${escapeHtml(dose(entry.litres))} L</span>
+                <span class="feed-entry-litres">${escapeHtml(fmtDose(entry.litres))} L</span>
             </div>
             <div class="feed-entry-tags">${measures}</div>
             <div class="feed-entry-items">${items}</div>
