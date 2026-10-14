@@ -67,8 +67,11 @@ function updateCurrentData(data) {
         fmtNum(data.temperature, 1) + '<span class="hero-unit">°C</span>';
     document.getElementById('current-humidity').innerHTML =
         fmtNum(data.humidity, 1) + '<span class="hero-unit">%</span>';
-    document.getElementById('current-target-humidity').innerHTML =
-        fmtNum(data.target_humidity, 1) + '<span class="hero-unit">%</span>';
+    // A line inside the humidity card, not a big number of its own: the '%'
+    // is in the template because the target is read as "objetivo 60%", not as
+    // a measurement in its own right.
+    document.getElementById('current-target-humidity').textContent =
+        fmtNum(data.target_humidity, 1);
     document.getElementById('current-vpd').innerHTML =
         fmtNum(data.leaf_vpd, 2) + '<span class="hero-unit">kPa</span>';
     document.getElementById('current-leaf-temp').textContent =
@@ -206,21 +209,29 @@ let testMode = { active: false };
 let offline = false;
 
 /**
- * How long the pause has lasted, in words.
+ * How long the pause has lasted, short enough to live inside the chip.
  *
- * Not formatDuration: that one describes time *left*, so it reads zero and
- * below as "no duration" and renders "--". Zero seconds of elapsed time is a
- * real answer - it means you just pressed the button - and "en pausa desde
- * hace --" reads like something failed to load.
+ * Not formatDuration on its own: that one describes time *left*, so it reads
+ * zero and below as "no duration" and renders "--". Zero seconds of elapsed
+ * time is a real answer - it means you just pressed the button - and a chip
+ * reading "--" looks like something failed to load.
  */
 function pausedFor(seconds) {
-    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'un momento';
-    if (seconds < 60) return 'menos de un minuto';
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'hace un rato';
+    if (seconds < 60) return 'recién';
     return formatDuration(seconds);
 }
 
 /**
- * The header chip, and the bar under it.
+ * The header chip, which is the whole announcement.
+ *
+ * There was a full-width amber banner under the header as well, repeating the
+ * chip in three more sentences on every view. Two elements saying one thing is
+ * how you end up reading neither, so the banner is gone and what it had that a
+ * chip did not - how long the pause has lasted, and that nothing but a person
+ * ends it - is in the chip and its tooltip. The chip is still impossible to
+ * miss while it lasts: it goes amber, keeps the dot pulsing, and is on every
+ * view because the header is.
  *
  * One renderer for two inputs, because one element cannot have two owners: a
  * backend that stopped answering and a controller that was paused are
@@ -232,18 +243,20 @@ function renderSystemState() {
     const dot = document.getElementById('system-state-dot');
     const text = document.getElementById('system-state-text');
     const action = document.getElementById('system-state-action');
-    const bar = document.getElementById('pause-bar');
     const elapsed = document.getElementById('pause-elapsed');
     if (!chip) return;
 
     const paused = !!testMode.active;
 
-    if (bar) bar.classList.toggle('show', paused && !offline);
-    if (elapsed) elapsed.textContent = pausedFor(testMode.elapsed_seconds);
-
     chip.classList.toggle('is-paused', paused && !offline);
     chip.classList.toggle('is-offline', offline);
     dot.classList.toggle('offline', offline);
+
+    // Empty rather than "--" when there is no pause to time: the span collapses
+    // and the chip goes back to being two words wide.
+    if (elapsed) {
+        elapsed.textContent = (paused && !offline) ? pausedFor(testMode.elapsed_seconds) : '';
+    }
 
     if (offline) {
         text.textContent = 'Sin conexión';
@@ -260,7 +273,9 @@ function renderSystemState() {
     text.textContent = paused ? 'Sistema en pausa' : 'Sistema activo';
     action.textContent = paused ? 'Reanudar' : 'Pausar';
     chip.title = paused
-        ? 'El lazo no está controlando la carpa'
+        ? 'El lazo no está controlando la carpa: los relés quedan donde los pongas '
+          + 'y no se guarda nada en el histórico. No se reanuda solo — sigue así '
+          + 'hasta que lo saques, incluso si se reinicia la Raspberry.'
         : 'Detener el control automático para trabajar en la carpa';
 }
 
@@ -305,8 +320,10 @@ function outputCardHtml(output, mode) {
         `;
     }
 
+    // The class, not just the text: the card itself lights up, which is what
+    // makes "¿qué relés están prendidos?" answerable without reading a word.
     return `
-        <div class="output-card ${mode.active ? 'is-manual' : ''}">
+        <div class="output-card is-${stateClass} ${mode.active ? 'is-manual' : ''}">
             <div class="output-header">
                 <div class="output-name">${label}</div>
                 <div class="output-pin">${pin}</div>
@@ -317,12 +334,38 @@ function outputCardHtml(output, mode) {
     `;
 }
 
+/**
+ * "2 de 3 encendidas", and never a bare tick.
+ *
+ * A count stays true when a fourth relay is wired in and nothing else is
+ * touched; an icon that means "fine" would have to be told what fine is.
+ */
+function renderOutputsBadge(outputs) {
+    const badge = document.getElementById('outputs-badge');
+    if (!badge) return;
+
+    if (!outputs.length) {
+        badge.className = 'sensor-badge';
+        badge.textContent = 'sin salidas';
+        return;
+    }
+    // Only the ones actually answering: a relay whose state is unknown is not
+    // an off relay, and counting it as one is how a stuck reading reads as calm.
+    const known = outputs.filter(o => typeof o.state === 'boolean');
+    const on = known.filter(o => o.state === true).length;
+    badge.className = on ? 'sensor-badge ok' : 'sensor-badge';
+    badge.textContent = known.length < outputs.length
+        ? `${on} de ${outputs.length} encendidas · ${outputs.length - known.length} sin estado`
+        : `${on} de ${outputs.length} encendidas`;
+}
+
 function updateOutputsStatus(payload) {
     const grid = document.getElementById('outputs-grid');
     const outputs = payload?.outputs || [];
 
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
+    renderOutputsBadge(outputs);
 
     if (!grid) return;
 

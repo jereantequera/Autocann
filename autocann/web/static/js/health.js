@@ -285,7 +285,15 @@ function renderHealth(health) {
     renderRow('loop', health.loop, LOOP_ICONS);
     renderRow('history', health.history, HISTORY_ICONS);
 
-    setBadge('sensors-badge', sensorsBadge(health.sensors));
+    // Two places, one computation: the section badge over the cards in Sistema
+    // and the Sensores row of the panel's Estado strip. The cards moved off the
+    // panel, so that row is all it says about them - it must not be able to say
+    // something the cards contradict.
+    const sensors = sensorsBadge(health.sensors);
+    setBadge('sensors-badge', sensors);
+    const strip = document.getElementById('health-sensors-state');
+    if (strip) strip.textContent = sensors.text;
+
     setBadge('sensor-status-indoor', heroBadge(health));
 
     const outdoor = health.outdoor || {};

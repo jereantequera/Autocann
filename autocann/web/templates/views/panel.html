@@ -1,20 +1,36 @@
         <!-- Panel: the view that stays on screen -->
         <!--
-             Everything here answers one question — what is the tent doing right
-             now — and nothing here is a form or a button. It is laid out to fit
-             a 1080p screen without scrolling, because the tablet on the tent
-             wall has nobody there to scroll it.
+             Three questions, in the order they get asked from the doorway, and
+             nothing else: cómo está el ambiente, qué relés están prendidos, con
+             qué hay que regar hoy. Each is a section, top to bottom, so the
+             answer to any of them is found by looking at one band of the screen
+             instead of hunting two columns for it.
+
+             Nothing here is a form, and the order is the budget: the tablet on
+             the tent wall has nobody there to scroll it, so the two bands that
+             answer "cómo está" and "qué está prendido" are the ones guaranteed
+             above the fold on a 1080p screen, with the watering tile and the
+             24 h chart right under them. What used to live here and no longer
+             does: the six sensor diagnostic cards (now in Sistema, behind the
+             Estado strip at the bottom) and the pause banner (now the chip in
+             the header, which was already saying the same thing).
         -->
         <section class="view view-panel" data-view="panel" aria-label="Panel de control">
 {% include "partials/hero.html" %}
 
+{% include "partials/outputs.html" %}
+
             <!--
-                 What moves by the second on the left, the state of the
-                 installation on the right. Four things, where there used to be
-                 six: pausing the loop and logging a watering are in the header
-                 now, reachable from every view, and this screen is for reading.
+                 Lo de hoy a la izquierda, lo de ayer a la derecha: el riego es
+                 lo único de esta pantalla sobre lo que se actúa, así que va
+                 primero en el orden de lectura, y las 24 horas son el contexto
+                 que explica por qué los relés están donde están.
             -->
             <div class="panel-grid">
+                <div class="panel-col panel-col-side">
+{% include "partials/today-feed.html" %}
+                </div>
+
                 <div class="panel-col">
                     <div class="chart-container chart-container-panel">
                         <div class="chart-header">
@@ -26,13 +42,7 @@
                         </div>
                     </div>
 
-{% include "partials/sensors.html" %}
-                </div>
-
-                <div class="panel-col panel-col-side">
-{% include "partials/outputs.html" %}
-
-{% include "partials/outdoor.html" %}
+{% include "partials/health-strip.html" %}
                 </div>
             </div>
         </section>
