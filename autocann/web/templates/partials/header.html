@@ -1,15 +1,27 @@
         <!-- Header -->
         <!--
-             The two things anyone does from anywhere in the app live here, next
-             to the logo, on every view: stop the controller, and log a
-             watering. Both used to be buried - the first behind a ghost button
-             halfway down the panel, the second at the bottom of a tab.
+             Everything that is true of the whole app rather than of one view:
+             which grow this is, whether the controller is in charge, and the
+             two things anyone does from anywhere - stop the loop, log a
+             watering. Both of those used to be buried: the first behind a
+             ghost button halfway down the panel, the second at the bottom of a
+             tab.
+
+             The grow context used to be a card of its own under the tabs. It
+             was never navigation and never a control - it is the sentence the
+             rest of the screen is read inside, because every number in the app
+             means something different in week two of flowering than in week
+             two of veg - and a full-width card was a lot of room for a
+             sentence. Up here it sits beside the state of the system, which is
+             the other thing that is true everywhere.
         -->
         <header class="header">
             <div class="logo">
                 <div class="logo-icon">🌿</div>
                 <h1>Auto<span>cann</span></h1>
             </div>
+{% include "partials/growbar.html" %}
+
             <div class="header-right">
                 <!--
                      A button, not a label. It said "Sistema Activo" and meant

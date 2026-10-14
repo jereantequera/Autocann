@@ -19,13 +19,13 @@
 {% include "partials/nav.html" %}
 
         <!--
-             Alerts and the grow bar sit outside the views on purpose. A tent in
-             trouble is worth knowing about while you are editing the feed chart,
-             and every view is read in the context of which grow and which stage
-             this is.
+             Alerts sit outside the views on purpose: a tent in trouble is worth
+             knowing about while you are editing the feed chart. The grow
+             context used to be here too, for the same reason, and for that
+             reason it is in the header now - which is already on every view and
+             already carries the other thing that is true everywhere.
         -->
 {% include "partials/alerts.html" %}
-{% include "partials/growbar.html" %}
 
         <main class="views">
 {% include "views/panel.html" %}

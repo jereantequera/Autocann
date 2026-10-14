@@ -104,7 +104,18 @@ body {
 .header-right {
     display: flex;
     align-items: center;
+    /* Shrinkable, not fixed: on a phone this group wraps onto its own lines,
+       and `0 0 auto` pinned it at the width of the chip plus the button side
+       by side, which then hung off both edges of the screen. */
+    flex: 0 1 auto;
+    min-width: 0;
     gap: 20px;
+}
+
+/* The logo does not shrink, and does not need to: the thing with slack in this
+   row is the grow name, which has an ellipsis. */
+.logo {
+    flex: 0 0 auto;
 }
 
 .status-indicator {
@@ -166,28 +177,32 @@ body {
 .sensor-alert-message { opacity: 0.9; font-size: 0.95em; }
 
 /* Grow Control Bar */
+/* In the header now, so it is a strip rather than a card: no background, no
+   border, no row of its own. It was never navigation and never a control -
+   it is the sentence the rest of the screen is read inside - and a full-width
+   card was a lot of room for a sentence. */
 .grow-bar {
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px 24px;
-    margin-bottom: 20px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 16px;
+    padding: 0 24px;
 }
 
 .grow-info {
     display: flex;
     align-items: center;
-    gap: 16px;
+    min-width: 0;
+    gap: 10px;
 }
 
 .grow-name {
-    font-size: 1.2em;
+    font-size: 1em;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .grow-stage {
@@ -1618,8 +1633,9 @@ body {
 .stage-progress {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-width: 170px;
+    gap: 8px;
+    flex: 0 1 140px;
+    min-width: 90px;
 }
 
 .stage-progress-bar {
@@ -2255,6 +2271,10 @@ body {
 .system-state {
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
+    /* Two words, on one line. Wrapped, the chip grows a second row and pushes
+       the header taller than everything beside it. */
+    white-space: nowrap;
     gap: 8px;
     padding: 8px 14px;
     background: var(--bg-card);
@@ -2298,25 +2318,30 @@ body {
     color: var(--accent-green);
 }
 
-/* The banner that used to repeat this below the header is gone, so the chip is
-   the whole announcement and is sized like one: amber fill, amber border, and
-   a dot that keeps pulsing. Nothing but a person ends a pause, which is the
-   reason it has to stay loud for as long as it lasts. */
+/* Amber, and that is all it needs to be.
+   
+   It was louder than this - a fill, a doubled border and a glow, with the dot
+   pulsing - on the argument that the chip is the only announcement now that
+   the banner is gone, so it had to carry the whole weight of one. The argument
+   held for about a day. These states last: this tent has been stopped for two
+   of them on purpose, and a glowing, pulsing chip in the corner of every view
+   for two days is not a warning any more, it is wallpaper you learn to look
+   past. Quiet and unmistakably amber beats loud and ignored.
+   
+   What still does the work is that nothing else in the header is this colour,
+   it says how long it has been, and the verb to end it is right there. */
 .system-state.is-paused {
-    background: rgba(245, 158, 11, 0.16);
-    border-color: var(--vpd-adjusting);
-    box-shadow: 0 0 0 1px var(--vpd-adjusting), 0 0 18px rgba(245, 158, 11, 0.25);
+    background: rgba(245, 158, 11, 0.09);
+    border-color: rgba(245, 158, 11, 0.5);
 }
 
-/* How long it has been - the one thing the banner said that a chip did not. */
+/* How long it has been - the one thing the banner said that a chip did not.
+   Set in the muted text rather than in the state's own colour: it is the
+   detail you read after the two words, not a second alarm beside them. */
 .system-state-since {
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(245, 158, 11, 0.2);
-    color: var(--vpd-adjusting);
+    color: var(--text-muted);
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.82em;
-    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -2329,11 +2354,12 @@ body {
     font-weight: 600;
 }
 
-/* Still pulsing, unlike before: a pause is a live state somebody has to come
-   back from, not a settled one. */
+/* Not pulsing. A blinking light is for something that just happened and needs
+   answering; this is a state somebody chose and is living in. */
 .system-state.is-paused .status-dot {
     background: var(--vpd-adjusting);
-    box-shadow: 0 0 10px var(--vpd-adjusting);
+    box-shadow: none;
+    animation: none;
 }
 
 .system-state.is-paused:hover .system-state-action {
@@ -2345,9 +2371,8 @@ body {
    tent stopped with its hands in the works. Still lit, still pulsing - it is
    not a resting state and nothing but a person ends it. */
 .system-state.is-monitor {
-    background: rgba(20, 184, 166, 0.16);
-    border-color: var(--accent-teal);
-    box-shadow: 0 0 0 1px var(--accent-teal), 0 0 18px rgba(20, 184, 166, 0.22);
+    background: rgba(20, 184, 166, 0.09);
+    border-color: rgba(20, 184, 166, 0.5);
 }
 
 .system-state.is-monitor .system-state-text {
@@ -2357,12 +2382,8 @@ body {
 
 .system-state.is-monitor .status-dot {
     background: var(--accent-teal);
-    box-shadow: 0 0 10px var(--accent-teal);
-}
-
-.system-state.is-monitor .system-state-since {
-    background: rgba(20, 184, 166, 0.2);
-    color: var(--accent-teal);
+    box-shadow: none;
+    animation: none;
 }
 
 .system-state.is-monitor:hover .system-state-action {
@@ -2467,6 +2488,43 @@ body {
     font-size: 0.72em;
     font-weight: 700;
     text-align: center;
+}
+
+/* The header's grow strip gives up its pieces in order of how little each is
+   missed. Name, stage and the day inside the stage are the sentence and stay;
+   the day of the whole grow and the progress bar are detail the Cultivo view
+   carries in full. */
+@media (max-width: 1500px) {
+    .header .stage-progress {
+        display: none;
+    }
+}
+
+@media (max-width: 1240px) {
+    .header .grow-day {
+        display: none;
+    }
+}
+
+@media (max-width: 1080px) {
+    .header .last-update {
+        display: none;
+    }
+}
+
+/* Below this the row cannot hold three groups, so the grow context takes a
+   line of its own under the logo and the controls rather than being squeezed
+   to an ellipsis and two chips. */
+@media (max-width: 920px) {
+    .header {
+        flex-wrap: wrap;
+    }
+
+    .header .grow-bar {
+        order: 3;
+        flex-basis: 100%;
+        padding: 10px 0 0 0;
+    }
 }
 
 /* ===============================
