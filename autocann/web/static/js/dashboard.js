@@ -116,8 +116,17 @@ function updateCurrentData(data) {
         vpdHint.textContent = '';
     }
     
-    document.getElementById('last-update').textContent = 
-        `Actualizado: ${new Date().toLocaleString('es-AR', { hour12: false })}`;
+    // The time, and nothing else. It read "Actualizado: 14/10/2026, 17:26:38",
+    // which is a date you already know, to a precision nobody reads, in the
+    // corner of a row that was already too full. What it is for is answering
+    // "is this live?" at a glance; the full stamp is in the tooltip for the
+    // rare time that is the actual question.
+    const now = new Date();
+    const stamp = document.getElementById('last-update');
+    stamp.textContent = now.toLocaleTimeString('es-AR', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    stamp.title = `Última actualización: ${now.toLocaleString('es-AR', { hour12: false })}`;
 }
 
 // El estado de los sensores -y el de todo lo demas- vive en health.js, que
@@ -213,17 +222,22 @@ let testMode = { active: false };
 let offline = false;
 
 /**
- * How long the pause has lasted, short enough to live inside the chip.
+ * How long it has been, in one token.
  *
- * Not formatDuration on its own: that one describes time *left*, so it reads
- * zero and below as "no duration" and renders "--". Zero seconds of elapsed
- * time is a real answer - it means you just pressed the button - and a chip
- * reading "--" looks like something failed to load.
+ * Not formatDuration: that one spells out "44 h 32 min", and the minutes are
+ * noise on a state that has lasted two days - this is read to know roughly how
+ * long, never to the minute. It also describes time *left*, so it reads zero
+ * and below as "no duration" and renders "--", when zero seconds of elapsed
+ * time is a real answer: it means you just pressed the button.
  */
 function pausedFor(seconds) {
     if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'hace un rato';
     if (seconds < 60) return 'recién';
-    return formatDuration(seconds);
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours} h`;
+    return `${Math.floor(hours / 24)} d`;
 }
 
 /**

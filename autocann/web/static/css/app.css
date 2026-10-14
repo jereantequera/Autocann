@@ -2490,20 +2490,45 @@ body {
     text-align: center;
 }
 
-/* The header's grow strip gives up its pieces in order of how little each is
-   missed. Name, stage and the day inside the stage are the sentence and stay;
-   the day of the whole grow and the progress bar are detail the Cultivo view
-   carries in full. */
-@media (max-width: 1500px) {
-    .header .stage-progress {
-        display: none;
-    }
+/* In the header the grow is a sentence, not a row of badges.
+   
+   It arrived here as four bordered boxes - a pill for the stage, a pill for the
+   day in the stage, a pill for the day of the grow, a progress bar with an
+   estimated end - next to a bordered chip, a button and a full timestamp. Seven
+   outlined things in one row, and the one piece that actually says which grow
+   this is was the piece getting truncated to "Blue ...". That is a header you
+   stop reading.
+   
+   So the boxes go and the words stay: name, stage in its own colour, day. The
+   day of the whole grow, the progress bar and the estimated end are not gone,
+   they are in Cultivo, which is the screen for how the grow is going. */
+.header .grow-stage {
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
 }
 
-@media (max-width: 1240px) {
-    .header .grow-day {
-        display: none;
-    }
+.header .stage-day {
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.header .stage-day.overdue {
+    color: var(--vpd-adjusting);
+}
+
+.header .grow-day,
+.header .stage-progress {
+    display: none;
+}
+
+/* The name is the piece worth the room, so it is the last to give any up. */
+.header .grow-name {
+    flex: 0 1 auto;
 }
 
 @media (max-width: 1080px) {
