@@ -13,6 +13,7 @@
             <div class="form-group">
                 <label class="form-label" for="newGrowStage">Etapa Inicial</label>
                 <select id="newGrowStage" class="form-control">
+                    <option value="seedling">Plántula</option>
                     <option value="early_veg">Vegetativo Temprano</option>
                     <option value="late_veg">Vegetativo Tardío</option>
                     <option value="flowering">Floración</option>
@@ -26,6 +27,61 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" data-action="close-modal" data-modal="newGrowModal">Cancelar</button>
                 <button class="btn btn-primary" data-action="create-grow">Crear Cultivo</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
+         Two ways to stand the controller down, and they are not the same
+         request. A confirmDialog() cannot ask this: it has one button and a
+         cancel, and what is being chosen here is *which* stop — so the two
+         live side by side with their consequences written out, because the
+         difference between them is exactly what somebody has to understand
+         before pressing one.
+
+         There is no third button for "keep controlling": that is Cancelar.
+    -->
+    <div id="stopModeModal" class="modal" role="dialog" aria-modal="true"
+         aria-labelledby="stop-mode-title">
+        <div class="modal-content">
+            <div class="modal-header" id="stop-mode-title">Dejar de controlar la carpa</div>
+            <p class="modal-intro">
+                En las dos el lazo deja de decidir, y ninguna se reanuda sola:
+                siguen así hasta que las saques, aunque se reinicie la Raspberry.
+                Lo que cambia es qué pasa con los relés y con el histórico.
+            </p>
+
+            <div class="stop-modes">
+                <button type="button" class="stop-mode" data-action="enter-monitor">
+                    <span class="stop-mode-icon" aria-hidden="true">◍</span>
+                    <span class="stop-mode-body">
+                        <span class="stop-mode-name">Monitoreo</span>
+                        <span class="stop-mode-detail">
+                            Nada se enciende y <strong>el histórico se sigue
+                            guardando</strong>. Para una carpa armada pero sin
+                            plantas: lo que hace la pieza sola es la línea de
+                            base que después vas a querer tener.
+                        </span>
+                    </span>
+                </button>
+
+                <button type="button" class="stop-mode" data-action="enter-pause">
+                    <span class="stop-mode-icon" aria-hidden="true">⏸️</span>
+                    <span class="stop-mode-body">
+                        <span class="stop-mode-name">Pausa</span>
+                        <span class="stop-mode-detail">
+                            Los relés quedan donde vos los pongas a mano y
+                            <strong>no se guarda nada</strong>. Para trabajar en
+                            la instalación, donde lo que se mediría es tu mano
+                            sobre el sensor.
+                        </span>
+                    </span>
+                </button>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" data-action="close-modal"
+                        data-modal="stopModeModal">Cancelar</button>
             </div>
         </div>
     </div>
@@ -63,6 +119,7 @@
             <div class="form-group">
                 <label class="form-label" for="newStage">Nueva Etapa</label>
                 <select id="newStage" class="form-control">
+                    <option value="seedling">Plántula</option>
                     <option value="early_veg">Vegetativo Temprano</option>
                     <option value="late_veg">Vegetativo Tardío</option>
                     <option value="flowering">Floración</option>

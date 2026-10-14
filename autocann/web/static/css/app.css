@@ -199,6 +199,7 @@ body {
     letter-spacing: 0.5px;
 }
 
+.grow-stage.seedling { background: rgba(20, 184, 166, 0.2); color: var(--accent-teal); }
 .grow-stage.early_veg { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
 .grow-stage.late_veg { background: rgba(132, 204, 22, 0.2); color: var(--accent-lime); }
 .grow-stage.flowering { background: rgba(244, 114, 182, 0.2); color: #f472b6; }
@@ -1963,6 +1964,7 @@ body {
     white-space: nowrap;
 }
 
+.feed-col.seedling { color: var(--accent-teal); }
 .feed-col.early_veg, .feed-col.late_veg { color: var(--accent-lime); }
 .feed-col.flowering { color: #c084fc; }
 .feed-col.dry { color: var(--temp-warm); }
@@ -2336,6 +2338,109 @@ body {
 
 .system-state.is-paused:hover .system-state-action {
     color: var(--vpd-adjusting);
+}
+
+/* Monitoring is teal, not amber: the tent is unattended either way, but one of
+   these is somebody deliberately watching an empty room and the other is a
+   tent stopped with its hands in the works. Still lit, still pulsing - it is
+   not a resting state and nothing but a person ends it. */
+.system-state.is-monitor {
+    background: rgba(20, 184, 166, 0.16);
+    border-color: var(--accent-teal);
+    box-shadow: 0 0 0 1px var(--accent-teal), 0 0 18px rgba(20, 184, 166, 0.22);
+}
+
+.system-state.is-monitor .system-state-text {
+    color: var(--accent-teal);
+    font-weight: 600;
+}
+
+.system-state.is-monitor .status-dot {
+    background: var(--accent-teal);
+    box-shadow: 0 0 10px var(--accent-teal);
+}
+
+.system-state.is-monitor .system-state-since {
+    background: rgba(20, 184, 166, 0.2);
+    color: var(--accent-teal);
+}
+
+.system-state.is-monitor:hover .system-state-action {
+    color: var(--accent-teal);
+}
+
+/* The two ways to stand the controller down, side by side with what each one
+   does. Buttons, not radios: there is nothing to submit afterwards - pressing
+   one is the decision. */
+.modal-intro {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.stop-modes {
+    display: grid;
+    gap: 12px;
+}
+
+.stop-mode {
+    display: flex;
+    gap: 14px;
+    width: 100%;
+    padding: 16px;
+    text-align: left;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1em;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.stop-mode:hover,
+.stop-mode:focus-visible {
+    background: var(--bg-card-hover);
+    border-color: var(--border-accent);
+}
+
+.stop-mode:first-child:hover,
+.stop-mode:first-child:focus-visible {
+    border-color: var(--accent-teal);
+}
+
+.stop-mode:last-child:hover,
+.stop-mode:last-child:focus-visible {
+    border-color: var(--vpd-adjusting);
+}
+
+.stop-mode-icon {
+    flex: 0 0 auto;
+    font-size: 1.5em;
+    line-height: 1.2;
+}
+
+.stop-mode-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.stop-mode-name {
+    font-weight: 600;
+}
+
+.stop-mode-detail {
+    color: var(--text-secondary);
+    font-size: 0.86em;
+    line-height: 1.45;
+}
+
+.stop-mode-detail strong {
+    color: var(--text-primary);
 }
 
 .system-state.is-offline {

@@ -17,7 +17,7 @@ import { escapeHtml } from './util.js';
 
 function showNewGrowModal() {
     document.getElementById('newGrowName').value = '';
-    document.getElementById('newGrowStage').value = 'early_veg';
+    document.getElementById('newGrowStage').value = 'seedling';
     document.getElementById('newGrowNotes').value = '';
     showModal('newGrowModal');
 }

@@ -140,6 +140,34 @@ function doseAmount(item, litres) {
     return `${fmtDose(Math.round(total * 10) / 10)} ${item?.unit === 'g/L' ? 'g' : 'ml'}`;
 }
 
+/**
+ * Qué decir cuando la grilla no lleva nutrientes esta semana.
+ *
+ * El backend manda el motivo y no un sí/no, porque las dos semanas vacías del
+ * plan se riegan igual y se explican distinto: la plántula todavía no come, el
+ * lavado ya no. Decía «semana de lavado» en las dos.
+ *
+ * @param {?string} reason  `water_only` de /api/feeding/today
+ * @returns {?{badge: string, text: string}}  null cuando sí hay algo que dar
+ */
+function waterOnlyNote(reason) {
+    if (reason === 'seedling') {
+        return {
+            badge: '💧 solo agua',
+            text: 'Plántula: el plan no lleva nutrientes todavía. '
+                + 'Regá con agua sola y el pH corregido.',
+        };
+    }
+    if (reason === 'flush') {
+        return {
+            badge: '💧 lavado',
+            text: 'Semana de lavado: el plan no lleva nutrientes. '
+                + 'Regá con agua sola y el pH corregido.',
+        };
+    }
+    return null;
+}
+
 /** Days before an unwatered tent is worth saying out loud. */
 const STALE_AFTER_DAYS = 4;
 
@@ -267,5 +295,5 @@ export {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
     formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
     outputPinLabel, relaySourceLabel,
-    STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel,
+    STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel, waterOnlyNote,
 };

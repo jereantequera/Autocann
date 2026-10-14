@@ -3,6 +3,7 @@ import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } fro
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
+    enterMonitorMode, enterTestMode,
     fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
     fetchPeriodSummary, setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
 } from './dashboard.js';
@@ -151,7 +152,12 @@ const ACTIONS = {
     // There used to be a second one - the banner's own Reanudar button - which
     // went away with the banner: a state with two ways out is two things to
     // keep in step for no gain.
+    //
+    // Stopping forks, so the chip opens the dialog that asks which way; these
+    // two are its buttons, and they are the only way into either state.
     'toggle-pause': toggleTestMode,
+    'enter-monitor': enterMonitorMode,
+    'enter-pause': enterTestMode,
     'test-output': setTestOutput,
 };
 

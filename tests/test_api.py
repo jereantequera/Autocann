@@ -5,6 +5,7 @@ import json
 import pytest
 
 from autocann.config import GpioPins, RelayNode, RelayNodePins
+from autocann.control.vpd_math import STAGES
 from autocann.hardware.outputs import manual_override_key, output_names, parse_bool_flag
 
 # FakeRedis y la fixture `client` viven en conftest.py: las usa también
@@ -149,6 +150,33 @@ def test_grow_lifecycle_through_the_api(client):
 )
 def test_grow_creation_validates_its_input(client, payload, status):
     assert client.post("/api/grows", json=payload).status_code == status
+
+
+@pytest.mark.parametrize("stage", list(STAGES))
+def test_every_stage_the_model_knows_can_be_set_on_a_grow(client, stage):
+    """
+    Both endpoints used to carry their own copy of the list, so a stage added
+    to vpd_math.py was rejected by the API that is supposed to serve it — and
+    the error said "Invalid stage" about a stage the dashboard had just offered.
+    """
+    created = client.post("/api/grows", json={"name": f"Cultivo {stage}", "stage": stage})
+    assert created.status_code == 201, created.get_json()
+    grow_id = created.get_json()["grow_id"]
+    assert client.put(f"/api/grows/{grow_id}/stage", json={"stage": stage}).status_code == 200
+
+
+def test_the_config_endpoint_describes_every_stage(client):
+    """
+    The dashboard draws the stage badge, the VPD band and the chart markers
+    from this payload; a stage missing from it renders as its own identifier.
+    """
+    payload = client.get("/api/config").get_json()
+    assert list(payload["stages"]) == list(STAGES)
+    assert set(payload["stage_names"]) == set(STAGES)
+    assert set(payload["vpd_ranges"]) == set(STAGES)
+    assert payload["stage_names"]["seedling"] == "Plántula"
+    # Wetter than early veg, which is the reason the stage exists.
+    assert payload["vpd_ranges"]["seedling"]["max"] < payload["vpd_ranges"]["early_veg"]["max"]
 
 
 # ---------------------------------------------------------------------------

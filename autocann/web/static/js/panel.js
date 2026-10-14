@@ -10,7 +10,7 @@
 import { apiGet } from './api.js';
 import { updatePanelChart } from './charts.js';
 import { config } from './state.js';
-import { doseAmount, escapeHtml, fmtDose, lastWateringLabel } from './util.js';
+import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
 
 /** Fixed, deliberately: a wall screen has nobody to pick a range on it. */
 const PANEL_HOURS = 24;
@@ -49,7 +49,9 @@ function stageName(stage) {
 /** What kind of week this is, in two words, for the section badge. */
 function planBadge(today) {
     if (!today) return { text: '⏳', state: '' };
-    if (today.flush) return { text: '💧 lavado', state: '' };
+
+    const waterOnly = waterOnlyNote(today.water_only);
+    if (waterOnly) return { text: waterOnly.badge, state: '' };
 
     const count = (today.items || []).length;
     if (!count) return { text: 'plan vacío', state: 'stale' };
@@ -67,12 +69,9 @@ function planBadge(today) {
 function dosesHtml(today) {
     if (!today) return '<div class="loading">Cargando plan</div>';
 
-    if (today.flush) {
-        return `
-            <div class="panel-feed-note">
-                Semana de lavado: el plan no lleva nutrientes.
-                Regá con agua sola y el pH corregido.
-            </div>`;
+    const waterOnly = waterOnlyNote(today.water_only);
+    if (waterOnly) {
+        return `<div class="panel-feed-note">${escapeHtml(waterOnly.text)}</div>`;
     }
     if (!(today.items || []).length) {
         return `

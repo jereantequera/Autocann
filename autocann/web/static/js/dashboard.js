@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
-import { alertDialog, confirmDialog, toast } from './modals.js';
-import { config, state } from './state.js';
+import { alertDialog, closeModal, showModal, toast } from './modals.js';
+import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, config, state } from './state.js';
 import {
     escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
     withGrow,
@@ -250,16 +250,21 @@ function renderSystemState() {
     const elapsed = document.getElementById('pause-elapsed');
     if (!chip) return;
 
-    const paused = !!testMode.active;
+    // A tent that is not being controlled is still not being controlled when
+    // the mode is one this build does not recognise, so anything unknown reads
+    // as stopped rather than as running.
+    const stopped = !!testMode.active;
+    const monitoring = stopped && testMode.mode === MODE_MONITOR;
 
-    chip.classList.toggle('is-paused', paused && !offline);
+    chip.classList.toggle('is-paused', stopped && !monitoring && !offline);
+    chip.classList.toggle('is-monitor', monitoring && !offline);
     chip.classList.toggle('is-offline', offline);
     dot.classList.toggle('offline', offline);
 
-    // Empty rather than "--" when there is no pause to time: the span collapses
+    // Empty rather than "--" when there is nothing to time: the span collapses
     // and the chip goes back to being two words wide.
     if (elapsed) {
-        elapsed.textContent = (paused && !offline) ? pausedFor(testMode.elapsed_seconds) : '';
+        elapsed.textContent = (stopped && !offline) ? pausedFor(testMode.elapsed_seconds) : '';
     }
 
     if (offline) {
@@ -274,13 +279,20 @@ function renderSystemState() {
     }
 
     chip.disabled = false;
-    text.textContent = paused ? 'Sistema en pausa' : 'Sistema activo';
-    action.textContent = paused ? 'Reanudar' : 'Pausar';
-    chip.title = paused
-        ? 'El lazo no está controlando la carpa: los relés quedan donde los pongas '
-          + 'y no se guarda nada en el histórico. No se reanuda solo — sigue así '
-          + 'hasta que lo saques, incluso si se reinicia la Raspberry.'
-        : 'Detener el control automático para trabajar en la carpa';
+    // The verb is what pressing it does, which is why both stopped states share
+    // one: from either, the chip hands the tent back to the controller.
+    text.textContent = monitoring ? 'Monitoreo'
+        : stopped ? 'Sistema en pausa' : 'Sistema activo';
+    action.textContent = stopped ? 'Controlar' : 'Detener';
+    chip.title = monitoring
+        ? 'El lazo no está controlando la carpa y nada se enciende, pero el '
+          + 'histórico se sigue guardando. No se reanuda solo — sigue así hasta '
+          + 'que lo saques, incluso si se reinicia la Raspberry.'
+        : stopped
+            ? 'El lazo no está controlando la carpa: los relés quedan donde los pongas '
+              + 'y no se guarda nada en el histórico. No se reanuda solo — sigue así '
+              + 'hasta que lo saques, incluso si se reinicia la Raspberry.'
+            : 'Dejar de controlar: monitoreo, o pausa para trabajar en la carpa';
 }
 
 document.addEventListener('connection:changed', event => {
@@ -395,41 +407,67 @@ function updateOutputsStatus(payload) {
     grid.innerHTML = outputs.map(o => outputCardHtml(o, testMode)).join('');
 }
 
-async function enterTestMode() {
-    // Said plainly because it is now true: nothing ends this but a person.
-    const confirmed = await confirmDialog({
-        title: 'Pausar el control de la carpa',
-        message: 'El lazo deja de controlar: los relés van a quedar donde vos los '
-            + 'pongas y no se va a guardar nada en el histórico.\n\n'
-            + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
-            + 'reinicie la Raspberry.',
-        confirmLabel: 'Pausar el sistema',
-    });
-    if (!confirmed) return;
+/**
+ * How each stopped state announces itself once it has been entered.
+ *
+ * Monitoring is not an error, so it does not get the red toast a pause does:
+ * one is somebody stopping the tent to work on it, the other is somebody
+ * deliberately watching a room that has nothing in it yet.
+ */
+const STOP_TOASTS = {
+    [MODE_MONITOR]: ['Monitoreo: nada se enciende, el histórico sigue', { kind: 'ok' }],
+    [MODE_PAUSED]: ['Sistema en pausa', { kind: 'error' }],
+};
 
-    const result = await apiPost('/api/test-mode', { enabled: true });
+/**
+ * Ask which way to stop.
+ *
+ * Not a confirmDialog: that one has a button and a cancel, and the question
+ * here is *which* stop. The modal puts the two side by side with what each
+ * does to the relays and to the history, because that difference is the whole
+ * reason there are two.
+ */
+function askHowToStop() {
+    showModal('stopModeModal');
+}
+
+async function setMode(mode) {
+    const result = await apiPost('/api/test-mode', { mode });
     if (!result.ok) {
-        await alertDialog({ title: 'No se pudo pausar', message: result.error });
+        await alertDialog({ title: 'No se pudo cambiar el estado', message: result.error });
         return;
     }
-    toast('Sistema en pausa', { kind: 'error' });
+    const [message, options] = STOP_TOASTS[mode] || ['Control automático de vuelta', {}];
+    toast(message, options);
     fetchOutputsStatus();
+}
+
+async function enterMonitorMode() {
+    closeModal('stopModeModal');
+    await setMode(MODE_MONITOR);
+}
+
+async function enterTestMode() {
+    closeModal('stopModeModal');
+    await setMode(MODE_PAUSED);
 }
 
 async function exitTestMode() {
-    const result = await apiPost('/api/test-mode', { enabled: false });
-    if (!result.ok) {
-        await alertDialog({ title: 'No se pudo reanudar', message: result.error });
-        return;
-    }
-    toast('Control automático de vuelta');
-    fetchOutputsStatus();
+    await setMode(MODE_ACTIVE);
 }
 
-/** The header chip: one control, so which way it goes depends on the state. */
+/**
+ * The header chip.
+ *
+ * Asymmetric on purpose. Stopping is a fork - monitoring or pause - so it opens
+ * the modal that asks which. Going back to control is one thing, so it is one
+ * click: the dialog on the way in is where the consequences were explained,
+ * and asking again on the way out would be asking somebody to confirm that
+ * they want their tent looked after.
+ */
 function toggleTestMode() {
     if (testMode.active) exitTestMode();
-    else enterTestMode();
+    else askHowToStop();
 }
 
 async function setTestOutput(trigger) {
@@ -515,5 +553,6 @@ function renderGrowScopeNote(payload) {
 export {
     updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData,
     fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData, renderGrowScopeNote,
-    enterTestMode, exitTestMode, toggleTestMode, setTestOutput, renderSystemState,
+    enterMonitorMode, enterTestMode, exitTestMode, toggleTestMode, setTestOutput,
+    renderSystemState,
 };

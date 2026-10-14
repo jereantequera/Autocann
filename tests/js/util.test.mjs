@@ -12,7 +12,8 @@ import { test } from 'node:test';
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
     formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
-    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, withGrow,
+    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
+    withGrow,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -233,6 +234,23 @@ test('lastWateringLabel returns nothing for a tent with no log yet', () => {
     // in its own words rather than as "Hace 0 días".
     for (const value of [undefined, null, '', 'ayer', {}]) {
         assert.equal(lastWateringLabel(value), null, `fecha ${String(value)}`);
+    }
+});
+
+test('waterOnlyNote tells a seedling apart from a flush', () => {
+    // The same watering - agua sola - at opposite ends of the grow. The tile
+    // said "semana de lavado" for both, which about a two-week-old seedling
+    // reads as an instruction to wash out a medium nobody fed.
+    assert.match(waterOnlyNote('seedling').text, /^Plántula/);
+    assert.match(waterOnlyNote('flush').text, /^Semana de lavado/);
+    assert.notEqual(waterOnlyNote('seedling').badge, waterOnlyNote('flush').badge);
+});
+
+test('waterOnlyNote says nothing when the week does carry doses', () => {
+    // null is what /api/feeding/today sends for a week with something due, and
+    // the badge then counts products instead.
+    for (const value of [null, undefined, '', 'raro', 0]) {
+        assert.equal(waterOnlyNote(value), null, `motivo ${String(value)}`);
     }
 });
 

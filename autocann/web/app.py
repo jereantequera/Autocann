@@ -8,13 +8,17 @@ from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
 from autocann.config import (
+    CONTROL_MODES,
     DESIRED_OUTPUTS_KEY,
     DESIRED_OUTPUTS_MAX_AGE_SECONDS,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
+    MODE_ACTIVE,
+    MODE_PAUSED,
     PRIMARY,
     TEST_MODE_KEY,
     TEST_MODE_OUTPUTS_KEY,
     TEST_MODE_SETTING,
+    UNCONTROLLED_MODES,
     WITNESS,
     indoor_sensor_key,
     indoor_sensors_from_env,
@@ -26,6 +30,7 @@ from autocann.control.feeding import (
     effective_week,
     plan_for_week,
     scale_to_volume,
+    water_only_reason,
     weeks_in_stage,
 )
 from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
@@ -262,6 +267,7 @@ def create_app() -> Flask:
                     for band in [humidity_range_for_stage(stage)]
                 },
                 "stage_names": {
+                    "seedling": "Plántula",
                     "early_veg": "Vegetativo Temprano",
                     "late_veg": "Vegetativo Tardío",
                     "flowering": "Floración",
@@ -295,14 +301,17 @@ def create_app() -> Flask:
             }
         )
 
-    def _test_mode_since():
+    def _control_mode():
         """
-        When the pause started, or None when the loop is in control.
+        Which of the three states the tent is in, as (mode, since).
 
         The database is the truth and Redis is the mirror, so a Redis that was
         restarted or flushed does not read as "not paused" and quietly hand the
         tent back to the controller. Redis is still answered from first because
         it is the common case and costs nothing.
+
+        A bare timestamp in Redis predates monitoring, and the only safe
+        reading of it is the one it always had: a pause.
         """
         raw = None
         try:
@@ -311,14 +320,32 @@ def create_app() -> Flask:
             raw = None
 
         if raw:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
             try:
-                return int(raw)
+                return MODE_PAUSED, int(raw)
             except (TypeError, ValueError):
                 pass
+            try:
+                mirrored = json.loads(raw)
+            except (TypeError, ValueError):
+                mirrored = None
+            if isinstance(mirrored, dict):
+                mode = mirrored.get("mode")
+                if mode not in UNCONTROLLED_MODES:
+                    mode = MODE_PAUSED
+                try:
+                    return mode, int(mirrored.get("since"))
+                except (TypeError, ValueError):
+                    return mode, int(datetime.now(ARGENTINA_TZ).timestamp())
 
         stored = get_setting(TEST_MODE_SETTING, None)
         if not isinstance(stored, dict) or not stored.get("active"):
-            return None
+            return MODE_ACTIVE, None
+
+        mode = stored.get("mode")
+        if mode not in UNCONTROLLED_MODES:
+            mode = MODE_PAUSED
 
         since = stored.get("since")
         try:
@@ -329,13 +356,13 @@ def create_app() -> Flask:
         # Seen in the database but not in Redis: put the mirror back, so the
         # control loop - which only reads Redis each cycle - sees it too.
         try:
-            redis_client.set(TEST_MODE_KEY, str(since))
+            redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
         except Exception:
             pass
-        return since
+        return mode, since
 
     def _test_mode_payload():
-        since = _test_mode_since()
+        mode, since = _control_mode()
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
             requested = json.loads(raw) if raw else {}
@@ -345,7 +372,12 @@ def create_app() -> Flask:
             requested = {}
 
         return {
+            # Kept, and kept meaning the same thing: "the loop is not in
+            # charge". Every caller that only ever asked that question - the
+            # relay buttons, the chip's disabled state - keeps working without
+            # learning about the third state.
             "active": since is not None,
+            "mode": mode,
             "since": since,
             # How long it has been, not how long is left: there is no deadline
             # to count down to any more, and the number that matters is how long
@@ -754,30 +786,54 @@ def create_app() -> Flask:
     @app.route("/api/test-mode", methods=["POST"])
     def set_test_mode():
         """
-        Pause the control loop, or hand the tent back to it.
+        Put the tent in one of its three states.
 
-        Body (JSON):
-        - enabled: boolean
+        Body (JSON), either:
+        - mode: "active" | "monitor" | "paused"
+        - enabled: boolean  (the older spelling; true means "paused")
 
-        The pause lasts until somebody ends it. It used to expire after eight
-        hours; what that bought - never being left uncontrolled by accident -
-        is now bought by saying so in the header on every view instead, and what
-        it cost was relays closing again at a moment nobody chose.
+        `enabled` is still accepted because it is what every build before
+        monitoring sent, and a dashboard cached in a browser on the tent wall
+        goes on sending it for as long as that tab stays open.
+
+        The three states exist because "no decidas" and "no guardes" turned out
+        not to be the same request. Pausing is for working on the installation:
+        nothing decides, nothing is recorded, and the relays follow what is
+        asked by hand. Monitoring is for a tent that is set up but not planted:
+        nothing decides and nothing switches, and every reading is recorded,
+        because what the room does on its own is the baseline worth having
+        before there is anything alive in there to protect.
+
+        Neither ends on its own. The pause used to expire after eight hours;
+        what that bought - never being left uncontrolled by accident - is now
+        bought by saying so in the header on every view instead, and what it
+        cost was relays closing again at a moment nobody chose.
 
         Written to the database first, then mirrored into Redis. The loop reads
         Redis, so the order matters only when one of the two writes fails: a
-        pause recorded and not mirrored is noticed and repaired on the next
-        read, while a pause mirrored and not recorded would vanish on the next
+        state recorded and not mirrored is noticed and repaired on the next
+        read, while one mirrored and not recorded would vanish on the next
         reboot with nothing to notice it.
         """
         data = request.get_json(silent=True) or {}
-        enabled = data.get("enabled")
-        if not isinstance(enabled, bool):
-            return jsonify({"error": "Missing or invalid 'enabled' (must be boolean)"}), 400
 
-        if not enabled:
-            if not set_setting(TEST_MODE_SETTING, {"active": False}):
-                return jsonify({"error": "No se pudo registrar el fin de la pausa"}), 500
+        mode = data.get("mode")
+        if mode is None:
+            enabled = data.get("enabled")
+            if not isinstance(enabled, bool):
+                return jsonify({
+                    "error": "Missing or invalid 'mode' "
+                             f"(one of: {', '.join(CONTROL_MODES)})"
+                }), 400
+            mode = MODE_PAUSED if enabled else MODE_ACTIVE
+        if mode not in CONTROL_MODES:
+            return jsonify({
+                "error": f"Unknown mode '{mode}'. Valid modes: {', '.join(CONTROL_MODES)}"
+            }), 400
+
+        if mode == MODE_ACTIVE:
+            if not set_setting(TEST_MODE_SETTING, {"active": False, "mode": MODE_ACTIVE}):
+                return jsonify({"error": "No se pudo devolver el control al lazo"}), 500
             try:
                 redis_client.delete(TEST_MODE_KEY)
                 # Cleared together: a later pause must not begin by energising
@@ -787,17 +843,29 @@ def create_app() -> Flask:
                 return jsonify({"error": f"Failed to leave test mode: {e}"}), 500
             return jsonify({"success": True, **_test_mode_payload()})
 
-        since = int(datetime.now(ARGENTINA_TZ).timestamp())
-        if not set_setting(TEST_MODE_SETTING, {"active": True, "since": since}):
-            return jsonify({"error": "No se pudo registrar la pausa"}), 500
+        # Switching between the two stopped states keeps the original instant:
+        # the tent has been uncontrolled since then either way, and restarting
+        # the count would make a stop somebody forgot about look fresh.
+        _, current_since = _control_mode()
+        since = current_since if current_since is not None \
+            else int(datetime.now(ARGENTINA_TZ).timestamp())
+
+        if not set_setting(TEST_MODE_SETTING,
+                           {"active": True, "since": since, "mode": mode}):
+            return jsonify({"error": "No se pudo registrar el estado"}), 500
         try:
-            redis_client.set(TEST_MODE_KEY, str(since))
-            # Everything starts off. Pausing is not a reason for a relay to
-            # close.
-            redis_client.set(
-                TEST_MODE_OUTPUTS_KEY,
-                json.dumps({name: False for name in output_names()}),
-            )
+            redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
+            if mode == MODE_PAUSED:
+                # Everything starts off. Pausing is not a reason for a relay to
+                # close.
+                redis_client.set(
+                    TEST_MODE_OUTPUTS_KEY,
+                    json.dumps({name: False for name in output_names()}),
+                )
+            else:
+                # Monitoring switches nothing, so a request left over from an
+                # earlier pause must not survive into it.
+                redis_client.delete(TEST_MODE_OUTPUTS_KEY)
         except Exception as e:
             return jsonify({"error": f"Failed to enter test mode: {e}"}), 500
 
@@ -828,8 +896,14 @@ def create_app() -> Flask:
             valid = ", ".join(output_names())
             return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
 
-        if _test_mode_since() is None:
-            return jsonify({"error": "El sistema no está en pausa"}), 409
+        # Only the pause. Monitoring switching a relay by hand would be the one
+        # thing that makes its history worthless: the whole value of those rows
+        # is that they record a room with nothing running in it.
+        if _control_mode()[0] != MODE_PAUSED:
+            return jsonify({
+                "error": "Los relés sólo se mueven a mano con el sistema en pausa. "
+                         "En monitoreo nada se enciende, a propósito."
+            }), 409
 
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
@@ -1189,9 +1263,8 @@ def create_app() -> Flask:
             stage = data.get("stage", "early_veg")
             notes = data.get("notes", "")
 
-            valid_stages = ["early_veg", "late_veg", "flowering", "dry"]
-            if stage not in valid_stages:
-                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(valid_stages)}'}), 400
+            if stage not in STAGES:
+                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
 
             grow_id = create_grow(name, stage, notes)
             if grow_id:
@@ -1242,9 +1315,8 @@ def create_app() -> Flask:
                 return jsonify({"error": "Stage is required"}), 400
 
             stage = data["stage"]
-            valid_stages = ["early_veg", "late_veg", "flowering", "dry"]
-            if stage not in valid_stages:
-                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(valid_stages)}'}), 400
+            if stage not in STAGES:
+                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
 
             success = update_grow_stage(grow_id, stage, notes=data.get("notes"))
             if success:
@@ -1397,9 +1469,10 @@ def create_app() -> Flask:
                     "weeks_in_stage": weeks_in_stage(stage) if stage else 0,
                     "litres": litres,
                     "items": due,
-                    # Nothing due inside a stage that has products elsewhere is a
-                    # flush, not a gap in the chart.
-                    "flush": week > 0 and not due,
+                    # A week with nothing due is an instruction, and which one
+                    # depends on the stage: a seedling drinks plain water, the
+                    # last week of flowering is the flush.
+                    "water_only": water_only_reason(stage, week, due),
                 }
             )
         except Exception as e:

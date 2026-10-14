@@ -265,9 +265,9 @@ def test_waterings_come_back_newest_first(temp_db):
 def test_the_plan_endpoint_serves_the_grid_shape(client):
     payload = client.get("/api/feed-plan").get_json()
     assert payload["weeks_per_stage"] == {
-        "early_veg": 3, "late_veg": 4, "flowering": 8, "dry": 2,
+        "seedling": 2, "early_veg": 3, "late_veg": 4, "flowering": 8, "dry": 2,
     }
-    assert payload["columns"][0] == {"stage": "early_veg", "week": 1}
+    assert payload["columns"][0] == {"stage": "seedling", "week": 1}
     assert len(payload["products"]) == 10
 
 
@@ -289,7 +289,7 @@ def test_today_reads_the_stage_from_the_active_grow(client, temp_db):
     payload = client.get("/api/feeding/today?litres=10").get_json()
     assert payload["stage"] == "early_veg"
     assert payload["week"] == 1
-    assert payload["flush"] is False
+    assert payload["water_only"] is None
 
     by_name = {item["name"]: item for item in payload["items"]}
     assert by_name["pH Perfect Grow"]["total"] == 10
@@ -305,7 +305,25 @@ def test_today_reports_a_flush_week_as_such(client, temp_db):
     temp_db.update_grow_stage(1, "dry")
     payload = client.get("/api/feeding/today").get_json()
     assert payload["items"] == []
-    assert payload["flush"] is True
+    assert payload["water_only"] == "flush"
+
+
+def test_a_seedling_is_watered_with_plain_water(client, temp_db):
+    """
+    The default chart has no seedling column on purpose, and an empty week
+    there is not the flush: the dashboard has to say which of the two it is,
+    because they are the same watering and the opposite moment of the grow.
+    """
+    temp_db.update_grow_stage(1, "seedling")
+    payload = client.get("/api/feeding/today").get_json()
+    assert payload["week"] == 1
+    assert payload["items"] == []
+    assert payload["water_only"] == "seedling"
+
+
+def test_the_default_chart_asks_for_nothing_during_the_seedling_stage(temp_db):
+    for product in get_feed_plan():
+        assert product["doses"].get("seedling", {}) == {}
 
 
 def test_logging_a_watering_stamps_the_stage_server_side(client, temp_db):

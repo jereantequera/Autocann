@@ -4,7 +4,7 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 
 ## Características
 
-- Control automático de VPD según etapa (vegetativo temprano/tardío, floración, secado)
+- Control automático de VPD según etapa (plántula, vegetativo temprano/tardío, floración, secado)
 - Monitoreo de temperatura y humedad interior y exterior
 - Control de humidificador / deshumidificador con protección contra ciclado corto
 - Dashboard web con Flask
@@ -115,7 +115,7 @@ Con uv, podés ejecutar los scripts directamente:
 
 ```bash
 # Control de VPD
-uv run python -m autocann.cli.vpd early_veg  # o late_veg, flowering, dry
+uv run python -m autocann.cli.vpd seedling  # o early_veg, late_veg, flowering, dry
 
 # Backend web
 uv run python -m autocann.cli.backend
@@ -125,6 +125,7 @@ uv run python -m autocann.cli.backend
 
 El sistema soporta diferentes etapas con rangos de VPD específicos:
 
+- **seedling**: VPD 0.4-0.8 kPa (plántula; se riega con agua sola)
 - **early_veg**: VPD 0.6-1.0 kPa (vegetativo temprano)
 - **late_veg**: VPD 0.8-1.2 kPa (vegetativo tardío)
 - **flowering**: VPD 1.2-1.5 kPa (floración)

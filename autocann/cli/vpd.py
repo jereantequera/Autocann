@@ -27,11 +27,15 @@ import redis
 from autocann.config import (
     DESIRED_OUTPUTS_KEY,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
+    MODE_ACTIVE,
+    MODE_MONITOR,
+    MODE_PAUSED,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
     TEST_MODE_KEY,
     TEST_MODE_OUTPUTS_KEY,
     TEST_MODE_SETTING,
+    UNCONTROLLED_MODES,
     ControlTuning,
     IndoorSensors,
     control_tuning_from_env,
@@ -365,6 +369,93 @@ class Relays:
                 pass
 
 
+def flush_history(accumulator: SampleAccumulator, last_db_save: float,
+                  now: float) -> float:
+    """
+    Write the interval's row if the interval is up. Returns the new deadline.
+
+    Extracted when monitoring arrived, because both regimes store history and
+    two copies of this is how one of them quietly starts summarising its
+    interval differently from the other.
+    """
+    if now - last_db_save < DB_SAVE_INTERVAL_SECONDS:
+        return last_db_save
+
+    summary = accumulator.build()
+    if summary is None:
+        # Nothing usable in the whole interval. Leaving a hole is the honest
+        # record; the charts draw it as a break.
+        accumulator.reset()
+        return now
+    if not store_sensor_sample(summary):
+        # Could not store - most often because there is no active grow to hang
+        # the row on. Keep accumulating rather than dropping the interval.
+        return last_db_save
+
+    print(f"💾 Muestra guardada: {summary['sample_n']} lecturas, "
+          f"T {summary.get('temperature_min')}–{summary.get('temperature_max')}°C, "
+          f"HR {summary.get('humidity_min')}–{summary.get('humidity_max')}%")
+    accumulator.reset()
+    return now
+
+
+def run_monitor_cycle(relays: "Relays", sensors: "Sensors",
+                      accumulator: SampleAccumulator, now: float) -> None:
+    """
+    One cycle with the controller switched off and the history still running.
+
+    The other half of `run_test_mode_cycle`, and the difference is the whole
+    point of the mode: the readings go into the accumulator, so the row that
+    gets written every few minutes is written in monitoring exactly as it is in
+    control. What the room does on its own is the baseline somebody setting a
+    tent up actually wants, and a pause threw it away.
+
+    Nothing switches. The relays are driven to off every cycle rather than left
+    alone, because the desired state has to keep being published either way:
+    the remote node de-energises 60 s after the last successful poll, and a
+    loop that went quiet here would have the node reaching its own failsafe
+    instead of being told. Told is better - it is the same outcome arrived at
+    on purpose, and it is what the dashboard then shows.
+
+    What is *not* recorded is any of the control context: no stage, no target
+    humidity, no action. There is no controller, so there is no target, and a
+    row carrying one would describe a decision nobody made. That is also what
+    makes a monitoring stretch recognisable in the history afterwards without
+    inventing a flag for it: real readings, no decision.
+    """
+    relays.all_off()
+
+    reading = sensors.read()
+    payload = dict(reading or {})
+    payload.update(
+        {
+            "mode": MODE_MONITOR,
+            "timestamp": int(_now_local().timestamp()),
+            "datetime": _now_local().strftime("%Y-%m-%d %H:%M:%S"),
+            "stage": None,
+            "target_humidity": None,
+            "vpd_in_range": None,
+            "control_action": None,
+            "control_reason": "monitoreo: el lazo no decide, pero se guarda",
+            "manual_overrides": {},
+        }
+    )
+    _set_redis("sensors", json.dumps(payload))
+
+    if reading is None:
+        # Counts towards the interval's quality even though it carries no
+        # numbers, exactly as the controlled path does: a stretch where half
+        # the reads failed must not be stored as if it were clean.
+        accumulator.push(None, quality=QUALITY_FAILSAFE)
+        sensors.publish_status(indoor_ok=False, indoor_error="Sin lectura válida (monitoreo)")
+        return
+
+    quality = QUALITY_OK if sensors.reading_age_seconds <= LOOP_INTERVAL_SECONDS * 3 \
+        else QUALITY_DEGRADED
+    accumulator.push(payload, quality=quality)
+    sensors.publish_status(indoor_ok=True)
+
+
 def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTuning,
                         since: int, now: float) -> None:
     """
@@ -418,36 +509,108 @@ def read_test_mode_since() -> Optional[int]:
     be driven by hand without it either, so carrying on controlling the tent is
     the useful answer rather than standing down with nobody able to intervene.
     """
+    mode, since = read_control_mode()
+    return since if mode in UNCONTROLLED_MODES else None
+
+
+def parse_mode_mirror(raw) -> Tuple[str, Optional[int]]:
+    """
+    The Redis mirror, as (mode, since).
+
+    Two formats, on purpose. It now holds `{"mode": ..., "since": ...}`, but a
+    Redis that survived the deploy which added monitoring still holds a bare
+    timestamp from before - and the one reading of that which is safe is the
+    one it always had: a pause. Guessing "monitor" would hand the relays to a
+    controller somebody had deliberately stopped.
+    """
+    if not raw:
+        return MODE_ACTIVE, None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+
+    text = str(raw).strip()
+    try:
+        return MODE_PAUSED, int(text)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        stored = json.loads(text)
+    except (TypeError, ValueError):
+        return MODE_ACTIVE, None
+    if not isinstance(stored, dict):
+        return MODE_ACTIVE, None
+
+    mode = stored.get("mode")
+    if mode not in UNCONTROLLED_MODES:
+        # A mode this build does not know is not a reason to start driving a
+        # tent somebody stopped. Stand down and keep the history.
+        mode = MODE_MONITOR if mode else MODE_PAUSED
+    try:
+        since = int(stored.get("since"))
+    except (TypeError, ValueError):
+        since = None
+    return mode, since
+
+
+def read_control_mode() -> Tuple[str, Optional[int]]:
+    """
+    Which of the three states the tent is in, and since when.
+
+    Read from Redis every cycle because it is cheap. Redis is a mirror, not the
+    truth - `restore_pause_mirror` puts it back from the database - so the one
+    thing this cannot do is treat a missing key as "resume". It still treats an
+    *unreachable* Redis as resume, which is a different case: the loop cannot
+    be driven by hand without it either, so carrying on controlling the tent is
+    the useful answer rather than standing down with nobody able to intervene.
+    """
     try:
         raw = redis_client.get(TEST_MODE_KEY)
     except Exception:
-        return None
-    if not raw:
-        return None
+        return MODE_ACTIVE, None
+    return parse_mode_mirror(raw)
+
+
+def stored_control_mode() -> Tuple[str, Optional[int]]:
+    """
+    What the database says, which is the truth.
+
+    A record written before monitoring existed carries no `mode`, and every one
+    of those meant a pause.
+    """
+    stored = get_setting(TEST_MODE_SETTING, None)
+    if not isinstance(stored, dict) or not stored.get("active"):
+        return MODE_ACTIVE, None
+
+    mode = stored.get("mode")
+    if mode not in UNCONTROLLED_MODES:
+        mode = MODE_PAUSED
     try:
-        return int(raw)
+        since = int(stored.get("since"))
     except (TypeError, ValueError):
-        return None
+        since = None
+    return mode, since
 
 
 def restore_pause_mirror() -> None:
     """
-    Put the Redis mirror back when the database says the tent is paused.
+    Put the Redis mirror back when the database says the tent is not controlled.
 
     Redis is memory. Restarting it, or the Raspberry, used to mean a pause
     silently ended and the relays started moving again at a moment nobody
     chose. Checked on the settings interval rather than every cycle: it only
     has to beat somebody walking back to the tent.
     """
-    stored = get_setting(TEST_MODE_SETTING, None)
-    if not isinstance(stored, dict) or not stored.get("active"):
+    mode, since = stored_control_mode()
+    if mode not in UNCONTROLLED_MODES:
         return
     try:
         if redis_client.get(TEST_MODE_KEY):
             return
-        since = int(stored.get("since") or int(_now_local().timestamp()))
-        redis_client.set(TEST_MODE_KEY, str(since))
-        print("⏸️ Pausa restaurada desde la base: Redis no la tenía")
+        since = int(since or int(_now_local().timestamp()))
+        redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
+        label = "Monitoreo" if mode == MODE_MONITOR else "Pausa"
+        print(f"⏸️ {label} restaurado desde la base: Redis no lo tenía")
     except Exception:
         pass
 
@@ -1058,7 +1221,11 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     last_db_save = monotonic()
     last_sensor_reinit = 0.0
     unknown_stage_warned: Optional[str] = None
-    in_test_mode = False
+    #: Which uncontrolled mode the loop is in, or None while it is in charge.
+    #: A boolean until monitoring existed, when there was only one way to be
+    #: stood down; it has to name *which* now, so that switching straight from
+    #: one to the other is noticed instead of looking like no change at all.
+    uncontrolled_mode = None
     last_settings_check = -SETTINGS_CHECK_INTERVAL_SECONDS
     # Its own clock, not the settings one: the paused branch `continue`s before
     # that gets updated, so sharing it would re-read the database every cycle
@@ -1087,22 +1254,40 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     last_pause_check = loop_started
                     restore_pause_mirror()
 
-                test_mode_since = read_test_mode_since()
-                if test_mode_since is not None:
-                    if not in_test_mode:
-                        in_test_mode = True
+                control_mode, mode_since = read_control_mode()
+                if control_mode in UNCONTROLLED_MODES:
+                    if uncontrolled_mode != control_mode:
+                        uncontrolled_mode = control_mode
                         relays.log_events = False
-                        started = datetime.fromtimestamp(test_mode_since, ARGENTINA_TZ)
-                        print(f"⏸️ En pausa desde {started.strftime('%H:%M:%S')} — "
-                              "el lazo no decide, los relés siguen lo que se pida "
-                              "a mano y no se guarda nada. Sigue así hasta que "
-                              "alguien la saque.")
-                    run_test_mode_cycle(relays, sensors, config, test_mode_since, loop_started)
+                        started = datetime.fromtimestamp(
+                            mode_since or int(loop_started), ARGENTINA_TZ)
+                        if control_mode == MODE_MONITOR:
+                            print(f"◍ Monitoreo desde {started.strftime('%H:%M:%S')} — "
+                                  "el lazo no decide y nada se enciende, pero el "
+                                  "histórico se sigue guardando. Sigue así hasta "
+                                  "que alguien lo saque.")
+                        else:
+                            print(f"⏸️ En pausa desde {started.strftime('%H:%M:%S')} — "
+                                  "el lazo no decide, los relés siguen lo que se pida "
+                                  "a mano y no se guarda nada. Sigue así hasta que "
+                                  "alguien la saque.")
+                        # Whatever was half-accumulated was accumulated under a
+                        # different regime. Mixing it into the first row of this
+                        # one would average a controlled tent with an idle one.
+                        accumulator.reset()
+                        last_db_save = loop_started
+
+                    if control_mode == MODE_MONITOR:
+                        run_monitor_cycle(relays, sensors, accumulator, loop_started)
+                        last_db_save = flush_history(accumulator, last_db_save, loop_started)
+                    else:
+                        run_test_mode_cycle(relays, sensors, config,
+                                            mode_since or int(loop_started), loop_started)
                     sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
-                if in_test_mode:
-                    in_test_mode = False
+                if uncontrolled_mode is not None:
+                    ended, uncontrolled_mode = uncontrolled_mode, None
                     relays.log_events = True
                     # The controller's state machine describes a tent it has not
                     # been driving: its timers date from before the test. Starting
@@ -1113,7 +1298,8 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
                     accumulator.reset()
                     last_db_save = loop_started
-                    print("✅ Pausa terminada — vuelve el control automático")
+                    print(f"✅ {'Monitoreo' if ended == MODE_MONITOR else 'Pausa'} "
+                          "terminado — vuelve el control automático")
 
                 if loop_started - last_settings_check >= SETTINGS_CHECK_INTERVAL_SECONDS:
                     last_settings_check = loop_started
@@ -1244,19 +1430,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 accumulator.push(sensors_data, quality=quality,
                                  control_action=decision.action)
 
-                if loop_started - last_db_save >= DB_SAVE_INTERVAL_SECONDS:
-                    summary = accumulator.build()
-                    if summary is None:
-                        # Nothing usable in the whole interval. Leaving a hole is
-                        # the honest record; the charts draw it as a break.
-                        last_db_save = loop_started
-                        accumulator.reset()
-                    elif store_sensor_sample(summary):
-                        print(f"💾 Muestra guardada: {summary['sample_n']} lecturas, "
-                              f"T {summary.get('temperature_min')}–{summary.get('temperature_max')}°C, "
-                              f"HR {summary.get('humidity_min')}–{summary.get('humidity_max')}%")
-                        last_db_save = loop_started
-                        accumulator.reset()
+                last_db_save = flush_history(accumulator, last_db_save, loop_started)
 
             except Exception as e:
                 print(f"❌ Error in main loop: {e}")
@@ -1282,7 +1456,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "stage",
         nargs="?",
-        choices=["early_veg", "late_veg", "flowering", "dry"],
+        choices=list(STAGES),
         help="Override the active grow's stage (optional)",
     )
     source = parser.add_mutually_exclusive_group()

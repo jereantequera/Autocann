@@ -20,6 +20,9 @@ from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 
 JS_DIR = STATIC_DIR / "js"
 JS_TEST_DIR = Path(__file__).parent / "js"
+#: The two modules the control-mode tests read as text.
+VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
+APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
 
 
 def _strip_js_comments(source: str) -> str:
@@ -102,6 +105,55 @@ def test_stage_ranges_are_not_hardcoded_in_the_frontend():
         text = path.read_text()
         assert "early_veg: { min:" not in text, path.name
         assert "'early_veg': {" not in text, path.name
+
+
+def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
+    """
+    The stage list lives once in vpd_math.py, but the browser needs five things
+    per stage that no kPa band implies: a fallback display name, a short name
+    for the chart markers, an option in each of the two stage selects, a letter
+    over the feed grid's week columns and a badge colour.
+
+    Every one of them is forgotten silently. A stage with no name renders as
+    `seedling` in the badge; with no letter it used to fall through to 'S',
+    which already means Secado.
+    """
+    from autocann.control.vpd_math import STAGES
+
+    state_js = (JS_DIR / "state.js").read_text()
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    modals = (TEMPLATES_DIR / "partials" / "modals.html").read_text()
+
+    def block(path_text, opener, source):
+        match = re.search(re.escape(opener) + r"(.*?)\n(?:    )?\}", path_text, re.S)
+        assert match, f"{opener} desapareció de {source}"
+        return match.group(1)
+
+    blocks = {
+        "state.js (stageNames)": block(state_js, "stageNames: {", "state.js"),
+        "state.js (vpdRanges)": block(state_js, "vpdRanges: {", "state.js"),
+        "charts.js (STAGE_SHORT_NAMES)": block(
+            (JS_DIR / "charts.js").read_text(), "const STAGE_SHORT_NAMES = {", "charts.js"),
+        "feeding.js (STAGE_INITIALS)": block(
+            (JS_DIR / "feeding.js").read_text(), "const STAGE_INITIALS = {", "feeding.js"),
+    }
+
+    missing = []
+    for stage in STAGES:
+        for where, text in blocks.items():
+            if f"{stage}:" not in text:
+                missing.append(f"{stage} falta en {where}")
+        if modals.count(f'value="{stage}"') != 2:
+            missing.append(f"{stage} no está en los dos selects de etapa")
+        if f".grow-stage.{stage}" not in css:
+            missing.append(f"{stage} no tiene color de chapita en app.css")
+        if f".feed-col.{stage}" not in css:
+            missing.append(f"{stage} no tiene color de columna en app.css")
+    assert missing == [], missing
+
+    # Two stages sharing a letter is the same bug as a missing one.
+    letters = re.findall(r"\w+: '(\w)'", blocks["feeding.js (STAGE_INITIALS)"])
+    assert len(set(letters)) == len(STAGES), f"letras repetidas en la grilla: {letters}"
 
 
 def test_chart_options_are_never_self_assigned():
@@ -458,9 +510,23 @@ def test_a_destructive_confirmation_names_what_it_does():
 
     assert "Finalizar cultivo" in labels
     assert "Borrar riego" in labels
-    assert "Pausar el sistema" in labels
     for label in labels:
         assert label.lower() not in ("ok", "aceptar", "sí", "confirmar"), label
+
+    # Stopping the tent used to be one of these, with the label "Pausar el
+    # sistema". It is a fork now - monitoring or pause - which a one-button
+    # dialog cannot ask, so it has its own modal. The rule still holds there:
+    # each button names the state it puts the tent in, and says what that does
+    # to the relays and to the history.
+    modal = (TEMPLATES_DIR / "partials" / "modals.html").read_text()
+    stop = modal[modal.index('id="stopModeModal"'):]
+    stop = stop[: stop.index("</div>\n\n")]
+    for action, name in (("enter-monitor", "Monitoreo"), ("enter-pause", "Pausa")):
+        assert f'data-action="{action}"' in stop, action
+        assert f">{name}<" in stop, name
+    assert "el histórico se sigue\n                            guardando" in stop \
+        or "histórico se sigue" in stop
+    assert "no se guarda nada" in stop
 
 
 def test_the_dialog_shell_is_in_the_page_and_wired():
@@ -557,10 +623,15 @@ def test_the_pause_is_announced_on_screen_while_it_lasts():
 
     dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
     assert "renderSystemState" in dashboard
-    # The class the stylesheet hangs the amber fill, the border and the glow on.
-    # Without it the chip is a grey label, which is not an announcement.
-    assert "'is-paused', paused" in dashboard
-    assert ".system-state.is-paused {" in (STATIC_DIR / "css" / "app.css").read_text()
+    # The classes the stylesheet hangs the fill, the border and the glow on.
+    # Without them the chip is a grey label, which is not an announcement. Two
+    # of them now: a tent that is monitoring is unattended just as surely as a
+    # paused one, and has to look it without looking like the same thing.
+    assert "'is-paused', stopped && !monitoring" in dashboard
+    assert "'is-monitor', monitoring" in dashboard
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".system-state.is-paused {" in css
+    assert ".system-state.is-monitor {" in css
     # Says out loud that it does not end on its own; a state that only reports
     # itself reads like something that will clear up by itself.
     assert "No se reanuda solo" in dashboard
@@ -778,3 +849,124 @@ def test_the_asset_version_changes_when_the_assets_do():
         os.utime(asset, (stamp.st_atime, stamp.st_mtime))
 
     assert static_asset_version() == before
+
+
+# ---------------------------------------------------------------------------
+# The third state
+# ---------------------------------------------------------------------------
+# "No decidas" and "no guardes" were one code path: the paused branch of the
+# loop `continue`s before the accumulator is ever reached. That is right for
+# bench work and exactly wrong for setup, where what the room does on its own
+# is the baseline worth having before there is anything alive to protect.
+
+
+def test_monitoring_records_history_and_the_pause_still_does_not():
+    """
+    The whole difference between the two stopped states, in the one place it is
+    decided. A monitoring branch that forgot to flush would look identical to a
+    pause and silently throw away the data it exists to collect.
+    """
+    vpd = _strip_js_comments(VPD_PY.read_text())
+
+    monitor = vpd[vpd.index("def run_monitor_cycle("):]
+    monitor = monitor[: monitor.index("\ndef ", 1)]
+    assert "accumulator.push" in monitor
+    # Nothing switches, and the desired state keeps being published: the remote
+    # node de-energises 60 s after the last poll.
+    assert "relays.all_off()" in monitor
+
+    paused = vpd[vpd.index("def run_test_mode_cycle("):]
+    paused = paused[: paused.index("\ndef ", 1)]
+    assert "accumulator" not in paused, "la pausa volvió a guardar histórico"
+
+
+def test_monitoring_records_no_decision_it_did_not_make():
+    """
+    A row carrying a stage and a target would describe a controller that was
+    aiming at something. Nothing is. That is also what makes a monitoring
+    stretch recognisable afterwards without inventing a flag for it.
+    """
+    vpd = VPD_PY.read_text()
+    monitor = vpd[vpd.index("def run_monitor_cycle("):]
+    monitor = monitor[: monitor.index("\ndef ", 1)]
+    for field in ('"stage": None', '"target_humidity": None', '"control_action": None'):
+        assert field in monitor, field
+
+
+def test_one_writer_for_the_history_rather_than_two():
+    """
+    Both regimes store; two copies of the interval arithmetic is how one of
+    them quietly starts summarising differently from the other.
+    """
+    vpd = _strip_js_comments(
+        VPD_PY.read_text())
+    assert vpd.count("store_sensor_sample(") == 1
+    assert vpd.count("flush_history(") >= 3  # the def, and both call sites
+
+
+def test_a_tent_stopped_before_monitoring_existed_stays_stopped():
+    """
+    The failure this must not have: the deploy that adds the third state
+    reading an old record as "active" and handing a tent somebody deliberately
+    stopped back to the controller, energising relays at a moment nobody chose.
+
+    Every record written before this carries no `mode`, and every one of them
+    meant a pause. So does the bare timestamp the Redis mirror used to hold.
+    """
+    from autocann.cli.vpd import parse_mode_mirror
+    from autocann.config import MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED
+
+    # The format the tent's Redis is holding right now.
+    assert parse_mode_mirror("1791849247") == (MODE_PAUSED, 1791849247)
+    assert parse_mode_mirror(b"1791849247") == (MODE_PAUSED, 1791849247)
+
+    assert parse_mode_mirror('{"mode": "monitor", "since": 7}') == (MODE_MONITOR, 7)
+    assert parse_mode_mirror('{"mode": "paused", "since": 7}') == (MODE_PAUSED, 7)
+
+    # Nothing stored means the loop is in charge; a mode this build does not
+    # know does not, because that is not a reason to start driving a tent.
+    assert parse_mode_mirror(None)[0] == MODE_ACTIVE
+    assert parse_mode_mirror('{"mode": "something-newer", "since": 7}')[0] in (
+        MODE_MONITOR, MODE_PAUSED)
+
+
+def test_the_relays_are_only_movable_by_hand_in_the_pause():
+    """
+    Monitoring switching a relay would make its own history worthless: those
+    rows are worth having precisely because nothing was running in the room.
+    """
+    app_py = APP_PY.read_text()
+    guard = app_py[app_py.index("def set_test_mode_output("):]
+    guard = guard[: guard.index("\n    @app.route")]
+    assert "_control_mode()[0] != MODE_PAUSED" in guard
+
+
+def test_the_header_offers_both_ways_to_stop_and_one_way_back():
+    """
+    Three states need a way into each. The chip alone cannot do it - it has one
+    action - so stopping opens the fork and the modal's two buttons are the
+    only doors into monitoring and into the pause.
+    """
+    page = _page_html()
+    assert 'id="stopModeModal"' in page
+    assert page.count('data-action="enter-monitor"') == 1
+    assert page.count('data-action="enter-pause"') == 1
+    assert page.count('data-action="toggle-pause"') == 1
+
+    main_js = _strip_js_comments((JS_DIR / "main.js").read_text())
+    for action in ("'enter-monitor'", "'enter-pause'", "'toggle-pause'"):
+        assert action in main_js, action
+
+
+def test_monitoring_is_not_exempt_from_the_history_check():
+    """
+    The pause is allowed a gap in the history and says so. Monitoring is not:
+    it writes, so a gap is as real a fault there as under control - and calling
+    it expected would hide exactly the failure the mode exists to prevent.
+    """
+    from autocann.web.diagnostics import history_verdict
+    from autocann.config import MODE_MONITOR
+
+    assert history_verdict(999999, "paused")["level"] == "ok"
+    assert history_verdict(999999, MODE_MONITOR)["level"] == "error"
+    assert history_verdict(10, MODE_MONITOR)["state"] == "writing"

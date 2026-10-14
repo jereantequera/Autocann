@@ -1,5 +1,47 @@
 # Changelog
 
+## La plántula es una etapa, no el día 1 de vegetativo
+
+El modelo arrancaba en `early_veg` y no tenía nada antes. Un cultivo cargado el
+día que se ponen las semillas empezaba a contar `early_veg` día 1 y calculaba la
+cosecha desde ahí: **el contador no estaba roto, estaba contando una etapa que
+todavía no había empezado**. Tres semanas más tarde, cuando la planta realmente
+entra en vegetativo, el contador ya iba por el día 21 y la fecha estimada estaba
+corrida por todo lo que duró la plántula.
+
+El número era la mitad del problema. Una plántula tampoco quiere la banda de
+vegetativo temprano: tiene raíz para unos pocos mililitros y una cutícula que no
+retiene nada, así que toma agua por la hoja, y el aire que mantiene sana una
+copa en floración la seca más rápido de lo que puede beber. Agregar la etapa
+arregla el contador **y lo que el lazo persigue**: `seedling` pide VPD 0.4-0.8
+kPa, medio escalón por debajo de `early_veg` y con el mismo solape de 0.2 kPa
+que tienen las demás etapas contiguas. A 24 °C de aire eso es apuntar a 78% de
+humedad en vez de 71%, con la misma banda muerta de ±7,3: el humidificador
+trabaja más, que es justamente el pedido.
+
+**Y se riega con agua sola.** Las dos semanas de plántula están en la grilla de
+fertilización pero vacías a propósito: no hay masa de raíz que levante una
+fertilización, y la sal que la planta no usa se queda en el medio y quema las
+primeras raíces que llegan. Eso ya funcionaba — una semana sin dosis sale vacía
+—, pero el tablero lo anunciaba como «semana de lavado», que sobre una plántula
+de doce días se lee como una instrucción de lavar un medio que nadie fertilizó.
+Ahora `/api/feeding/today` manda el **motivo** (`water_only`) en lugar de un
+sí/no, y la frase sale de un solo lugar: misma agua, dos momentos opuestos del
+cultivo, y el panel y la pestaña de Riego no pueden contar versiones distintas.
+
+La lista de etapas válidas estaba escrita a mano dos veces en `app.py`, así que
+una etapa nueva en `vpd_math.py` era rechazada por la API que tiene que
+servirla: «Invalid stage» sobre una etapa que el propio tablero acababa de
+ofrecer en el select. Las dos copias ahora preguntan por `STAGES`, igual que los
+`choices` de la CLI.
+
+Lo que el navegador necesita por etapa y ningún rango de kPa implica —nombre,
+nombre corto para las marcas de los gráficos, opción en los dos selects, letra
+arriba de las columnas de la grilla y color de chapita— quedó cubierto por un
+test. Cada una de esas copias se olvida en silencio: sin nombre la etapa se
+rinde como `seedling`, y sin letra caía en el `else` que daba 'S', la misma que
+ya significa Secado.
+
 ## `make check` mira la placa que conmuta
 
 El chequeo de hardware abría un pin del header de la Raspberry y anunciaba

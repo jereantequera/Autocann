@@ -1,7 +1,7 @@
 import { apiGet } from './api.js';
 import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
-import { doseAmount, escapeHtml, fmtDose, lastWateringLabel } from './util.js';
+import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -21,6 +21,20 @@ let history = [];
 let formTouched = false;
 
 const UNITS = ['ml/L', 'g/L'];
+
+/**
+ * La letra que va arriba de cada columna de la grilla.
+ *
+ * Una tabla y no una cadena de ternarios con un `else` final: ese `else` daba
+ * 'S' a cualquier etapa nueva, y plántula y secado habrían compartido letra.
+ */
+const STAGE_INITIALS = {
+    seedling: 'P',
+    early_veg: 'V',
+    late_veg: 'L',
+    flowering: 'F',
+    dry: 'S',
+};
 
 function el(id) {
     return document.getElementById(id);
@@ -60,12 +74,10 @@ function renderToday() {
         ? `${stageName(today.stage)} · semana ${today.week} de ${today.weeks_in_stage}`
         : stageName(today.stage);
 
-    if (today.flush) {
+    const waterOnly = waterOnlyNote(today.water_only);
+    if (waterOnly) {
         doses.innerHTML = `
-            <div class="feed-flush">
-                Semana de lavado: el plan no lleva nutrientes.
-                Regá con agua sola y el pH corregido.
-            </div>`;
+            <div class="feed-flush">${escapeHtml(waterOnly.text)}</div>`;
         return;
     }
     if (!today.items.length) {
@@ -254,9 +266,8 @@ function renderPlanEditor() {
     const columns = plan.columns;
     const header = columns.map((column, index) => {
         const first = index === 0 || columns[index - 1].stage !== column.stage;
-        const initial = column.stage === 'early_veg' ? 'V'
-            : column.stage === 'late_veg' ? 'L'
-            : column.stage === 'flowering' ? 'F' : 'S';
+        const initial = STAGE_INITIALS[column.stage]
+            || (column.stage || '?').charAt(0).toUpperCase();
         return `<th class="feed-col ${escapeHtml(column.stage)}${first ? ' stage-start' : ''}"
                     title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
                 >${initial}${column.week}</th>`;

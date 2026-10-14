@@ -5,6 +5,15 @@
  * shared and who writes to it.
  */
 
+/**
+ * The three states the tent can be in, spelled exactly as the backend spells
+ * them. Here rather than as string literals in each module: `'monitor'`
+ * misspelt in one place is a chip that silently renders a pause.
+ */
+export const MODE_ACTIVE = 'active';
+export const MODE_MONITOR = 'monitor';
+export const MODE_PAUSED = 'paused';
+
 export const state = {
     period: 1,
     interval: 'hourly',
@@ -33,12 +42,14 @@ export const state = {
  */
 export const config = {
     vpdRanges: {
+        seedling: { min: 0.4, max: 0.8 },
         early_veg: { min: 0.6, max: 1.0 },
         late_veg: { min: 0.8, max: 1.2 },
         flowering: { min: 1.2, max: 1.5 },
         dry: { min: 0.8, max: 1.2 },
     },
     stageNames: {
+        seedling: 'Plántula',
         early_veg: 'Vegetativo Temprano',
         late_veg: 'Vegetativo Tardío',
         flowering: 'Floración',

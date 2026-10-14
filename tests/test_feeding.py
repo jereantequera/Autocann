@@ -7,6 +7,7 @@ from autocann.control.feeding import (
     effective_week,
     plan_for_week,
     scale_to_volume,
+    water_only_reason,
     week_of_stage,
     weeks_in_stage,
 )
@@ -32,7 +33,8 @@ PLAN = [
 
 
 def test_stage_length_sets_the_number_of_week_columns():
-    # From STAGE_EXPECTED_DAYS: 21, 28, 56 and 10 days.
+    # From STAGE_EXPECTED_DAYS: 14, 21, 28, 56 and 10 days.
+    assert weeks_in_stage("seedling") == 2
     assert weeks_in_stage("early_veg") == 3
     assert weeks_in_stage("late_veg") == 4
     assert weeks_in_stage("flowering") == 8
@@ -175,6 +177,33 @@ def test_scaling_keeps_the_rest_of_the_item():
 
 def test_the_grid_has_one_column_per_week_of_every_stage():
     columns = chart_columns()
-    assert len(columns) == 3 + 4 + 8 + 2
-    assert columns[0] == {"stage": "early_veg", "week": 1}
+    assert len(columns) == 2 + 3 + 4 + 8 + 2
+    assert columns[0] == {"stage": "seedling", "week": 1}
     assert columns[-1] == {"stage": "dry", "week": 2}
+
+
+# --------------------------------------------------------------------------
+# water_only_reason
+# --------------------------------------------------------------------------
+
+
+def test_an_empty_week_in_the_seedling_stage_is_plain_water():
+    """And has to say so: it is not the flush, it is a plant that cannot eat."""
+    assert water_only_reason("seedling", 1, []) == "seedling"
+    assert water_only_reason("seedling", 2, []) == "seedling"
+
+
+def test_an_empty_week_in_any_other_stage_is_a_flush():
+    assert water_only_reason("flowering", 8, []) == "flush"
+    assert water_only_reason("dry", 1, []) == "flush"
+
+
+def test_a_week_with_something_due_is_not_water_only():
+    """Including in the seedling stage: whatever the grower put in wins."""
+    assert water_only_reason("seedling", 1, [{"name": "Raizal"}]) is None
+    assert water_only_reason("flowering", 3, [{"name": "Base"}]) is None
+
+
+def test_a_stage_that_has_not_started_is_not_water_only_either():
+    """Week 0 is a stage in the future; it carries no instruction at all."""
+    assert water_only_reason("seedling", 0, []) is None
