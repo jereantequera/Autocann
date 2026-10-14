@@ -115,6 +115,65 @@ function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
     return { state: 'too-high', text: `↑ ${absDiff}% por encima` };
 }
 
+/**
+ * El borne que hay que ir a medir para una salida: el número corto para la
+ * tarjeta, y la frase entera para el title.
+ *
+ * Decía "BCM 7" siempre, y con `AUTOCANN_RELAY_MODE=remote` la Raspberry no
+ * conmuta nada: eran tres pines de una placa que no está en el circuito. Peor
+ * todavía, el 25 que mostraba para la ventilación existe también en el ESP32,
+ * donde maneja el humidificador — así que mandaba a medir el header correcto
+ * con la etiqueta equivocada.
+ *
+ * @param {?{scope: string, node: ?string, number: ?number}} source  de /api/output-status
+ * @returns {{text: string, title: string}}  vacío cuando no hay pin que mostrar
+ */
+function outputPinLabel(source) {
+    // Sin coerción: `Number(null)` es 0, y el BCM 0 es un pin que existe. Una
+    // salida sin pin rendiría "BCM 0", que no se lee como un hueco sino como
+    // un dato — justo el defecto que esto viene a sacar de la pantalla.
+    const number = source?.number;
+    if (!Number.isFinite(number)) return { text: '', title: '' };
+    if (source.scope === 'remote') {
+        const node = source.node || 'el nodo remoto';
+        return {
+            text: `GPIO ${number}`,
+            title: `La conmuta el GPIO ${number} de ${node}, no la Raspberry`,
+        };
+    }
+    return {
+        text: `BCM ${number}`,
+        title: `La conmuta el BCM ${number} de la Raspberry`,
+    };
+}
+
+/**
+ * Qué placa maneja los relés, para el encabezado del panel.
+ *
+ * Va una vez arriba y no en cada tarjeta porque las tres salidas están siempre
+ * en la misma placa, y el panel se mide para entrar en una pantalla de 1080p
+ * sin scroll: tres renglones repetidos cuestan alto que no hay.
+ *
+ * @returns {{text: string, title: string}}
+ */
+function relaySourceLabel(source) {
+    if (source?.scope === 'remote') {
+        const node = source.node || 'un nodo remoto';
+        return {
+            text: node,
+            title: `Los relés los maneja ${node}: los pines que se muestran son GPIO `
+                + 'de esa placa, no de la Raspberry',
+        };
+    }
+    if (source?.scope === 'local') {
+        return {
+            text: 'GPIO de la Raspberry',
+            title: 'Los relés los maneja el GPIO de la propia Raspberry, en numeración BCM',
+        };
+    }
+    return { text: '', title: '' };
+}
+
 function getScoreClass(score) {
     if (score >= 85) return 'excellent';
     if (score >= 70) return 'good';
@@ -131,5 +190,6 @@ function getScoreLabel(score) {
 
 export {
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, humidityDiffLabel, getScoreClass, getScoreLabel,
+    formatDate, humidityDiffLabel, outputPinLabel, relaySourceLabel,
+    getScoreClass, getScoreLabel,
 };

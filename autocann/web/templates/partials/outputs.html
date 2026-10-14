@@ -10,6 +10,12 @@
             <h2 class="section-title">
                 <span class="section-title-icon">🔌</span>
                 Salidas (Relays)
+                <!--
+                     Qué placa conmuta estos relés. Lo llena el JS porque
+                     depende de AUTOCANN_RELAY_MODE, y sin eso los pines de
+                     las tarjetas no dicen de qué header son.
+                -->
+                <span class="section-subtitle" id="outputs-source"></span>
             </h2>
         </div>
 

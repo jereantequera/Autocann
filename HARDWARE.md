@@ -103,6 +103,11 @@ optoacopladores **EL817**. Dos particularidades de *esta* variante:
   COM + NO. De eso depende que desenergizado signifique apagado, y con eso
   todas las barreras de seguridad.
 
+El mapeo IN1/IN2/IN3 de arriba está **en dos lugares**: en el firmware, que es
+el que lo aplica, y en `RelayNodePins` (`autocann/config.py`), que es el que lo
+muestra en el panel — el nodo no informa su cableado, sólo consulta. Si alguna
+vez se reflashea con otros pines hay que tocar los dos; `make test` avisa.
+
 El `VCC` de señal se alimenta de los **3V3 del ESP32, nunca de 5 V**: con 5 V
 los pines IN reposarían en 5 V y los GPIO del ESP32 no son tolerantes. En esta
 placa se midió que 3,3 V alcanzan para manejar los EL817, cosa que no está

@@ -64,7 +64,12 @@ from autocann.db import (
     store_control_event,
     store_sensor_sample,
 )
-from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
+from autocann.hardware.outputs import (
+    get_outputs,
+    manual_override_key,
+    parse_bool_flag,
+    pin_sources,
+)
 from autocann.time import ARGENTINA_TZ
 
 LOOP_INTERVAL_SECONDS = 3.0
@@ -174,8 +179,13 @@ class Relays:
 
     def setup(self) -> None:
         if self.mode == RELAY_MODE_REMOTE:
-            for spec in self._specs.values():
-                print(f"📡 {spec['label']} → nodo remoto")
+            # The node's own GPIO, which is the number the dashboard shows too:
+            # this board's header is not in the circuit at all.
+            sources = pin_sources(self.mode)
+            for name, spec in self._specs.items():
+                source = sources.get(name) or {}
+                print(f"📡 {spec['label']} → {source.get('node') or 'nodo remoto'} "
+                      f"GPIO {source.get('number')}")
             self.all_off(log_event=False)
             self.publish_outputs()
             return

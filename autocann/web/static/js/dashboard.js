@@ -1,7 +1,9 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { config, state } from './state.js';
-import { escapeHtml, fmtNum, formatDuration, humidityDiffLabel } from './util.js';
+import {
+    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
+} from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
 
@@ -282,8 +284,7 @@ function outputCardHtml(output, mode) {
 
     const label = escapeHtml(output.label || output.name || 'Salida');
     const name = escapeHtml(output.name || '');
-    const pin = (output.pin_bcm !== undefined && output.pin_bcm !== null)
-        ? `BCM ${Number(output.pin_bcm)}` : '';
+    const pin = outputPinLabel(output.pin);
 
     let controls = '';
     if (mode.active && output.name) {
@@ -309,7 +310,7 @@ function outputCardHtml(output, mode) {
         <div class="output-card ${mode.active ? 'is-manual' : ''}">
             <div class="output-header">
                 <div class="output-name">${label}</div>
-                <div class="output-pin">${pin}</div>
+                <div class="output-pin" title="${escapeHtml(pin.title)}">${escapeHtml(pin.text)}</div>
             </div>
             <div class="output-state ${stateClass}">${stateText}</div>
             ${controls}
@@ -323,6 +324,16 @@ function updateOutputsStatus(payload) {
 
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
+
+    // Qué placa conmuta, dicho una vez en el encabezado: las tres salidas
+    // cuelgan siempre de la misma, y el número de cada tarjeta no se entiende
+    // sin saber de qué placa es.
+    const source = document.getElementById('outputs-source');
+    if (source) {
+        const label = relaySourceLabel(outputs[0]?.pin);
+        source.textContent = label.text;
+        source.title = label.title;
+    }
 
     if (!grid) return;
 

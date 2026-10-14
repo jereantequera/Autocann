@@ -152,7 +152,8 @@ http://<ip-de-tu-raspberry>:5000
 - `GET`/`POST /api/test-mode` - Pausa: el lazo deja de decidir, hasta que alguien
   la saca
 - `POST /api/test-mode/outputs` - Accionar un relé a mano mientras está en pausa
-- `GET /api/output-status` - Estado de los relés y overrides activos
+- `GET /api/output-status` - Estado de los relés y overrides activos, con la
+  placa y el pin que efectivamente conmutan cada salida
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
 - `GET /api/vpd-score`, `GET /api/weekly-report`, `GET /api/anomalies` - Analítica
@@ -187,6 +188,11 @@ fallan, el failsafe gana: apaga todo e ignora los overrides.
 ## Configuración de Pines GPIO
 
 Los pines GPIO ahora están centralizados en `autocann/config.py` (y usados por `autocann/hardware/outputs.py`).
+
+> [!IMPORTANT]
+> Esta tabla vale **sólo con `AUTOCANN_RELAY_MODE=gpio`**. Con los relés en un
+> nodo remoto los pines que están en el circuito son los del nodo, no éstos —
+> ver [Relés en un nodo remoto](#relés-en-un-nodo-remoto).
 
 **Defaults reales (los del código, en numeración BCM):**
 
@@ -433,6 +439,24 @@ VCC (header de 2 pines) → nada, es la misma red que el VCC de señal
 signifique apagado, y de eso dependen todas las barreras de arriba.
 
 El firmware está en `firmware/relay_node/relay_node.ino`.
+
+### El mapeo del nodo también vive en el backend
+
+El dashboard muestra el pin de cada salida, así que tiene que saber cuál es. El
+nodo no lo informa — sólo consulta —, y enseñarle a informarlo es reflashearlo
+por USB adentro de la carpa. Así que el mapeo está en `RelayNodePins`
+(`autocann/config.py`) **copiado del firmware**, que sigue siendo la autoridad:
+`tests/test_relays.py` lee el `.ino` y falla si los dos se separan.
+
+| Variable | Default | Qué es |
+|---|---|---|
+| `AUTOCANN_RELAY_NODE_PIN_HUMIDITY_UP` | 25 | GPIO del nodo, IN1 |
+| `AUTOCANN_RELAY_NODE_PIN_HUMIDITY_DOWN` | 26 | GPIO del nodo, IN2 |
+| `AUTOCANN_RELAY_NODE_PIN_VENTILATION` | 27 | GPIO del nodo, IN3 |
+| `AUTOCANN_RELAY_NODE_NAME` | `ESP32 relés` | Con qué nombre aparece la placa en el panel |
+
+Si reflasheás el nodo con otros pines, cambiá el firmware y después corré
+`make test`: el test te va a decir qué quedó desalineado.
 
 ## Administración Remota (SSH)
 

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from autocann.config import GpioPins, RelayNode, RelayNodePins
 from autocann.hardware.outputs import manual_override_key, output_names, parse_bool_flag
 
 # FakeRedis y la fixture `client` viven en conftest.py: las usa también
@@ -62,6 +63,37 @@ def test_output_status_reports_state_and_any_override(client):
     assert outputs["humidity_up"]["manual_override"] is None
     assert outputs["humidity_down"]["manual_override"] is False
     assert outputs["ventilation"]["state"] is None
+
+
+def test_output_status_names_the_board_that_actually_switches_each_relay(client, monkeypatch):
+    """
+    The panel showed `pin_bcm` as "BCM n" in both modes. With the relays on the
+    node, those were pins of a board that is not in the circuit — and one of
+    them, BCM 25, is a real pin on the node, where it drives the humidifier.
+    """
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", "remote")
+
+    outputs = {o["name"]: o for o in client.get("/api/output-status").get_json()["outputs"]}
+    assert outputs["ventilation"]["pin"] == {
+        "scope": "remote",
+        "node": RelayNode().name,
+        "number": RelayNodePins().ventilation,
+    }
+    # The Raspberry's number does not travel any more: it switches nothing.
+    assert "pin_bcm" not in outputs["ventilation"]
+
+
+def test_output_status_still_reports_the_raspberry_pin_when_it_is_the_one_switching(
+    client, monkeypatch
+):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", "gpio")
+
+    outputs = {o["name"]: o for o in client.get("/api/output-status").get_json()["outputs"]}
+    assert outputs["ventilation"]["pin"] == {
+        "scope": "local",
+        "node": None,
+        "number": GpioPins().ventilation,
+    }
 
 
 def test_esp32_posts_a_reading_and_it_comes_back(client):

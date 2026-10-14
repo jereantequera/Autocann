@@ -68,6 +68,7 @@ from autocann.hardware.outputs import (
     manual_override_key,
     output_names,
     parse_bool_flag,
+    pin_sources,
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.time import ARGENTINA_TZ
@@ -276,7 +277,8 @@ def create_app() -> Flask:
     @app.route("/api/output-status", methods=["GET"])
     def get_output_status():
         """
-        Endpoint to get current output/relay status from Redis plus BCM pin mapping.
+        Endpoint to get current output/relay status from Redis plus, per output,
+        the board and pin that actually switch it.
 
         Carries the test-mode state as well. The dashboard draws both from this
         one answer so they cannot disagree: two polls could show manual buttons
@@ -293,6 +295,9 @@ def create_app() -> Flask:
         except Exception:
             held = {}
 
+        # Resolved once, not per output: it reads the environment.
+        sources = pin_sources()
+
         outputs = []
         for o in get_outputs():
             redis_key = o.get("redis_key")
@@ -303,7 +308,7 @@ def create_app() -> Flask:
                 {
                     "name": o.get("name"),
                     "label": o.get("label"),
-                    "pin_bcm": o.get("pin_bcm"),
+                    "pin": sources.get(o.get("name")),
                     "redis_key": redis_key,
                     "state": state,
                     "manual_override": parse_bool_flag(override_raw),
@@ -378,7 +383,7 @@ def create_app() -> Flask:
                 "output": {
                     "name": output.get("name"),
                     "label": output.get("label"),
-                    "pin_bcm": output.get("pin_bcm"),
+                    "pin": pin_sources().get(name),
                     "redis_key": output.get("redis_key"),
                     "requested_state": state,
                     "expires_in_seconds": None if state is None else duration,
