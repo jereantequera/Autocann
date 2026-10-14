@@ -1006,6 +1006,40 @@ body {
     color: var(--bg-primary);
 }
 
+/* The grow scope selector, sitting before the time range: which crop, and then
+   which window of it. A 30-day window used to cross the end of one grow and
+   the start of the next and draw them as one curve. */
+.grow-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.grow-selector-label {
+    font-size: 0.8em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.grow-selector .form-control {
+    width: auto;
+    min-width: 160px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+}
+
+.grow-scope-note {
+    margin: 0 0 16px 0;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent-lime);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
 .chart-wrapper {
     position: relative;
     height: 350px;
@@ -2140,6 +2174,10 @@ body {
     margin-top: 0;
     padding: 12px 0;
     background: linear-gradient(var(--bg-primary) 70%, rgba(10, 15, 13, 0));
+    /* Three controls live here now — title, grow and range — so they wrap
+       instead of squeezing the select down to nothing on a phone. */
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 /* ===============================

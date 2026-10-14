@@ -1,5 +1,76 @@
 # Changelog
 
+## El histórico es de un cultivo, no de una carpa
+
+Las ventanas de 30 y 90 días filtraban por tiempo y se llevaban puesto lo que
+hubiera atrás. Con el cultivo de prueba por cerrarse y uno real por arrancar,
+eso significa que el promedio de 30 días del cultivo nuevo iba a venir mezclado
+con semanas de carpa vacía — y la curva iba a ir de la última muestra de uno a
+la primera del otro **con una línea recta**, como si la carpa hubiera seguido
+andando sola.
+
+### El default es el cultivo activo, y se defiende solo
+
+Todo lo demás en pantalla ya está dicho en el contexto de un cultivo: la barra
+de arriba dice cuál es, la etapa, el día dentro de la etapa, la banda objetivo
+contra la que se mide el VPD. Un promedio de 30 días que incluye el cultivo
+anterior es un número **etiquetado con el contexto equivocado**: dice
+"Floración · día 25" arriba de una media que incluye dos meses de otra cosa. La
+alternativa — que el default sea "todo" — arruina la vista que se usa todos los
+días para abaratar una que se usa una vez por cultivo.
+
+Así que "todos los cultivos" **sigue estando y hay que pedirlo**: `grow_id=all`
+en la API, una opción en el selector nuevo de Estadísticas. Cruzar diez meses de
+carpa vacía con un cultivo real es una decisión, no algo que pase.
+
+### Lo que estaba roto no era que no filtrara
+
+La capa de base *sí* resolvía el cultivo activo cuando no le pasaban ninguno. El
+problema era el camino de abajo: **si no había cultivo activo, no filtraba por
+nada** y contestaba con todos. Y ese caso no es raro, es exactamente el momento
+que importa — los minutos (o los días) entre cerrar un cultivo y crear el
+siguiente. La única consulta que alguna vez devolvía todos los cultivos era la
+que lo hacía sin querer.
+
+Ahora `None` significa "el cultivo activo" y, sin uno, la respuesta es vacía.
+Vacío es la verdad ahí: no hay cultivo del que informar. `/api/sensor-history`
+además acepta `grow_id`, que antes no aceptaba: no había forma de mirar un
+cultivo cerrado.
+
+**El detector de anomalías es la excepción deliberada.** Sin cultivo activo no
+se queda callado: contesta "no hay datos en las últimas 24 horas", que es
+exactamente lo que está pasando, porque el lazo no está guardando nada. Leer las
+últimas filas de un cultivo cerrado como "la carpa está bien" es lo contrario de
+para lo que existe un detector. En la otra dirección, `/api/health` pregunta a
+propósito por **todos** los cultivos: ahí la pregunta es si la instalación sigue
+escribiendo, que es sobre la Raspberry y no sobre un cultivo, y acotarla al
+activo haría que "el histórico se cortó" apareciera justo mientras no hay nada
+roto.
+
+### Los huecos no pueden unir dos cultivos
+
+Los marcadores de corte miraban sólo el tiempo, y entre el final de un cultivo y
+el arranque del otro suele haber cinco minutos: ningún umbral de outage lo
+agarra. `insert_gaps` ahora corta también cuando cambia el cultivo, con el punto
+marcado como `series_change` para que se lea como lo que es — un cambio de
+cultivo, no un corte de datos.
+
+Y el bucket de agregación se agrupa por cultivo además de por intervalo. Una
+hora que contiene el promedio de dos carpas distintas es un número sobre nada.
+
+### Las estadísticas por etapa se niegan a promediar cultivos
+
+`/api/vpd-score` y `/api/weekly-report` rechazan `grow_id=all` en vez de
+contestar algo. El score es el porcentaje de tiempo dentro de la banda de **una
+etapa**, y cada cultivo pasó por etapas distintas: un solo porcentaje sobre
+todos puntúa lecturas contra bandas a las que nunca estuvieron sujetas. El
+cartel lo dice en pantalla en lugar de dejar el número en `--%` sin explicación.
+
+De yapa, la comparación "contra la semana anterior" del reporte quedó acotada
+también: la primera semana de un cultivo ahora compara contra nada y no reporta
+tendencia, que es la verdad, en vez de medir una tendencia contra la carpa
+vacía.
+
 ## El sensor de afuera dejó de frenar el lazo
 
 El DHT22 exterior se leía **adentro del lazo de control**, en la misma llamada

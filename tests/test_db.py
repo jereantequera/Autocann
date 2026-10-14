@@ -448,3 +448,169 @@ def test_migrating_a_legacy_database_preserves_every_row(tmp_path, monkeypatch):
     assert {"temperature_min", "sample_n", "stage", "quality"} <= columns
     assert {"stage_events", "sensor_calibration"} <= tables
     assert stage_events == 1                # backfilled once, not twice
+
+
+# ===========================================================================
+# Grow scoping
+# ===========================================================================
+# The history is filtered by grow, not only by time. A 30- or 90-day window
+# reaches back past the end of the previous crop, and ten months of an empty
+# tent averaged into a real grow is a number about nothing.
+
+
+def _two_grows(temp_db, now):
+    """A closed grow and an active one, each with its own samples."""
+    closed = temp_db.create_grow("Prueba", "flowering")
+    conn = temp_db._open()
+    for i in range(6):
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature,"
+            " humidity, vpd) VALUES (?, ?, '', 10.0, 20.0, 0.5)",
+            (closed, now - 7200 - i * 300),
+        )
+    conn.commit()
+    conn.close()
+    temp_db.end_grow(closed)
+
+    active = temp_db.create_grow("Real", "early_veg")
+    conn = temp_db._open()
+    for i in range(6):
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature,"
+            " humidity, vpd) VALUES (?, ?, '', 30.0, 60.0, 1.5)",
+            (active, now - i * 300),
+        )
+    conn.commit()
+    conn.close()
+    return closed, active
+
+
+def test_the_history_defaults_to_the_active_grow(temp_db):
+    now = anchored_now(3000)
+    _closed, active = _two_grows(temp_db, now)
+
+    rows = temp_db.get_sensor_data_range(now - 90 * 86400, now)
+    assert rows, "el cultivo activo tiene muestras"
+    assert {row["grow_id"] for row in rows} == {active}
+    assert {row["temperature"] for row in rows} == {30.0}
+
+
+def test_a_closed_grow_can_still_be_asked_for_by_id(temp_db):
+    now = anchored_now(3000)
+    closed, _active = _two_grows(temp_db, now)
+
+    rows = temp_db.get_sensor_data_range(now - 90 * 86400, now, grow_id=closed)
+    assert {row["grow_id"] for row in rows} == {closed}
+
+
+def test_every_grow_at_once_has_to_be_asked_for(temp_db):
+    now = anchored_now(3000)
+    closed, active = _two_grows(temp_db, now)
+
+    rows = temp_db.get_sensor_data_range(
+        now - 90 * 86400, now, grow_id=temp_db.ALL_GROWS)
+    assert {row["grow_id"] for row in rows} == {closed, active}
+
+
+def test_with_no_active_grow_the_history_is_empty_rather_than_everything(temp_db):
+    """
+    The window between ending one grow and starting the next. It used to fall
+    through to no filter at all, which is the one case where the answer
+    silently became every grow ever recorded.
+    """
+    now = anchored_now(3000)
+    _two_grows(temp_db, now)
+    temp_db.end_grow(temp_db.get_active_grow()["id"])
+    assert temp_db.get_active_grow() is None
+
+    assert temp_db.get_sensor_data_range(now - 90 * 86400, now) == []
+    assert temp_db.get_period_summary(now - 90 * 86400, now) == {"sample_count": 0}
+    assert temp_db.get_aggregated_data(now - 90 * 86400, now, 3600) == []
+
+
+def test_a_bucket_is_never_the_mean_of_two_grows(temp_db):
+    """
+    One hour holding the average of two different crops' tents is a number
+    about nothing. Across grows the bucket is split, and each point says which
+    grow it belongs to.
+    """
+    now = anchored_now(1800)
+    closed = temp_db.create_grow("Prueba", "flowering")
+    conn = temp_db._open()
+    conn.execute(
+        "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature,"
+        " humidity, vpd) VALUES (?, ?, '', 10.0, 20.0, 0.5)",
+        (closed, now - 1500),
+    )
+    conn.commit()
+    conn.close()
+    temp_db.end_grow(closed)
+
+    active = temp_db.create_grow("Real", "early_veg")
+    conn = temp_db._open()
+    conn.execute(
+        "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature,"
+        " humidity, vpd) VALUES (?, ?, '', 30.0, 60.0, 1.5)",
+        (active, now - 300),
+    )
+    conn.commit()
+    conn.close()
+
+    points = temp_db.get_aggregated_data(now - 3600, now, 3600, temp_db.ALL_GROWS)
+    assert len(points) == 2, "las dos filas cayeron en un solo promedio"
+    assert {p["grow_id"] for p in points} == {closed, active}
+    assert sorted(p["temperature"] for p in points) == [10.0, 30.0]
+
+
+def test_the_period_summary_does_not_average_across_grows(temp_db):
+    now = anchored_now(3000)
+    _two_grows(temp_db, now)
+
+    scoped = temp_db.get_period_summary(now - 90 * 86400, now)
+    assert scoped["temperature"]["avg"] == 30.0
+    assert scoped["sample_count"] == 6
+
+    everything = temp_db.get_period_summary(now - 90 * 86400, now, temp_db.ALL_GROWS)
+    assert everything["sample_count"] == 12
+    assert everything["temperature"]["avg"] == 20.0
+
+
+def test_the_vpd_score_refuses_to_cover_several_grows(temp_db):
+    """
+    It measures time inside *a stage's* band, and each grow passed through
+    different stages. One percentage over all of them scores readings against
+    bands they were never held to.
+    """
+    now = anchored_now(3000)
+    _two_grows(temp_db, now)
+
+    assert "error" in temp_db.get_vpd_score(days=7, grow_id=temp_db.ALL_GROWS)
+    assert "error" in temp_db.get_weekly_report(grow_id=temp_db.ALL_GROWS)
+    assert temp_db.get_vpd_score(days=7).get("error") is None
+
+
+def test_the_vpd_score_counts_only_the_grow_it_is_about(temp_db):
+    # Wall clock, not a bucket anchor: this one has no aggregation to align to,
+    # and the anchor can land in the future, which puts a row past `end`.
+    now = int(time.time()) - 600
+    closed, _active = _two_grows(temp_db, now)
+
+    # Each one sees its own six rows and is judged against its own stage's band.
+    assert temp_db.get_vpd_score(days=1)["period_samples_total"] == 6
+    assert temp_db.get_vpd_score(days=1)["stage"] == "early_veg"
+    assert temp_db.get_vpd_score(days=1, grow_id=closed)["period_samples_total"] == 6
+    assert temp_db.get_vpd_score(days=1, grow_id=closed)["stage"] == "flowering"
+
+
+def test_anomalies_with_no_active_grow_report_the_outage(temp_db):
+    """
+    Reading a closed grow's last rows as "the tent is fine" is the opposite of
+    what a detector is for: with no active grow nothing is being written.
+    """
+    now = anchored_now(3000)
+    _two_grows(temp_db, now)
+    temp_db.end_grow(temp_db.get_active_grow()["id"])
+
+    report = temp_db.detect_anomalies(hours=24)
+    assert report["status"] == "critical"
+    assert [a["type"] for a in report["anomalies"]] == ["no_data"]

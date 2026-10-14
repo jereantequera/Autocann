@@ -38,7 +38,7 @@ from autocann.config import (
     indoor_sensors_from_env,
     is_valid_sensor_id,
 )
-from autocann.db import get_sensor_data_range, get_setting
+from autocann.db import ALL_GROWS, get_sensor_data_range, get_setting
 from autocann.time import ARGENTINA_TZ
 
 # ---------------------------------------------------------------------------
@@ -586,8 +586,17 @@ def paused_since(redis_client) -> Optional[int]:
 
 
 def _last_stored_sample_age(now: int) -> Optional[float]:
+    """
+    How long ago the loop last wrote a row, for any grow.
+
+    Deliberately ALL_GROWS: the question here is whether the installation is
+    still recording, which is about the Raspberry and not about a crop. Scoped
+    to the active grow, this would read as "the history stopped" during the
+    minutes between ending one grow and starting the next, when nothing is
+    wrong with anything.
+    """
     try:
-        rows = get_sensor_data_range(limit=1)
+        rows = get_sensor_data_range(limit=1, grow_id=ALL_GROWS)
     except Exception:
         return None
     if not rows:

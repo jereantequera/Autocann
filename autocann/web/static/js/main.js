@@ -13,7 +13,7 @@ import {
 } from './feeding.js';
 import {
     activateGrow, createGrow, endGrow, fetchActiveGrow, showNewGrowModal,
-    showStageModal, updateStage, wireGrowListActions,
+    showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
 import { closeModal, closeTopModal } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
@@ -217,6 +217,7 @@ async function start() {
     initCharts();
     wireActions();
     wireGrowListActions();
+    wireGrowFilter();
     wireFeeding();
     wireCalendar();
     wirePanel();

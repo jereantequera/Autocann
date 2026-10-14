@@ -12,6 +12,16 @@ export const state = {
     stage: 'early_veg',
     /** Stage periods of the active grow, for the chart markers. */
     timeline: null,
+    /**
+     * Which grow the statistics are about.
+     *
+     * `null` means the active one, which is what the rest of the dashboard is
+     * about — the grow bar, the stage, the day counter. A number names a grow,
+     * and `'all'` asks for every one of them, which only happens because
+     * somebody picked it: a 30-day window used to silently cross the end of one
+     * crop and the start of the next into a single curve.
+     */
+    growId: null,
 };
 
 /**

@@ -314,6 +314,53 @@ def test_the_quiet_hours_editor_never_offers_to_switch_a_relay():
     assert "/api/test-mode/outputs" not in quiet_js
 
 
+def test_the_statistics_view_lets_you_choose_which_grow():
+    """
+    Filtering by time alone drew ten months of an empty tent and a real crop as
+    one curve as soon as the window reached past the changeover. The default is
+    the active grow; "todos los cultivos" has to be reachable, and asked for.
+    """
+    page = _page_html()
+    assert 'id="grow-filter"' in page
+    assert 'id="grow-scope-note"' in page
+
+    grows_js = (JS_DIR / "grows.js").read_text()
+    assert "grow-filter" in grows_js
+    assert "Todos los cultivos" in grows_js
+
+
+def test_every_history_request_carries_the_grow_scope():
+    """
+    One of these left out is one chart answering a different question from the
+    others on the same screen.
+    """
+    for module, endpoints in (
+        ("dashboard.js", ("/api/sensor-history", "/api/history/aggregated",
+                          "/api/period-summary")),
+        ("analytics.js", ("/api/vpd-score",)),
+    ):
+        code = _strip_js_comments((JS_DIR / module).read_text())
+        assert "withGrow" in code, module
+        for endpoint in endpoints:
+            assert endpoint in code, f"{module}: {endpoint}"
+
+
+def test_the_grow_scope_is_never_hardcoded_into_a_url():
+    """
+    `grow_id=${...}` built by hand is how a selector set to "todos" turns into
+    `grow_id=null` in a URL, which the backend rejects — so the chart just goes
+    blank. withGrow() is the one place that decides.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        if path.name == "util.js":
+            continue  # where withGrow itself lives
+        code = _strip_js_comments(path.read_text())
+        if re.search(r"grow_id=\$\{", code) or "grow_id=' +" in code:
+            offenders.append(path.name)
+    assert offenders == []
+
+
 def test_the_weekly_report_is_a_view_rather_than_a_modal():
     """A report is read, scrolled and linked to; a modal can do none of those."""
     page = _page_html()
