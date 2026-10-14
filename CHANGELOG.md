@@ -1,5 +1,52 @@
 # Changelog
 
+## `make check` mira la placa que conmuta
+
+El chequeo de hardware abría un pin del header de la Raspberry y anunciaba
+"GPIO accesible y los pines están libres". Lo hacía en cualquier modo. Esta
+instalación corre con `AUTOCANN_RELAY_MODE=remote`: los relés los maneja el
+ESP32 que consulta `GET /api/outputs/desired`, y el header de la Raspberry no
+conmuta nada. **El chequeo afirmaba algo cierto e irrelevante sobre una placa
+que no está en el circuito** — y era todo lo que decía del hardware.
+
+Lo que lo vuelve peor que inútil es cuándo daba verde. Si el lazo de control se
+moría, el endpoint empezaba a contestar failsafe, el nodo de-energizaba los tres
+relés y la carpa se quedaba sin humidificador ni ventilación — y `make check`
+seguía diciendo que el hardware estaba bien, porque el pin que probaba estaba
+libre justamente por eso: no lo usa nadie. Un pin libre no es una buena noticia
+cuando nadie lo tiene que estar usando.
+
+Las sugerencias arrastraban el mismo error. Ante pines repetidos mandaban a
+revisar `AUTOCANN_PIN_HUMIDITY_UP / _DOWN / _VENTILATION`, que en remoto no
+manejan nada: alguien podía editarlas, ver el número cambiar y seguir con los
+dos relés en el mismo pin del nodo.
+
+Ahora el chequeo pregunta primero en qué modo está y después qué puede fallar
+ahí. En remoto nombra la placa y sus GPIO, y verifica lo único que esta punta
+puede romper: que el lazo esté publicando `desired_outputs` y que lo publicado
+entre en la ventana de 30 s del failsafe. Si no, falla diciendo qué va a recibir
+el nodo — todo apagado — y manda al lazo, que es quien publica, en vez de a un
+pin. En modo `gpio` sigue abriendo el pin como antes, porque ahí sí es suyo.
+
+**Del nodo mismo no se afirma nada, a propósito.** No se puede: sólo consulta y
+no reporta nada de vuelta, así que en la Raspberry no queda registro de que haya
+consultado — el mismo silencio que obliga a llevar su mapeo de pines en la
+configuración. Lo que sí se sabe es qué se le serviría a cualquier nodo que
+consulte ahora, y eso es lo que se informa. Inventar un "el nodo responde" sería
+repetir el defecto que esto corrige, con otra pantalla.
+
+El chequeo de pines repetidos quedó **por modo**: lo resuelve la misma función
+que usa el panel, que rechaza dos salidas en un pin de la placa que está en uso
+y nombra las variables de esa placa. Dos salidas en un pin de la Raspberry
+mientras los relés están en el nodo ya no es un error — no hay nada conectado
+ahí —, y hasta ahora hacía fallar al panel.
+
+La ventana del failsafe y el nombre de la clave se mudaron a `config.py`. Las
+leen tres módulos: el lazo que publica, el endpoint que decide si contesta
+failsafe y el chequeo que informa. Un chequeo con una ventana propia habría dado
+verde mientras el nodo estaba en failsafe, que es exactamente lo que vino a
+detectar.
+
 ## El pin que muestra el panel es el que conmuta
 
 El panel de salidas mostraba "BCM 7", "BCM 16" y "BCM 25": los pines de la

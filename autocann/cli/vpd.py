@@ -24,6 +24,7 @@ from typing import Any, Dict, FrozenSet, Optional, Tuple
 import redis
 
 from autocann.config import (
+    DESIRED_OUTPUTS_KEY,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
@@ -99,12 +100,6 @@ SENSOR_REINIT_INTERVAL_SECONDS = 30.0
 #: other dashboard keys would be re-learned from the drifted sensor and the
 #: detector would never fire.
 DRIFT_BASELINE_KEY = "indoor_drift_baseline"
-
-#: Redis key holding the full desired output state. A remote relay node
-#: polls it; the poll is both the command and the keepalive, so this is
-#: rewritten every cycle even when nothing changed. Silence is the signal
-#: that tells the node the loop is gone.
-DESIRED_OUTPUTS_KEY = "desired_outputs"
 
 #: Recurring warnings print at most this often, so a day-long fault does not
 #: write 28,800 identical lines to the log.

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import asdict
+from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
+import redis
 
+from autocann.cli import check_system
 from autocann.cli.vpd import Relays
 from autocann.config import (
+    DESIRED_OUTPUTS_KEY,
+    DESIRED_OUTPUTS_MAX_AGE_SECONDS,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
     ControlTuning,
@@ -16,12 +23,15 @@ from autocann.config import (
 )
 from autocann.control.humidity import DEHUMIDIFY, HUMIDIFY, IDLE
 from autocann.hardware.outputs import (
+    OUTPUT_NAMES,
     PIN_SCOPE_LOCAL,
     PIN_SCOPE_REMOTE,
     get_outputs,
+    output_names,
     pin_sources,
 )
 from autocann.paths import PROJECT_ROOT
+from autocann.time import ARGENTINA_TZ
 
 
 class FakeDevice:
@@ -420,3 +430,215 @@ def test_a_loop_told_its_mode_does_not_go_back_to_the_environment(monkeypatch):
     """
     monkeypatch.delenv("AUTOCANN_RELAY_MODE", raising=False)
     assert pin_sources(RELAY_MODE_REMOTE)["humidity_up"]["number"] == RelayNodePins().humidity_up
+
+
+# ---------------------------------------------------------------------------
+# What the system check asserts, per mode
+# ---------------------------------------------------------------------------
+
+
+def test_the_output_list_and_the_name_list_do_not_drift():
+    """
+    `OUTPUT_NAMES` repeats what `get_outputs()` builds, so that asking which
+    outputs exist does not force the Raspberry's pins to resolve. Two lists
+    means they can disagree; this is what stops them.
+    """
+    assert [output["name"] for output in get_outputs()] == list(OUTPUT_NAMES)
+
+
+def test_every_output_has_a_word_in_the_check(monkeypatch):
+    """
+    The check prints its own short names. One missing would not raise — the
+    output would just quietly not be listed, which on a check whose whole job
+    is to say where the relays are is the failure mode that matters.
+    """
+    assert set(check_system._OUTPUT_WORDS) == set(OUTPUT_NAMES)
+
+
+def test_naming_the_outputs_does_not_resolve_the_raspberry_header(monkeypatch):
+    """
+    In remote mode two of the Raspberry's pins may share a number: nothing is
+    wired to them. `output_names()` used to go through `get_outputs()`, which
+    resolves that header, so a harmless collision there made the remote pin
+    mapping — and the dashboard reading it — raise.
+    """
+    monkeypatch.setenv("AUTOCANN_PIN_VENTILATION", str(GpioPins().humidity_up))
+
+    assert output_names() == list(OUTPUT_NAMES)
+    sources = pin_sources(RELAY_MODE_REMOTE)
+    assert {name: source["number"] for name, source in sources.items()} == asdict(RelayNodePins())
+
+
+def test_the_check_does_not_touch_the_local_header_in_remote_mode(monkeypatch):
+    """
+    The old check opened `gpiozero.OutputDevice` in every mode and reported
+    "GPIO accesible y los pines están libres". With the relays on the node that
+    is true and beside the point, and it was the whole hardware verdict.
+    """
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+
+    def explode(*a, **k):
+        raise AssertionError("abrió un pin de la Raspberry en modo remoto")
+
+    monkeypatch.setattr(check_system, "_check_local_header", explode)
+    monkeypatch.setattr(check_system, "check_desired_outputs", lambda: True)
+
+    assert check_system.check_relays() is True
+
+
+def test_the_check_names_the_node_and_its_own_pins(monkeypatch, capsys):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+    monkeypatch.setenv("AUTOCANN_RELAY_NODE_NAME", "ESP32 relés (192.168.100.77)")
+    monkeypatch.setattr(check_system, "check_desired_outputs", lambda: True)
+
+    check_system.check_relays()
+    printed = capsys.readouterr().out
+
+    assert "ESP32 relés (192.168.100.77)" in printed
+    # The node's numbers are its own GPIO, not BCM pins of the Raspberry.
+    assert f"GPIO {RelayNodePins().ventilation}" in printed
+    assert "BCM" not in printed
+
+
+def test_a_bad_relay_mode_is_reported_instead_of_raising(monkeypatch):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", "casi-remoto")
+    assert check_system.check_relays() is False
+
+
+# ---------------------------------------------------------------------------
+# The duplicate-pin check, aimed at the board in force
+# ---------------------------------------------------------------------------
+
+
+def test_two_outputs_on_one_node_pin_fail_the_check(monkeypatch, capsys):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+    monkeypatch.setenv("AUTOCANN_RELAY_NODE_PIN_VENTILATION", str(RelayNodePins().humidity_up))
+
+    assert check_system.check_relays() is False
+    hints = capsys.readouterr().out
+    # The variables that move a node pin, not the ones that move nothing here.
+    assert "AUTOCANN_RELAY_NODE_PIN_HUMIDITY_UP" in hints
+    assert "Revisá AUTOCANN_PIN_HUMIDITY_UP" not in hints
+
+
+def test_two_outputs_on_one_raspberry_pin_fail_the_check_in_gpio_mode(monkeypatch, capsys):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_GPIO)
+    monkeypatch.setenv("AUTOCANN_PIN_VENTILATION", str(GpioPins().humidity_up))
+
+    assert check_system.check_relays() is False
+    assert "AUTOCANN_PIN_HUMIDITY_UP" in capsys.readouterr().out
+
+
+def test_a_collision_on_the_idle_header_does_not_fail_remote_mode(monkeypatch):
+    """
+    Two of the Raspberry's outputs on one pin is a hazard only if that header
+    switches something. In remote mode it does not, so reporting it would be
+    the same mistake the old check made, in the other direction.
+    """
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+    monkeypatch.setenv("AUTOCANN_PIN_VENTILATION", str(GpioPins().humidity_up))
+    monkeypatch.setattr(check_system, "check_desired_outputs", lambda: True)
+
+    assert check_system.check_relays() is True
+
+
+# ---------------------------------------------------------------------------
+# Whether a polling node is being given orders
+# ---------------------------------------------------------------------------
+
+
+def desired_state_json(outputs, ts):
+    return json.dumps({"outputs": outputs, "ts": int(ts)}).encode()
+
+
+def test_a_fresh_desired_state_is_what_the_node_would_get():
+    now = 1_700_000_000
+    state = check_system.read_desired_state(
+        desired_state_json({"humidity_up": True, "ventilation": False}, now - 5), now
+    )
+
+    assert state.problem is None
+    assert state.age_seconds == 5
+    assert state.outputs == {"humidity_up": True, "ventilation": False}
+
+
+def test_nothing_published_means_the_node_gets_nothing():
+    state = check_system.read_desired_state(None, 1_700_000_000)
+    assert state.problem and "no publicó" in state.problem
+
+
+def test_an_unreadable_desired_state_is_reported_not_raised():
+    state = check_system.read_desired_state(b"{no es json", 1_700_000_000)
+    assert state.problem and "ilegible" in state.problem
+
+
+def test_a_state_past_the_failsafe_window_is_a_fault():
+    """
+    Past the window the endpoint answers failsafe — everything off — so the
+    relays drop. The check has to call that a fault even though Redis still
+    holds a perfectly readable state.
+    """
+    now = 1_700_000_000
+    stale = DESIRED_OUTPUTS_MAX_AGE_SECONDS + 1
+    state = check_system.read_desired_state(desired_state_json({"humidity_up": True}, now - stale), now)
+
+    assert state.age_seconds == stale
+    assert state.problem and str(DESIRED_OUTPUTS_MAX_AGE_SECONDS) in state.problem
+
+
+def test_the_check_reads_the_state_the_way_the_endpoint_does(client):
+    """
+    The check and `GET /api/outputs/desired` must agree on the verdict: a check
+    that passed while the node was being served failsafe, or failed while it was
+    getting real commands, would be worse than no check. Both are driven here
+    from the same key, at the same ages, and compared.
+    """
+    now = int(datetime.now(ARGENTINA_TZ).timestamp())
+
+    for age, expected_failsafe in (
+        (0, False),
+        (DESIRED_OUTPUTS_MAX_AGE_SECONDS - 5, False),
+        (DESIRED_OUTPUTS_MAX_AGE_SECONDS + 10, True),
+    ):
+        raw = desired_state_json({"humidity_up": True}, now - age)
+        client.redis.store[DESIRED_OUTPUTS_KEY] = raw.decode()
+
+        served = client.get("/api/outputs/desired").get_json()
+        state = check_system.read_desired_state(raw, now)
+
+        assert served["failsafe"] is expected_failsafe
+        assert (state.problem is not None) is expected_failsafe
+
+
+def test_a_stale_state_fails_the_check_and_says_what_stopped(monkeypatch, capsys):
+    stale = desired_state_json({"humidity_up": True}, 1_000)
+    monkeypatch.setattr(
+        redis, "Redis", lambda **kwargs: SimpleNamespace(get=lambda key: stale)
+    )
+
+    assert check_system.check_desired_outputs() is False
+    printed = capsys.readouterr().out
+    assert "failsafe" in printed
+    # The loop is what publishes, so that is where to look — not at a pin.
+    assert "loop de control" in printed
+
+
+def test_a_published_state_passes_the_check_and_says_what_is_on(monkeypatch, capsys):
+    fresh = desired_state_json(
+        {"humidity_up": True, "humidity_down": False, "ventilation": False},
+        datetime.now(ARGENTINA_TZ).timestamp(),
+    )
+    monkeypatch.setattr(
+        redis, "Redis", lambda **kwargs: SimpleNamespace(get=lambda key: fresh)
+    )
+
+    assert check_system.check_desired_outputs() is True
+    assert "humidificador" in capsys.readouterr().out
+
+
+def test_redis_being_down_is_a_failure_not_a_traceback(monkeypatch):
+    def refuse(**kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(redis, "Redis", refuse)
+    assert check_system.check_desired_outputs() is False

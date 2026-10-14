@@ -23,6 +23,16 @@ from autocann.config import (
 PIN_SCOPE_LOCAL = "local"
 PIN_SCOPE_REMOTE = "remote"
 
+#: The outputs that exist, in the order the dashboard shows them.
+#:
+#: Kept apart from `get_outputs()` because the names are fixed while the pins
+#: are not: `get_outputs()` has to resolve the Raspberry's header to answer at
+#: all, and in remote mode that header is not in the circuit and may be left
+#: with two outputs on one pin without anything being wrong. Asking which
+#: outputs exist should not raise over a board nothing is wired to.
+#: `tests/test_relays.py` fails if this list and `get_outputs()` drift apart.
+OUTPUT_NAMES = ("humidity_up", "humidity_down", "ventilation")
+
 
 def get_outputs() -> List[Dict[str, Any]]:
     """
@@ -94,7 +104,7 @@ def find_output(name: str) -> Optional[Dict[str, Any]]:
 
 
 def output_names() -> List[str]:
-    return [output["name"] for output in get_outputs()]
+    return list(OUTPUT_NAMES)
 
 
 def manual_override_key(name: str) -> str:

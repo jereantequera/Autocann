@@ -11,13 +11,25 @@ healthy install and passed on a broken one.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-from autocann.config import gpio_pins_from_env, redis_config_from_env
-from autocann.hardware.outputs import get_outputs
+from autocann.config import (
+    DESIRED_OUTPUTS_KEY,
+    DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+    RELAY_MODE_GPIO,
+    RELAY_MODE_REMOTE,
+    RELAY_MODES,
+    redis_config_from_env,
+    relay_mode_from_env,
+)
+from autocann.hardware.outputs import PIN_SCOPE_REMOTE, pin_sources
+from autocann.time import ARGENTINA_TZ
 
 
 def _ok(message: str) -> bool:
@@ -74,31 +86,187 @@ def check_redis() -> bool:
         )
 
 
-def check_gpio() -> bool:
+#: Short names for the lines this check prints. Deliberately its own words
+#: rather than the dashboard's labels from `get_outputs()`: building those
+#: resolves the Raspberry's header, which is the very thing that must not be
+#: touched while checking a mode where that header is not in the circuit.
+_OUTPUT_WORDS = {
+    "humidity_up": "humidificador",
+    "humidity_down": "deshumidificador",
+    "ventilation": "ventilación",
+}
+
+#: Which variables move a pin, per mode. A hint naming the other mode's
+#: variables is worse than no hint: it sends you to edit something that is not
+#: driving anything.
+_PIN_VARS = {
+    RELAY_MODE_GPIO: "AUTOCANN_PIN_HUMIDITY_UP / _DOWN / _VENTILATION",
+    RELAY_MODE_REMOTE: "AUTOCANN_RELAY_NODE_PIN_HUMIDITY_UP / _DOWN / _VENTILATION",
+}
+
+
+@dataclass(frozen=True)
+class DesiredState:
+    """What a node polling right now would be served."""
+
+    age_seconds: Optional[int] = None
+    outputs: Optional[Dict[str, bool]] = None
+    #: None when a node would get real commands. Otherwise what is wrong, in
+    #: words, which is also the reason the endpoint would answer failsafe.
+    problem: Optional[str] = None
+
+
+def read_desired_state(raw: Any, now_ts: float) -> DesiredState:
+    """
+    Read the published desired state exactly as `GET /api/outputs/desired` does.
+
+    A mirror on purpose, and pure so it can be tested without Redis. The check
+    is worth something only if it sees what the node sees, so the key, the age
+    and the window have to be the same ones the endpoint uses — they are shared
+    in `autocann.config` for that reason. Including the detail that an age in
+    the future passes: the endpoint only rejects states that are too old, and a
+    check stricter than the failsafe would report a fault that does not exist.
+    """
+    if not raw:
+        return DesiredState(problem="el lazo no publicó ningún estado deseado")
+
     try:
-        import gpiozero  # noqa: F401
+        payload = json.loads(raw)
+        outputs = {str(name): bool(on) for name, on in payload["outputs"].items()}
+        age = int(now_ts) - int(payload["ts"])
+    except Exception as e:
+        return DesiredState(problem=f"el estado deseado es ilegible: {e}")
+
+    if age > DESIRED_OUTPUTS_MAX_AGE_SECONDS:
+        return DesiredState(
+            age_seconds=age,
+            outputs=outputs,
+            problem=(
+                f"el último estado deseado tiene {age}s, más que la ventana de "
+                f"{DESIRED_OUTPUTS_MAX_AGE_SECONDS}s"
+            ),
+        )
+    return DesiredState(age_seconds=age, outputs=outputs)
+
+
+def check_relays() -> bool:
+    """
+    Check the board that is actually switching the relays.
+
+    This used to open a pin on the Raspberry's header in every mode and report
+    "GPIO accesible y los pines están libres". Under AUTOCANN_RELAY_MODE=remote
+    — what this installation runs — the header switches nothing: the relays
+    hang off an ESP32 that polls `GET /api/outputs/desired`. So the check
+    asserted something true and irrelevant about a board outside the circuit,
+    stayed green while the node sat in failsafe with every relay dropped, and
+    pointed whoever read it at AUTOCANN_PIN_*, variables that in that mode
+    drive nothing.
+    """
+    try:
+        mode = relay_mode_from_env()
+    except ValueError as e:
+        return _fail(
+            f"No se pudo leer el modo de relés: {e}",
+            f"AUTOCANN_RELAY_MODE tiene que ser uno de: {', '.join(RELAY_MODES)}",
+        )
+
+    sources = _report_pins(mode)
+    if sources is None:
+        return False
+    if mode == RELAY_MODE_REMOTE:
+        return check_desired_outputs()
+    return _check_local_header(sources)
+
+
+def _report_pins(mode: str) -> Optional[Dict[str, Dict[str, Any]]]:
+    """
+    Print where each output is really switched, or None if the mapping is unusable.
+
+    `pin_sources` resolves the pins of the board in force and refuses a mapping
+    with two outputs on one pin — they would switch together, so the humidifier
+    and the dehumidifier could run at once. That refusal is the duplicate-pin
+    check, and it is per mode on purpose: in remote mode the Raspberry's
+    numbers may collide without any consequence, because nothing is wired to
+    them, while the node's numbers carry the whole hazard.
+    """
+    try:
+        sources = pin_sources(mode)
+    except ValueError as e:
+        _fail(
+            f"La asignación de pines no sirve: {e}",
+            "Dos salidas en el mismo pin se encienden y apagan juntas.",
+            f"Revisá {_PIN_VARS[mode]}.",
+        )
+        return None
+
+    remote = any(s["scope"] == PIN_SCOPE_REMOTE for s in sources.values())
+    where = ", ".join(
+        f"{word}: {'GPIO' if remote else 'BCM'} {sources[name]['number']}"
+        for name, word in _OUTPUT_WORDS.items()
+        if name in sources
+    )
+    if remote:
+        node = next(iter(sources.values()))["node"]
+        print(f"   Relés en {node}, no en el header de la Raspberry — {where}")
+    else:
+        print(f"   Pines del header de la Raspberry — {where}")
+    return sources
+
+
+def check_desired_outputs() -> bool:
+    """
+    In remote mode, whether a polling node is being given orders.
+
+    The node itself cannot be checked from here, and this says so rather than
+    pretending otherwise: it only calls `GET /api/outputs/desired` and reports
+    nothing back, so the Raspberry holds no record that it ever polled — the
+    same silence that forces its pin mapping to be carried in configuration.
+    What is knowable is what any node polling right now would be served, and
+    that is what can actually fail on this side.
+    """
+    cfg = redis_config_from_env()
+    try:
+        import redis
+
+        raw = redis.Redis(
+            host=cfg.host, port=cfg.port, db=cfg.db, socket_connect_timeout=3
+        ).get(DESIRED_OUTPUTS_KEY)
+    except Exception as e:
+        return _fail(
+            f"No se pudo leer el estado deseado en Redis: {e}",
+            "Sin Redis el nodo no recibe nada y deja los relés apagados.",
+        )
+
+    state = read_desired_state(raw, datetime.now(ARGENTINA_TZ).timestamp())
+    if state.problem:
+        return _fail(
+            f"El nodo no está recibiendo órdenes: {state.problem}",
+            "Mientras siga así GET /api/outputs/desired contesta failsafe,"
+            " o sea todo apagado, y el nodo de-energiza los relés.",
+            "El que publica es el loop de control: make status",
+            "Si no está corriendo: ./scripts/start_services.sh",
+        )
+
+    on = [_OUTPUT_WORDS.get(name, name) for name, value in (state.outputs or {}).items() if value]
+    return _ok(
+        f"El lazo publica el estado deseado (hace {state.age_seconds}s, ventana de "
+        f"{DESIRED_OUTPUTS_MAX_AGE_SECONDS}s) — encendido: "
+        f"{', '.join(on) if on else 'nada'}"
+    )
+
+
+def _check_local_header(sources: Dict[str, Dict[str, Any]]) -> bool:
+    """In gpio mode the pins are this process's to take, so try to take one."""
+    try:
+        import gpiozero
     except Exception as e:
         _warn(f"gpiozero no disponible: {e}", "Normal fuera de la Raspberry Pi")
         return True
 
-    pins = gpio_pins_from_env()
-    print(
-        f"   Pines configurados — humidificador: BCM {pins.humidity_up}, "
-        f"deshumidificador: BCM {pins.humidity_down}, ventilación: BCM {pins.ventilation}"
-    )
-
-    duplicates = _duplicate_pins()
-    if duplicates:
-        return _fail(
-            f"Hay pines repetidos entre salidas: {duplicates}",
-            "Dos salidas en el mismo pin se encienden y apagan juntas.",
-            "Revisá AUTOCANN_PIN_HUMIDITY_UP / _DOWN / _VENTILATION.",
-        )
-
     try:
-        import gpiozero
-
-        device = gpiozero.OutputDevice(pins.ventilation, active_high=False, initial_value=False)
+        device = gpiozero.OutputDevice(
+            int(sources["ventilation"]["number"]), active_high=False, initial_value=False
+        )
         device.close()
         return _ok("GPIO accesible y los pines están libres")
     except Exception as e:
@@ -107,13 +275,6 @@ def check_gpio() -> bool:
             "Si dice 'in use', ya hay un loop de control corriendo: make status",
             "Si es de permisos: sudo usermod -a -G gpio $USER && sudo reboot",
         )
-
-
-def _duplicate_pins() -> List[Tuple[int, List[str]]]:
-    by_pin: dict[int, List[str]] = {}
-    for output in get_outputs():
-        by_pin.setdefault(int(output["pin_bcm"]), []).append(str(output["name"]))
-    return [(pin, names) for pin, names in by_pin.items() if len(names) > 1]
 
 
 def count_control_loops() -> Optional[int]:
@@ -213,7 +374,7 @@ def main() -> int:
     all_ok &= check_database()
 
     print("\nHardware...")
-    all_ok &= check_gpio()
+    all_ok &= check_relays()
     all_ok &= check_no_duplicate_processes()
 
     print("\n" + "=" * 56)

@@ -419,6 +419,23 @@ iteración, aunque no haya cambiado nada. No es redundancia:
 
 Ninguna depende de que la anterior haya funcionado.
 
+### Qué chequea `make check` en este modo
+
+Mira la placa que conmuta, no la que está al lado. En remoto nombra el nodo y
+sus GPIO, y verifica lo único que esta punta puede romper: que el lazo esté
+publicando `desired_outputs` y que lo publicado entre en la ventana de 30 s de
+la primera barrera. Si no, falla diciendo que el nodo va a recibir todo apagado
+y manda al lazo, que es quien publica.
+
+**Del nodo no afirma nada**, porque no se puede: sólo consulta y no reporta
+nada, así que en la Pi no queda registro de que haya consultado. Lo que informa
+es qué se le serviría a cualquier nodo que consulte ahora.
+
+En `AUTOCANN_RELAY_MODE=gpio` sigue abriendo un pin del header, que ahí sí es
+suyo. Antes lo hacía en los dos modos: con los relés en el nodo eso daba verde
+sobre una placa que no está en el circuito, incluso con el lazo muerto y los
+tres relés caídos.
+
 ### Cableado
 
 Placa de 4 canales opto, activo-bajo, **con el jumper JD-VCC sacado**:
@@ -632,7 +649,7 @@ fresco, pero si el problema persiste mirá la
 [recomendación de hardware](#recomendación-de-hardware-para-empezar-de-cero).
 
 ```bash
-make check           # chequea dependencias, Redis, base de datos, GPIO y procesos
+make check           # dependencias, Redis, base, relés y procesos
 ```
 
 ### Sensores I2C no detectados

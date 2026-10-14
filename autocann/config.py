@@ -331,6 +331,24 @@ RELAY_MODE_REMOTE = "remote"
 
 RELAY_MODES = (RELAY_MODE_GPIO, RELAY_MODE_REMOTE)
 
+#: Redis key holding the full desired output state. A remote relay node
+#: polls it; the poll is both the command and the keepalive, so this is
+#: rewritten every cycle even when nothing changed. Silence is the signal
+#: that tells the node the loop is gone.
+DESIRED_OUTPUTS_KEY = "desired_outputs"
+
+#: A desired-output state older than this means the control loop is not
+#: running. Roughly ten of its cycles: long enough that a slow iteration or
+#: a blocked sensor read never trips it, short enough to matter.
+#:
+#: Both of these live here, rather than beside the loop that writes the key or
+#: the endpoint that serves it, because three modules now have to agree on
+#: them: the loop publishes, `GET /api/outputs/desired` decides from the age
+#: whether to answer failsafe, and the system check reports whether a polling
+#: node is getting orders at all. A check reading a different key, or allowing
+#: a different age, would pass while the node sat in failsafe.
+DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
+
 
 def relay_mode_from_env() -> str:
     mode = (os.getenv("AUTOCANN_RELAY_MODE") or RELAY_MODE_GPIO).strip().lower()

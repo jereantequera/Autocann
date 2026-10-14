@@ -8,6 +8,8 @@ from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
 from autocann.config import (
+    DESIRED_OUTPUTS_KEY,
+    DESIRED_OUTPUTS_MAX_AGE_SECONDS,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     PRIMARY,
     TEST_MODE_KEY,
@@ -77,11 +79,6 @@ from autocann.web.diagnostics import (
     reframe_history_anomalies,
     register_diagnostics,
 )
-
-#: A desired-output state older than this means the control loop is not
-#: running. Roughly ten of its cycles: long enough that a slow iteration or
-#: a blocked sensor read never trips it, short enough to matter.
-DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
 
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
@@ -418,7 +415,7 @@ def create_app() -> Flask:
             })
 
         try:
-            raw = redis_client.get("desired_outputs")
+            raw = redis_client.get(DESIRED_OUTPUTS_KEY)
         except Exception as e:
             return failsafe(f"redis unavailable: {e}")
         if not raw:
