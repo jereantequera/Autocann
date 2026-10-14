@@ -1,5 +1,86 @@
 # Changelog
 
+## El foco se queda adentro del modal, y los diálogos dicen qué hacen
+
+Backlog #9, más lo último que quedaba de la Fase 0.
+
+### Con un modal abierto, el Tab se iba a la página de atrás
+
+El cierre con Escape ya estaba; atrapar el foco, no. Con el modal de "Nuevo
+cultivo" abierto, tabular salía del diálogo y empezaba a recorrer los botones
+que el modal estaba tapando — los de pausar el sistema y cambiar de etapa,
+entre otros. Con el mouse eso no se ve nunca: el fondo oscuro deja claro qué
+está activo. Con el teclado o con un lector de pantalla no hay fondo oscuro,
+así que lo que pasa es que estás operando una pantalla que no podés ver.
+
+Ahora el Tab da la vuelta adentro del modal, **en las dos direcciones**:
+Shift+Tab sobre el primer elemento va al último, igual que Tab sobre el último
+va al primero. Arreglar sólo la dirección de ida es cómo queda una trampa de la
+que se sale caminando para atrás. Y si el foco se escapó por otro lado — un
+click en la página de atrás, un re-render que se llevó el elemento que lo tenía
+— el próximo Tab lo trae de vuelta en lugar de seguir desde afuera.
+
+La decisión de a dónde va el foco quedó como una función pura (`nextFocus`),
+que es la única parte de esto que se puede probar sin un navegador. Tiene su
+propia suite en `tests/js/`.
+
+### Y al cerrarlo, el foco volvía a `<body>`
+
+Es decir: a ninguna parte. El siguiente Tab arrancaba desde arriba de todo del
+documento, no desde el botón que acababas de apretar. Ahora se guarda quién
+abrió cada modal y se le devuelve el foco al cerrarlo — salvo que ese elemento
+ya no exista, que pasa seguido: la lista de cultivos se vuelve a dibujar después
+de activar uno.
+
+Las tres salidas —Escape, el fondo y el botón de cerrar— pasan por la misma
+función. Estaban repartidas entre `main.js` y `modals.js`, y es exactamente así
+como el cierre por el fondo se salteaba la parte que devuelve el foco.
+
+### `confirm()` y `alert()` se fueron
+
+Congelan la pestaña entera —los pollers incluidos— hasta que alguien hace
+click, no se pueden pintar, y el botón que confirma dice "OK" en un diálogo que
+está preguntando si querés cerrar un cultivo.
+
+Ahora hay diálogos propios, armados sobre el mismo `.modal` que el resto, así
+que heredan el foco atrapado y el Escape sin que haya que acordarse. **El
+botón que confirma nombra el acto**: "Finalizar cultivo", "Borrar riego",
+"Pausar el sistema" — nunca "OK". `confirmLabel` no tiene valor por defecto a
+propósito: olvidarlo tiene que ser un error visible, no un diálogo que dice
+"Confirmar" sin que nadie lo haya elegido. Y el foco arranca en **Cancelar**,
+porque un Enter distraído sobre un "Finalizar cultivo" autofocado es justo el
+accidente que el diálogo existe para evitar.
+
+Los textos dicen qué va a pasar, no sólo si estás seguro: finalizar un cultivo
+aclara que el histórico no se borra y se puede seguir mirando, pero que el
+cultivo no se puede reabrir. Borrar un riego nombra la fecha del riego que se
+va.
+
+### Lo que salió bien no se confirma: va a un toast
+
+Cambiar un `alert('✅ Cultivo creado')` bloqueante por un diálogo propio
+igualmente bloqueante hubiera dejado intacta la parte que molestaba. Algo que
+funcionó no hay que acusarlo de recibo. Va a un cartelito abajo que se va solo
+a los cuatro segundos.
+
+Los **errores siguen siendo diálogo**, y ahí la asimetría es a propósito: un
+error que se desvanece a los cuatro segundos es un error que nadie vio.
+
+### De paso: el borrado de riego dejó de ser dos clicks
+
+Era un botón que al primer click cambiaba a "Confirmar borrado". No bloqueaba
+la página, que era el punto, pero no decía **qué** se estaba por borrar — y en
+una lista que se refresca sola, la fila armada se desarma abajo del dedo cuando
+llega el poll. Ahora es el mismo diálogo que el resto, nombrando la fecha.
+
+### Y `make test-js` corría una sola suite
+
+Decía `node --test tests/js/util.test.mjs`, con el nombre escrito a mano. O sea
+que `health.test.mjs` se agregó hace meses y el comando siguió diciendo que
+todo pasaba sin haberla corrido nunca; el test de Python que las busca con un
+glob sí la corría, así que las dos puertas miraban conjuntos distintos. Ahora
+las dos usan un glob: 23 tests pasaron a ser 38 sin escribir ninguno.
+
 ## Un PIN adelante de la mitad que mueve relés
 
 La API conmuta hardware y no pedía nada. Cualquiera en la LAN podía cerrar un

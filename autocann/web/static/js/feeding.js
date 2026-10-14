@@ -1,4 +1,5 @@
 import { apiGet } from './api.js';
+import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
 import { escapeHtml } from './util.js';
 
@@ -14,9 +15,8 @@ let today = null;
 /** Last payload of /api/feed-plan, and the working copy the editor edits. */
 let plan = null;
 let planDraft = null;
-/** The log rows, and which one is one click away from being deleted. */
+/** The log rows. */
 let history = [];
-let pendingDelete = null;
 /** Set once the grower edits the form, so a poll does not overwrite their input. */
 let formTouched = false;
 
@@ -233,8 +233,9 @@ function renderHistory() {
             <div class="feed-entry-items">${items}</div>
             ${entry.notes ? `<div class="feed-entry-note">${escapeHtml(entry.notes)}</div>` : ''}
             <div class="feed-entry-foot">
-                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}">
-                    ${pendingDelete === id ? 'Confirmar borrado' : 'Borrar'}
+                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}"
+                        data-irrigation-date="${escapeHtml(entry.date)}">
+                    Borrar
                 </button>
             </div>
         </div>`;
@@ -435,7 +436,6 @@ function fetchIrrigations() {
     apiGet('/api/irrigations?limit=60', { key: 'irrigations' }).then(data => {
         if (!data || !data.irrigations) return;
         history = data.irrigations;
-        pendingDelete = null;
         renderHistory();
         announce();
     });
@@ -444,7 +444,12 @@ function fetchIrrigations() {
 async function saveIrrigation() {
     const litres = Number(el('feed-litres').value);
     if (!(litres > 0)) {
-        alert('Poné cuántos litros de solución preparaste');
+        await alertDialog({
+            title: 'Faltan los litros',
+            message: 'Las dosis del plan son por litro, así que sin el volumen no '
+                + 'hay nada que registrar.',
+        });
+        el('feed-litres').focus();
         return;
     }
 
@@ -469,32 +474,49 @@ async function saveIrrigation() {
         el('feed-ec').value = '';
         el('feed-notes').value = '';
         formTouched = false;
+        toast(`Riego de ${litres} L registrado`);
         fetchFeedingToday();
         fetchIrrigations();
     } catch (error) {
         console.error('Error recording irrigation:', error);
-        alert(`❌ ${error.message}`);
+        await alertDialog({
+            title: 'No se pudo registrar el riego',
+            message: error.message,
+        });
     } finally {
         button.disabled = false;
     }
 }
 
-async function deleteIrrigation(irrigationId) {
-    // Two clicks instead of confirm(): the same pattern the grow list uses for
-    // destructive actions, and it does not block the page.
-    if (pendingDelete !== irrigationId) {
-        pendingDelete = irrigationId;
-        renderHistory();
-        return;
-    }
-    pendingDelete = null;
+/**
+ * Delete a logged watering, after asking.
+ *
+ * This used to be two clicks on the same button, with the second one reading
+ * "Confirmar borrado". It did not block the page, which was the point, but it
+ * said nothing about *what* was being deleted, and a list where one row is
+ * silently armed is a list where the poll that re-renders it disarms the row
+ * under your finger. A dialog that names the date is both safer and clearer.
+ */
+async function deleteIrrigation(irrigationId, date) {
+    const confirmed = await confirmDialog({
+        title: 'Borrar riego',
+        message: `Se borra el riego del ${date} y todo lo que se anotó que llevaba. `
+            + 'No se puede deshacer.',
+        confirmLabel: 'Borrar riego',
+    });
+    if (!confirmed) return;
+
     try {
         const response = await fetch(`/api/irrigations/${irrigationId}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('No se pudo borrar');
+        toast('Riego borrado');
         fetchIrrigations();
     } catch (error) {
         console.error('Error deleting irrigation:', error);
-        alert('❌ No se pudo borrar el riego');
+        await alertDialog({
+            title: 'No se pudo borrar el riego',
+            message: 'El backend rechazó el pedido o no contestó.',
+        });
     }
 }
 
@@ -525,7 +547,10 @@ function wireFeeding() {
 
     el('feed-history').addEventListener('click', event => {
         const button = event.target.closest('.feed-delete');
-        if (button) deleteIrrigation(Number(button.dataset.irrigationId));
+        if (button) {
+            deleteIrrigation(Number(button.dataset.irrigationId),
+                             button.dataset.irrigationDate);
+        }
     });
 
     wirePlanEditor();

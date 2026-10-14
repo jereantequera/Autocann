@@ -1,5 +1,5 @@
 import { apiGet } from './api.js';
-import { closeModal, showModal } from './modals.js';
+import { alertDialog, closeModal, confirmDialog, showModal, toast } from './modals.js';
 import { getVpdChart, renderStageMarkers } from './charts.js';
 import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './dashboard.js';
 import { fetchVpdScore } from './analytics.js';
@@ -176,12 +176,20 @@ function renderStageTimeline(timeline) {
 // Modal functions
 
 async function createGrow() {
-    const name = document.getElementById('newGrowName').value.trim();
+    const field = document.getElementById('newGrowName');
+    const name = field.value.trim();
     const stage = document.getElementById('newGrowStage').value;
     const notes = document.getElementById('newGrowNotes').value.trim();
 
     if (!name) {
-        alert('Por favor ingresá un nombre para el cultivo');
+        await alertDialog({
+            title: 'Falta el nombre',
+            message: 'El cultivo necesita un nombre para poder distinguirlo del '
+                + 'anterior en los gráficos.',
+        });
+        // Back to the field it is complaining about, not to wherever focus
+        // happened to be.
+        field.focus();
         return;
     }
 
@@ -195,17 +203,27 @@ async function createGrow() {
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
             closeModal('newGrowModal');
+            toast(`Cultivo "${name}" creado`);
+            // The new grow is the active one, so every chart on screen is now
+            // about it.
+            state.growId = null;
             fetchActiveGrow();
             fetchDatabaseStats();
+            fetchGrowFilter();
             fetchHistoricalData(state.period, state.interval, state.hours);
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo crear el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error creating grow:', error);
-        alert('❌ Error al crear el cultivo');
+        await alertDialog({
+            title: 'No se pudo crear el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
@@ -214,7 +232,7 @@ async function updateStage() {
 
     try {
         const activeGrow = await fetch('/api/grows/active').then(r => r.json());
-        
+
         const response = await fetch(`/api/grows/${activeGrow.id}/stage`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -224,56 +242,100 @@ async function updateStage() {
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
             closeModal('stageModal');
+            toast(`Etapa: ${config.stageNames[newStage] || newStage}`);
             fetchActiveGrow();
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo cambiar la etapa',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error updating stage:', error);
-        alert('❌ Error al actualizar la etapa');
+        await alertDialog({
+            title: 'No se pudo cambiar la etapa',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
+/** The grow's name, for a dialog that has to say which one it is about. */
+function growName(growId) {
+    const item = document.querySelector(`.grow-item[data-grow-id="${growId}"]`);
+    return item?.querySelector('.grow-item-name')?.textContent.trim() || 'este cultivo';
+}
+
 async function activateGrow(growId) {
-    if (!confirm('¿Querés activar este cultivo?')) return;
+    const confirmed = await confirmDialog({
+        title: 'Activar cultivo',
+        message: `El tablero entero pasa a hablar de "${growName(growId)}": los `
+            + 'gráficos, las estadísticas y el plan de riego. El lazo de control '
+            + 'toma su etapa en menos de un minuto.',
+        confirmLabel: 'Activar cultivo',
+        // Not destructive: nothing is lost, and painting it red next to
+        // "Finalizar cultivo" would make both reds mean less.
+        danger: false,
+    });
+    if (!confirmed) return;
 
     try {
         const response = await fetch(`/api/grows/${growId}/activate`, { method: 'POST' });
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
+            toast('Cultivo activado');
+            state.growId = null;
             loadGrowsList();
             fetchActiveGrow();
             fetchDatabaseStats();
+            fetchGrowFilter();
             fetchHistoricalData(state.period, state.interval, state.hours);
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo activar el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error activating grow:', error);
-        alert('❌ Error al activar el cultivo');
+        await alertDialog({
+            title: 'No se pudo activar el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
 async function endGrow(growId) {
-    if (!confirm('¿Querés finalizar este cultivo?')) return;
+    const confirmed = await confirmDialog({
+        title: 'Finalizar cultivo',
+        message: `"${growName(growId)}" queda cerrado con la fecha de hoy. El `
+            + 'histórico no se borra y se puede seguir mirando eligiéndolo en '
+            + 'Estadísticas, pero el cultivo no se puede reabrir.',
+        confirmLabel: 'Finalizar cultivo',
+    });
+    if (!confirmed) return;
 
     try {
         const response = await fetch(`/api/grows/${growId}/end`, { method: 'POST' });
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
+            toast('Cultivo finalizado');
             loadGrowsList();
+            fetchGrowFilter();
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo finalizar el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error ending grow:', error);
-        alert('❌ Error al finalizar el cultivo');
+        await alertDialog({
+            title: 'No se pudo finalizar el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 

@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
+import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config, state } from './state.js';
 import { escapeHtml, fmtNum, formatDuration, humidityDiffLabel, withGrow } from './util.js';
 
@@ -341,27 +342,32 @@ function updateOutputsStatus(payload) {
 
 async function enterTestMode() {
     // Said plainly because it is now true: nothing ends this but a person.
-    if (!confirm(
-        'El lazo deja de controlar la carpa: los relés van a quedar donde vos los pongas '
-        + 'y no se va a guardar nada en el histórico.\n\n'
-        + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
-        + 'reinicie la Raspberry.'
-    )) return;
+    const confirmed = await confirmDialog({
+        title: 'Pausar el control de la carpa',
+        message: 'El lazo deja de controlar: los relés van a quedar donde vos los '
+            + 'pongas y no se va a guardar nada en el histórico.\n\n'
+            + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
+            + 'reinicie la Raspberry.',
+        confirmLabel: 'Pausar el sistema',
+    });
+    if (!confirmed) return;
 
     const result = await apiPost('/api/test-mode', { enabled: true });
     if (!result.ok) {
-        alert(`❌ No se pudo pausar: ${result.error}`);
+        await alertDialog({ title: 'No se pudo pausar', message: result.error });
         return;
     }
+    toast('Sistema en pausa', { kind: 'error' });
     fetchOutputsStatus();
 }
 
 async function exitTestMode() {
     const result = await apiPost('/api/test-mode', { enabled: false });
     if (!result.ok) {
-        alert(`❌ No se pudo reanudar: ${result.error}`);
+        await alertDialog({ title: 'No se pudo reanudar', message: result.error });
         return;
     }
+    toast('Control automático de vuelta');
     fetchOutputsStatus();
 }
 
@@ -380,7 +386,7 @@ async function setTestOutput(trigger) {
         state: trigger.dataset.state === 'true',
     });
     if (!result.ok) {
-        alert(`❌ ${result.error}`);
+        await alertDialog({ title: 'No se pudo mover el relé', message: result.error });
     }
     // Refresh either way: on failure the buttons must go back to showing what
     // is actually requested, not what was clicked.

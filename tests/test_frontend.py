@@ -380,6 +380,102 @@ def test_the_grow_scope_is_never_hardcoded_into_a_url():
     assert offenders == []
 
 
+def test_no_native_confirm_or_alert_remains():
+    """
+    They freeze the whole tab — every poller included — until somebody clicks,
+    they cannot be styled, and the confirm button says "OK" on a dialog about
+    ending a grow.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        code = _strip_js_comments(path.read_text())
+        # `alertDialog(` and `confirmDialog(` are ours; the bare globals are not.
+        for call in re.findall(r"(?<![\w.])(alert|confirm|prompt)\s*\(", code):
+            offenders.append(f"{path.name}: {call}()")
+    assert offenders == []
+
+
+def test_the_focus_is_trapped_in_the_modal_and_given_back_on_close():
+    """
+    Backlog #9 plus what was left of Fase 0. Tabbing out of an open modal lands
+    on the buttons behind it, which a keyboard or screen-reader user cannot see
+    are covered; and closing one dropped focus on <body>, so the next Tab
+    started from the top of the document.
+    """
+    modals = _strip_js_comments((JS_DIR / "modals.js").read_text())
+
+    # Both directions. Fixing only Tab leaves a trap you walk out of with
+    # Shift+Tab, which is the half that usually gets forgotten.
+    assert "shiftKey" in modals
+    assert "nextFocus" in modals
+    assert "'Tab'" in modals
+
+    # And the way back: stored on open, focused on close.
+    assert "openers.set" in modals
+    assert "openers.get" in modals
+    assert "opener.focus()" in modals
+
+
+def test_only_modals_js_opens_or_closes_a_modal():
+    """
+    Escape, the backdrop and the close button are three ways out of the same
+    dialog. One of them flipping the class by hand is one of them skipping the
+    part that puts focus back — which is how closing by backdrop used to leave
+    focus on <body>.
+
+    The `.show` class is not modals-only (the anomaly strip uses it too), so
+    what is checked is that nothing else reaches for a `.modal` at all.
+    """
+    offenders = []
+    for path in JS_DIR.glob("*.js"):
+        if path.name == "modals.js":
+            continue
+        code = _strip_js_comments(path.read_text())
+        # An import of the module, and `data-action="close-modal"` routing to
+        # closeModal(), are the two legitimate mentions.
+        code = re.sub(r"^import .*?from '\./modals\.js';$", "", code, flags=re.M)
+        code = code.replace("'close-modal'", "").replace("dataset.modal", "")
+        for match in re.finditer(r"['\"`][^'\"`]*\.modal[^'\"`]*['\"`]", code):
+            offenders.append(f"{path.name}: {match.group(0)}")
+    assert offenders == []
+
+
+def test_a_destructive_confirmation_names_what_it_does():
+    """
+    "OK" is what the native dialog said. A button on a destructive action has
+    to say which act it is about to perform.
+    """
+    modals = _strip_js_comments((JS_DIR / "modals.js").read_text())
+    # No default for confirmLabel: forgetting it has to be a visible mistake,
+    # not a dialog that quietly says "Confirmar".
+    assert re.search(r"confirmLabel\s*=", modals) is None
+
+    labels = []
+    for name in ("grows.js", "feeding.js", "dashboard.js"):
+        code = (JS_DIR / name).read_text()
+        labels += re.findall(r"confirmLabel:\s*'([^']+)'", code)
+
+    assert "Finalizar cultivo" in labels
+    assert "Borrar riego" in labels
+    assert "Pausar el sistema" in labels
+    for label in labels:
+        assert label.lower() not in ("ok", "aceptar", "sí", "confirmar"), label
+
+
+def test_the_dialog_shell_is_in_the_page_and_wired():
+    """Built from markup like every other modal, so it looks like one."""
+    page = _page_html()
+    for element in ('id="appDialog"', 'id="dialog-title"', 'id="dialog-message"',
+                    'id="dialog-confirm"', 'id="dialog-cancel"', 'id="toast-tray"'):
+        assert element in page, element
+    assert 'aria-modal="true"' in page
+
+    modals = (JS_DIR / "modals.js").read_text()
+    # textContent, never innerHTML: some of what goes in is a server error.
+    assert "innerHTML" not in _strip_js_comments(modals)
+    assert "textContent" in modals
+
+
 def test_the_weekly_report_is_a_view_rather_than_a_modal():
     """A report is read, scrolled and linked to; a modal can do none of those."""
     page = _page_html()

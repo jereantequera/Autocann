@@ -165,10 +165,13 @@ bloques `<style>`/`<script>` inline, que Chart.js no venga de un CDN, que todo
 `import` resuelva a un `export` real y que los rangos por etapa no estén
 hardcodeados en el front. `make test-js` los corre; si no hay node, se saltean.
 
-### Lo que quedó pendiente de esta fase
+### Lo que quedó pendiente de esta fase — ✅ cerrado
 
-- Atrapar el foco dentro de los modales (el cierre con Escape ya está).
-- Reemplazar `confirm()` y `alert()` nativos (está en el backlog, #9).
+- ~~Atrapar el foco dentro de los modales~~ — hecho, en las dos direcciones, y
+  el foco vuelve al elemento que abrió el modal cuando se cierra. Vale para las
+  tres salidas: Escape, el fondo y el botón de cerrar.
+- ~~Reemplazar `confirm()` y `alert()` nativos~~ — hecho, con el backlog #9.
+  Hay un test-guardia que falla si vuelve alguno.
 
 ---
 
@@ -855,7 +858,7 @@ y no hay apuro; si falla el 30%, es la primera compra.
 |---|---|---|---|
 | ~~7~~ | ~~**PIN o login**~~ | ✅ **Hecho.** `AUTOCANN_PIN` + sesión por cookie de 30 días. Sin la variable no pide nada, que es el comportamiento de siempre. Los tres endpoints de los nodos quedan exentos a propósito — ver abajo | bajo |
 | 8 | **PWA instalable** | Icono en el celular, shell offline, pantalla completa | bajo |
-| 9 | **Reemplazar `confirm()` y `alert()`** | Hoy usa diálogos nativos bloqueantes; quedan feos y frenan la UI | bajo |
+| ~~9~~ | ~~**Reemplazar `confirm()` y `alert()`**~~ | ✅ **Hecho**, junto con lo que faltaba de la Fase 0: foco atrapado en el modal y devuelto al cerrarlo. Los confirmatorios dicen qué hacen — "Finalizar cultivo", "Borrar riego" — y lo que salió bien va a un toast, que no frena nada | bajo |
 | 10 | **Diario del cultivo** con fotos | Notas fechadas que se cruzan con el timeline de etapas | medio |
 | 11 | **Control de ventilación** | Tiene pin y endpoint pero ninguna lógica automática | medio |
 | 12 | **CO₂** | Si se suma un SCD41 (ver HARDWARE.md) | medio |
