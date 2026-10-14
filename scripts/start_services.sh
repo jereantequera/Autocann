@@ -53,6 +53,10 @@ fi
 #   SIN detección de deriva hasta que haya un tercer DHT22 al lado de `a`.
 #
 #   RELAY_MODE=remote: los relés los maneja el nodo ESP32, no el GPIO de la Pi.
+#   RELAY_NODE_NAME: con qué nombre aparece ese nodo en el dashboard. El panel
+#   muestra el pin de cada salida, y en remoto ese pin es un GPIO del ESP32:
+#   sin saber de qué placa es, el número manda a medir el header equivocado.
+#   Los pines (25/26/27) ya salen del default, que copia al firmware.
 #
 # Se exporta ANTES de arrancar el backend, no sólo antes del lazo: el backend
 # también lee los ids, para saber qué sensores existen y cuál controla cuando
@@ -63,6 +67,7 @@ export AUTOCANN_INDOOR_PRIMARY="${AUTOCANN_INDOOR_PRIMARY:-a}"
 export AUTOCANN_INDOOR_WITNESS="${AUTOCANN_INDOOR_WITNESS:-}"
 export AUTOCANN_INDOOR_OBSERVERS="${AUTOCANN_INDOOR_OBSERVERS:-b}"
 export AUTOCANN_RELAY_MODE="${AUTOCANN_RELAY_MODE:-remote}"
+export AUTOCANN_RELAY_NODE_NAME="${AUTOCANN_RELAY_NODE_NAME:-ESP32 relés (192.168.100.77)}"
 
 #   AUTOCANN_PIN: el PIN del tablero. VACÍO POR DEFECTO, a propósito: sin él
 #   nada pide nada y todo se comporta igual que siempre. Un deploy que se olvida
@@ -97,5 +102,5 @@ fi
 
 # Sin argumento de etapa: usa la del cultivo activo en la base de datos.
 echo "▶️  Iniciando loop de control de VPD..."
-echo "    sensores: primario=$AUTOCANN_INDOOR_PRIMARY testigo=${AUTOCANN_INDOOR_WITNESS:-(ninguno)} observadores=${AUTOCANN_INDOOR_OBSERVERS:-(ninguno)} · relés: $AUTOCANN_RELAY_MODE"
+echo "    sensores: primario=$AUTOCANN_INDOOR_PRIMARY testigo=${AUTOCANN_INDOOR_WITNESS:-(ninguno)} observadores=${AUTOCANN_INDOOR_OBSERVERS:-(ninguno)} · relés: $AUTOCANN_RELAY_MODE ($AUTOCANN_RELAY_NODE_NAME)"
 exec uv run python -u -m autocann.cli.vpd >> "logs/vpd_$FECHA.log" 2>&1

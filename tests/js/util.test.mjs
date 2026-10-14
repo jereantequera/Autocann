@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
     formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
-    lastWateringLabel, parseLocalDatetime, withGrow,
+    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, withGrow,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -262,4 +262,44 @@ test('withGrow appends with whichever separator the url already needs', () => {
     assert.equal(withGrow('/api/vpd-score?days=7', 3), '/api/vpd-score?days=7&grow_id=3');
     assert.equal(withGrow('/api/weekly-report', 'all'), '/api/weekly-report?grow_id=all');
     assert.equal(withGrow('/api/weekly-report', null), '/api/weekly-report');
+});
+
+test('outputPinLabel names the node when the node is what switches the relay', () => {
+    // El defecto: con los relés en el nodo, la pantalla decía "BCM 25" para la
+    // ventilación. El 25 existe en las dos placas y en el ESP32 es el
+    // humidificador, así que mandaba a medir el header correcto con la etiqueta
+    // equivocada.
+    const label = outputPinLabel({ scope: 'remote', node: 'ESP32 relés', number: 27 });
+    assert.equal(label.text, 'GPIO 27');
+    assert.match(label.title, /ESP32 relés/);
+    assert.match(label.title, /no la Raspberry/);
+});
+
+test('outputPinLabel keeps saying BCM when the Raspberry is the one switching', () => {
+    assert.equal(outputPinLabel({ scope: 'local', node: null, number: 7 }).text, 'BCM 7');
+});
+
+test('outputPinLabel shows nothing rather than a pin it was not given', () => {
+    // Un "BCM NaN" o un "GPIO undefined" en la tarjeta es peor que el hueco:
+    // parece un dato.
+    for (const source of [null, undefined, {}, { scope: 'remote' },
+                          { scope: 'local', number: null }, { scope: 'remote', number: 'IN1' }]) {
+        assert.deepEqual(outputPinLabel(source), { text: '', title: '' }, JSON.stringify(source));
+    }
+});
+
+test('outputPinLabel still names a remote pin when nobody named the node', () => {
+    const label = outputPinLabel({ scope: 'remote', node: '', number: 25 });
+    assert.equal(label.text, 'GPIO 25');
+    assert.match(label.title, /nodo remoto/);
+});
+
+test('relaySourceLabel says which board the panel is talking about', () => {
+    assert.equal(relaySourceLabel({ scope: 'remote', node: 'ESP32 relés', number: 25 }).text,
+                 'ESP32 relés');
+    assert.equal(relaySourceLabel({ scope: 'local', node: null, number: 7 }).text,
+                 'GPIO de la Raspberry');
+    // Sin payload el encabezado queda vacío: inventar una placa es el defecto.
+    assert.deepEqual(relaySourceLabel(undefined), { text: '', title: '' });
+    assert.deepEqual(relaySourceLabel({ scope: 'otra' }), { text: '', title: '' });
 });

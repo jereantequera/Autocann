@@ -270,6 +270,45 @@ cerrando y reemplazando el mismo dispositivo por debajo del otro es una carrera
 que no hace falta tener. `init_indoor_dht22()` es del lazo, `init_outdoor_dht22()`
 del lector, y el exterior tampoco es el motivo por el que el lazo está en
 failsafe.
+## El pin que muestra el panel es el que conmuta
+
+El panel de salidas mostraba "BCM 7", "BCM 16" y "BCM 25": los pines de la
+Raspberry que salen de `config.py`. Esta instalación corre con
+`AUTOCANN_RELAY_MODE=remote` desde que los relés se mudaron al ESP32 de
+192.168.100.77, así que la Raspberry no conmuta nada — eran tres números de una
+placa que no está en el circuito, impresos al lado del estado real de relés que
+sí se mueven.
+
+La peor parte no era que sobraran. Era que uno coincidía. **El 25 que el panel
+mostraba para la ventilación existe también en el ESP32, donde maneja el
+humidificador.** Alguien con el multímetro y esa pantalla delante iba al header
+correcto, medía el pin correcto, y leía el relé equivocado — con la confirmación
+aparente de que la etiqueta decía lo mismo que la placa. Un número que no existe
+se descubre solo; uno que existe y está mal, no.
+
+Ahora el panel dice de dónde sale cada salida, resuelto desde el modo que está
+efectivamente en uso: en remoto, el GPIO del nodo, con la placa nombrada una vez
+en el encabezado — "ESP32 relés (192.168.100.77)" — porque las tres salidas
+cuelgan siempre de la misma y el panel está medido para entrar en 1080p sin
+scroll. En local sigue diciendo el BCM de la Raspberry, como siempre. La
+etiqueta larga va en el `title` de cada tarjeta, que no cuesta alto.
+
+El mapeo del nodo (25/26/27) **entró a la configuración del backend** en vez de
+pedírselo al nodo. El nodo no lo informa: sólo consulta `/api/outputs/desired` y
+aplica lo que lee. Enseñarle a informarlo es reflashearlo por USB, adentro de la
+carpa, con la placa desenchufada de su fuente — un viaje con un cable, no un
+deploy. Así que el firmware sigue siendo la autoridad y el backend lo copia, con
+un test que lee el `.ino` y falla si los dos se separan: sin eso, el próximo
+reflasheo devuelve el mismo defecto sin que nada lo diga.
+
+El log del lazo dice ahora lo mismo que la pantalla: donde antes anunciaba
+"→ nodo remoto" y nada más, imprime la placa y el GPIO de cada salida, resueltos
+con el mismo código. Dos lugares que nombran un pin no pueden nombrar pines
+distintos.
+
+De paso, un pin ausente ya no se rinde como "BCM 0". `Number(null)` es 0 y el
+BCM 0 es un pin que existe, así que el hueco se leía como dato — el mismo error
+en chiquito.
 
 ## ¿Anda el sensor? Una sola respuesta
 

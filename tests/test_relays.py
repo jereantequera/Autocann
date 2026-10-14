@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+import re
+from dataclasses import asdict
+
 import pytest
 
 from autocann.cli.vpd import Relays
-from autocann.config import RELAY_MODE_REMOTE, ControlTuning
+from autocann.config import (
+    RELAY_MODE_GPIO,
+    RELAY_MODE_REMOTE,
+    ControlTuning,
+    GpioPins,
+    RelayNodePins,
+    relay_node_from_env,
+)
 from autocann.control.humidity import DEHUMIDIFY, HUMIDIFY, IDLE
-from autocann.hardware.outputs import get_outputs
+from autocann.hardware.outputs import (
+    PIN_SCOPE_LOCAL,
+    PIN_SCOPE_REMOTE,
+    get_outputs,
+    pin_sources,
+)
+from autocann.paths import PROJECT_ROOT
 
 
 class FakeDevice:
@@ -336,3 +352,71 @@ def test_leaving_test_mode_puts_the_history_back(relays, monkeypatch):
     relays.apply(IDLE)
 
     assert events == [("ventilation", "off")]
+
+
+# ---------------------------------------------------------------------------
+# Where the pins come from
+# ---------------------------------------------------------------------------
+
+
+def test_the_node_pin_mapping_matches_the_firmware():
+    """
+    The node never reports its own wiring — it only polls — so the backend
+    carries the mapping and `relay_node.ino` is the authority. A reflash that
+    moves a pin, with this mapping left behind, would print a number on the
+    dashboard that belongs to another relay: the exact defect the mapping was
+    added to fix, back again with nothing to say so.
+    """
+    source = (PROJECT_ROOT / "firmware" / "relay_node" / "relay_node.ino").read_text()
+    array = re.search(r"OUTPUTS\[\]\s*=\s*\{(.*?)\};", source, re.S)
+    assert array, "no se encontró el arreglo OUTPUTS en firmware/relay_node"
+
+    wired = {name: int(pin) for name, pin in re.findall(r'"(\w+)",\s*(\d+)', array.group(1))}
+    assert wired == asdict(RelayNodePins())
+
+
+def test_the_pin_shown_is_the_one_in_the_circuit(monkeypatch):
+    """
+    In remote mode the Raspberry's header is not in the circuit at all, and one
+    of its numbers (BCM 25, ventilation) is also a real pin on the node, where
+    it drives the humidifier.
+    """
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+    remote = pin_sources()
+    assert {name: source["number"] for name, source in remote.items()} == asdict(RelayNodePins())
+    assert {source["scope"] for source in remote.values()} == {PIN_SCOPE_REMOTE}
+    assert remote["ventilation"]["number"] != GpioPins().ventilation
+
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_GPIO)
+    local = pin_sources()
+    assert {name: source["number"] for name, source in local.items()} == asdict(GpioPins())
+    assert {source["scope"] for source in local.values()} == {PIN_SCOPE_LOCAL}
+    # Nothing to walk up to: the pins are on the board running this code.
+    assert {source["node"] for source in local.values()} == {None}
+
+
+def test_the_node_pins_are_overridable_without_touching_code(monkeypatch):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", RELAY_MODE_REMOTE)
+    monkeypatch.setenv("AUTOCANN_RELAY_NODE_PIN_VENTILATION", "32")
+    monkeypatch.setenv("AUTOCANN_RELAY_NODE_NAME", "ESP32 relés (192.168.100.77)")
+
+    sources = pin_sources()
+    assert sources["ventilation"]["number"] == 32
+    assert sources["ventilation"]["node"] == "ESP32 relés (192.168.100.77)"
+
+
+def test_two_outputs_on_one_node_pin_are_rejected(monkeypatch):
+    """They would switch together, same as on the Raspberry's header."""
+    monkeypatch.setenv("AUTOCANN_RELAY_NODE_PIN_VENTILATION", str(RelayNodePins().humidity_up))
+    with pytest.raises(ValueError, match="share a pin"):
+        relay_node_from_env()
+
+
+def test_a_loop_told_its_mode_does_not_go_back_to_the_environment(monkeypatch):
+    """
+    The loop is handed its mode; the dashboard reads it from the environment.
+    If the two could disagree, the loop's startup log and the panel would print
+    different pins for the same relay — and both would look authoritative.
+    """
+    monkeypatch.delenv("AUTOCANN_RELAY_MODE", raising=False)
+    assert pin_sources(RELAY_MODE_REMOTE)["humidity_up"]["number"] == RelayNodePins().humidity_up
