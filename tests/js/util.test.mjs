@@ -10,8 +10,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, formatDuration, getScoreClass,
-    getScoreLabel, humidityDiffLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel,
+    doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
+    formatDuration, getScoreClass, getScoreLabel, humidityDiffLabel,
+    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -195,4 +196,82 @@ test('relaySourceLabel says which board the panel is talking about', () => {
     // Sin payload el encabezado queda vacío: inventar una placa es el defecto.
     assert.deepEqual(relaySourceLabel(undefined), { text: '', title: '' });
     assert.deepEqual(relaySourceLabel({ scope: 'otra' }), { text: '', title: '' });
+});
+
+// ---------------------------------------------------------------------------
+// Feeding
+// ---------------------------------------------------------------------------
+// These three used to live inside feeding.js, where the panel could not reach
+// them. The panel tile and the Riego tab render the same plan, so a second copy
+// of the arithmetic is a second answer to "¿cuánto le pongo?".
+
+test('fmtDose writes a dose the way it is read aloud', () => {
+    assert.equal(fmtDose(1), '1');
+    assert.equal(fmtDose(1.5), '1,5');
+    assert.equal(fmtDose(0), '0');
+    assert.equal(fmtDose(undefined), '--');
+    assert.equal(fmtDose(NaN), '--');
+});
+
+test('doseAmount multiplies the per-litre dose by the volume', () => {
+    assert.equal(doseAmount({ dose: 4, unit: 'ml/L' }, 10), '40 ml');
+    assert.equal(doseAmount({ dose: 0.5, unit: 'g/L' }, 7), '3,5 g');
+});
+
+test('doseAmount rounds to a tenth, like the backend does', () => {
+    // scale_to_volume() stores round(dose * litres, 1); a locally recomputed
+    // amount that rounds differently is the panel and the form disagreeing.
+    assert.equal(doseAmount({ dose: 0.33, unit: 'ml/L' }, 10), '3,3 ml');
+    assert.equal(doseAmount({ dose: 1.25, unit: 'ml/L' }, 3), '3,8 ml');
+});
+
+test('doseAmount survives a missing item or volume instead of rendering NaN', () => {
+    assert.equal(doseAmount(undefined, 10), '0 ml');
+    assert.equal(doseAmount({ dose: 4, unit: 'ml/L' }, undefined), '0 ml');
+    assert.equal(doseAmount({ dose: 'x', unit: 'g/L' }, 10), '0 g');
+});
+
+/**
+ * "YYYY-MM-DD" for `days` ago, in *local* time.
+ *
+ * Not toISOString(): that is UTC, and the log stores an Argentine date. Three
+ * hours west of Greenwich, an evening test would build tomorrow's date and the
+ * helper would correctly answer "-1 day" to a question nobody asked.
+ */
+function daysAgo(days) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - days);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+         + `-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+test('lastWateringLabel counts midnight to midnight, not hour to hour', () => {
+    // A watering logged this morning stays "Hoy" all day, and one logged last
+    // night does not flip to "Hace 2 días" when the clock passes its hour.
+    assert.equal(lastWateringLabel(daysAgo(0)).text, 'Hoy');
+    assert.equal(lastWateringLabel(daysAgo(0)).days, 0);
+    assert.equal(lastWateringLabel(daysAgo(1)).text, 'Ayer');
+    assert.equal(lastWateringLabel(daysAgo(3)).text, 'Hace 3 días');
+});
+
+test('lastWateringLabel turns stale at the fourth day, on both screens', () => {
+    // The tile's amber edge and the header badge read the same threshold, so
+    // the panel and the Riego tab cannot disagree about when it has been a while.
+    assert.equal(lastWateringLabel(daysAgo(3)).stale, false);
+    assert.equal(lastWateringLabel(daysAgo(4)).stale, true);
+});
+
+test('lastWateringLabel crosses a month boundary without going negative', () => {
+    // `setDate(0)` walks back into the previous month, which is the case a
+    // subtraction on the day number alone gets wrong.
+    assert.equal(lastWateringLabel('2026-02-28').days > 0, true);
+});
+
+test('lastWateringLabel returns nothing for a tent with no log yet', () => {
+    // Not an alarm and not a zero: nobody has watered it, which the tile says
+    // in its own words rather than as "Hace 0 días".
+    for (const value of [undefined, null, '', 'ayer', {}]) {
+        assert.equal(lastWateringLabel(value), null, `fecha ${String(value)}`);
+    }
 });
