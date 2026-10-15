@@ -57,7 +57,10 @@ const SENSOR_STATES = {
 
 const LEVEL_ICONS = { ok: '✅', warn: '⚠️', error: '❌' };
 
-const LOOP_ICONS = { running: '✅', paused: '⏸️', down: '❌' };
+// `monitor` is its own icon, not the pause's: the two are different answers to
+// "¿por qué no está controlando?" and the strip is the one line on the panel
+// that says which.
+const LOOP_ICONS = { running: '✅', monitor: '◍', paused: '⏸️', down: '❌' };
 const HISTORY_ICONS = { writing: '✅', paused: '⏸️', stalled: '❌', empty: '⏳' };
 
 /** El último estado conocido, para que otros módulos no vuelvan a pedirlo. */
@@ -84,6 +87,10 @@ function heroBadge(health) {
     const loop = health.loop || {};
     if (loop.state === 'down') return { text: '❌ lazo caído', state: 'error' };
     if (loop.state === 'paused') return { text: '⏸️ en pausa', state: 'stale' };
+    // Monitoring says the same thing this badge is for - there is no VPD on
+    // this card because nothing is aiming at one - and says which of the two
+    // reasons it is, so the card is not read as broken.
+    if (loop.state === 'monitor') return { text: '◍ monitoreo', state: 'stale' };
 
     // Sólo el lazo y el sensor que controla: son los dos de los que depende el
     // número que esta tarjeta muestra. Un hueco en el histórico es un problema
@@ -285,7 +292,15 @@ function renderHealth(health) {
     renderRow('loop', health.loop, LOOP_ICONS);
     renderRow('history', health.history, HISTORY_ICONS);
 
-    setBadge('sensors-badge', sensorsBadge(health.sensors));
+    // Two places, one computation: the section badge over the cards in Sistema
+    // and the Sensores row of the panel's Estado strip. The cards moved off the
+    // panel, so that row is all it says about them - it must not be able to say
+    // something the cards contradict.
+    const sensors = sensorsBadge(health.sensors);
+    setBadge('sensors-badge', sensors);
+    const strip = document.getElementById('health-sensors-state');
+    if (strip) strip.textContent = sensors.text;
+
     setBadge('sensor-status-indoor', heroBadge(health));
 
     const outdoor = health.outdoor || {};

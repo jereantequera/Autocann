@@ -237,6 +237,30 @@ function fetchDatabase() {
 }
 
 // ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+// Only shown where there is a PIN to log out of. `/api/auth` answers whether
+// one is configured even when it is not, so the dashboard reads the
+// configuration instead of inferring it from a 401 it would never see while
+// logged in.
+
+function fetchSession() {
+    apiGet('/api/auth', { key: 'auth' }).then(data => {
+        const box = document.getElementById('session-section');
+        if (box && data) box.hidden = !data.pin_required;
+    });
+}
+
+async function logout() {
+    const result = await apiPost('/api/logout', {});
+    // Reload either way: on success the next request answers 401 and lands on
+    // the login page, and on failure the page should show whatever is actually
+    // true rather than a button that appeared to do nothing.
+    window.location.reload();
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
@@ -245,6 +269,7 @@ function refreshSystem() {
     fetchCalibration();
     fetchConnectivity();
     fetchDatabase();
+    fetchSession();
 }
 
 function wireSystem() {
@@ -257,6 +282,10 @@ function wireSystem() {
     view.addEventListener('click', event => {
         if (event.target.closest('[data-sys="refresh"]')) {
             refreshSystem();
+            return;
+        }
+        if (event.target.closest('[data-sys="logout"]')) {
+            logout();
             return;
         }
         const save = event.target.closest('[data-calib-save]');
@@ -275,4 +304,4 @@ function wireSystem() {
     });
 }
 
-export { fetchCalibration, refreshSystem, wireSystem };
+export { fetchCalibration, fetchSession, logout, refreshSystem, wireSystem };

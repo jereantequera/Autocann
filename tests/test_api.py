@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from autocann.config import GpioPins, RelayNode, RelayNodePins
+from autocann.control.vpd_math import STAGES
 from autocann.hardware.outputs import manual_override_key, output_names, parse_bool_flag
 
 # FakeRedis y la fixture `client` viven en conftest.py: las usa también
@@ -64,6 +66,37 @@ def test_output_status_reports_state_and_any_override(client):
     assert outputs["ventilation"]["state"] is None
 
 
+def test_output_status_names_the_board_that_actually_switches_each_relay(client, monkeypatch):
+    """
+    The panel showed `pin_bcm` as "BCM n" in both modes. With the relays on the
+    node, those were pins of a board that is not in the circuit — and one of
+    them, BCM 25, is a real pin on the node, where it drives the humidifier.
+    """
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", "remote")
+
+    outputs = {o["name"]: o for o in client.get("/api/output-status").get_json()["outputs"]}
+    assert outputs["ventilation"]["pin"] == {
+        "scope": "remote",
+        "node": RelayNode().name,
+        "number": RelayNodePins().ventilation,
+    }
+    # The Raspberry's number does not travel any more: it switches nothing.
+    assert "pin_bcm" not in outputs["ventilation"]
+
+
+def test_output_status_still_reports_the_raspberry_pin_when_it_is_the_one_switching(
+    client, monkeypatch
+):
+    monkeypatch.setenv("AUTOCANN_RELAY_MODE", "gpio")
+
+    outputs = {o["name"]: o for o in client.get("/api/output-status").get_json()["outputs"]}
+    assert outputs["ventilation"]["pin"] == {
+        "scope": "local",
+        "node": None,
+        "number": GpioPins().ventilation,
+    }
+
+
 def test_esp32_posts_a_reading_and_it_comes_back(client):
     response = client.post("/api/sensor/indoor", json={"temperature": 24.0, "humidity": 60.0})
     assert response.status_code == 200
@@ -119,18 +152,57 @@ def test_grow_creation_validates_its_input(client, payload, status):
     assert client.post("/api/grows", json=payload).status_code == status
 
 
+@pytest.mark.parametrize("stage", list(STAGES))
+def test_every_stage_the_model_knows_can_be_set_on_a_grow(client, stage):
+    """
+    Both endpoints used to carry their own copy of the list, so a stage added
+    to vpd_math.py was rejected by the API that is supposed to serve it — and
+    the error said "Invalid stage" about a stage the dashboard had just offered.
+    """
+    created = client.post("/api/grows", json={"name": f"Cultivo {stage}", "stage": stage})
+    assert created.status_code == 201, created.get_json()
+    grow_id = created.get_json()["grow_id"]
+    assert client.put(f"/api/grows/{grow_id}/stage", json={"stage": stage}).status_code == 200
+
+
+def test_the_config_endpoint_describes_every_stage(client):
+    """
+    The dashboard draws the stage badge, the VPD band and the chart markers
+    from this payload; a stage missing from it renders as its own identifier.
+    """
+    payload = client.get("/api/config").get_json()
+    assert list(payload["stages"]) == list(STAGES)
+    assert set(payload["stage_names"]) == set(STAGES)
+    assert set(payload["vpd_ranges"]) == set(STAGES)
+    assert payload["stage_names"]["seedling"] == "Plántula"
+    # Wetter than early veg, which is the reason the stage exists.
+    assert payload["vpd_ranges"]["seedling"]["max"] < payload["vpd_ranges"]["early_veg"]["max"]
+
+
 # ---------------------------------------------------------------------------
 # Gap markers
 # ---------------------------------------------------------------------------
 
 
 def _seed(db, grow_id, timestamps, **extra):
+    """
+    Rows as the control loop writes them.
+
+    The `datetime` column carries the real local stamp rather than an empty
+    string: the weekly report groups by `strftime('%H', datetime)`, so rows
+    without one give it a NULL hour and it never reaches the code under test.
+    """
+    from datetime import datetime as dt
+
+    from autocann.time import ARGENTINA_TZ
+
     conn = db._open()
     for ts in timestamps:
         conn.execute(
             "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity,"
-            " vpd, outside_temperature, outside_humidity) VALUES (?, ?, '', 24, 50, 1.2, 15, 70)",
-            (grow_id, ts),
+            " vpd, outside_temperature, outside_humidity) VALUES (?, ?, ?, 24, 50, 1.2, 15, 70)",
+            (grow_id, ts,
+             dt.fromtimestamp(ts, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")),
         )
     conn.commit()
     conn.close()
@@ -685,3 +757,127 @@ def test_the_escape_threshold_has_to_be_a_humidity(client, value):
 def test_a_window_on_an_unknown_output_is_refused(client):
     response = client.put("/api/quiet-hours", json={"windows": {"luz": NIGHT}})
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Grow scope
+# ---------------------------------------------------------------------------
+
+
+def _closed_and_active(client, temp_db, now):
+    """A closed grow with cold samples, and an active one with warm samples."""
+    closed = temp_db.create_grow("Prueba", "flowering")
+    _seed(temp_db, closed, [now - 7200 - i * 300 for i in range(6)])
+    temp_db.end_grow(closed)
+
+    active = temp_db.create_grow("Real", "early_veg")
+    _seed(temp_db, active, [now - i * 300 for i in range(6)])
+    return closed, active
+
+
+def test_the_history_endpoint_answers_about_the_active_grow(client, temp_db):
+    """
+    The default, defended: everything else on screen — the stage, the day
+    counter, the target band — is about the active grow, so a 30-day average
+    that includes the previous crop is a number labelled with the wrong context.
+    """
+    import time
+
+    now = int(time.time())
+    _closed, active = _closed_and_active(client, temp_db, now)
+
+    payload = client.get(
+        f"/api/sensor-history?start={now - 90 * 86400}&end={now}").get_json()
+    assert payload["grow_id"] == active
+    assert payload["grow_scope"] == "active"
+    assert {p["grow_id"] for p in payload["data"] if not p.get("gap")} == {active}
+
+
+def test_the_history_endpoint_can_be_pointed_at_one_grow(client, temp_db):
+    import time
+
+    now = int(time.time())
+    closed, _active = _closed_and_active(client, temp_db, now)
+
+    payload = client.get(
+        f"/api/sensor-history?start={now - 90 * 86400}&end={now}"
+        f"&grow_id={closed}").get_json()
+    assert payload["grow_scope"] == "grow"
+    assert {p["grow_id"] for p in payload["data"] if not p.get("gap")} == {closed}
+
+
+def test_a_window_over_two_grows_does_not_draw_them_as_one_series(client, temp_db):
+    """
+    The changeover is the most misleading shape this chart can take: the two
+    runs are five minutes of real time apart, so no outage threshold catches
+    it, and the line goes straight from the end of one crop to the start of
+    the next.
+    """
+    import time
+
+    now = int(time.time())
+    closed, active = _closed_and_active(client, temp_db, now)
+
+    payload = client.get(
+        f"/api/sensor-history?start={now - 90 * 86400}&end={now}"
+        f"&grow_id=all").get_json()
+    assert payload["grow_scope"] == "all"
+    assert {p["grow_id"] for p in payload["data"] if not p.get("gap")} == {closed, active}
+
+    changes = [p for p in payload["data"] if p.get("series_change") == "grow_id"]
+    assert len(changes) == 1
+
+
+def test_the_aggregated_endpoint_breaks_at_the_grow_boundary_too(client, temp_db):
+    import time
+
+    now = int(time.time())
+    _closed_and_active(client, temp_db, now)
+
+    payload = client.get("/api/history/aggregated?days=7&grow_id=all").get_json()
+    assert payload["grow_scope"] == "all"
+    assert any(p.get("series_change") == "grow_id" for p in payload["data"])
+
+
+def test_every_scoped_endpoint_says_which_grow_it_answered_about(client, temp_db):
+    """
+    The scope is resolved server-side, so a chart that does not ask has no way
+    to label itself — and one whose meaning changes the moment somebody
+    activates another grow, silently, is worse than one with no label.
+    """
+    import time
+
+    now = int(time.time())
+    _closed, active = _closed_and_active(client, temp_db, now)
+
+    for url in ("/api/period-summary?days=7",
+                "/api/history/aggregated?days=7",
+                "/api/vpd-score?days=7",
+                "/api/weekly-report",
+                f"/api/sensor-history?start={now - 3600}&end={now}"):
+        payload = client.get(url).get_json()
+        assert payload.get("grow_id") == active, url
+        assert payload.get("grow_scope") == "active", url
+
+
+def test_the_vpd_score_refuses_every_grow_at_once_through_the_api(client, temp_db):
+    import time
+
+    now = int(time.time())
+    _closed_and_active(client, temp_db, now)
+
+    assert "error" in client.get("/api/vpd-score?days=7&grow_id=all").get_json()
+    assert "error" in client.get("/api/weekly-report?grow_id=all").get_json()
+
+
+@pytest.mark.parametrize("value", ["todos", "1.5", "' OR 1=1", ""])
+def test_a_grow_scope_that_is_not_one_is_refused_rather_than_ignored(client, value):
+    """
+    Falling back to a different scope than the caller asked for is how a chart
+    ends up quietly answering a question nobody put.
+    """
+    response = client.get(f"/api/sensor-history?period=24h&grow_id={value}")
+    if value == "":
+        assert response.status_code == 200      # absent means the active grow
+    else:
+        assert response.status_code == 400

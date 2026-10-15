@@ -104,7 +104,18 @@ body {
 .header-right {
     display: flex;
     align-items: center;
+    /* Shrinkable, not fixed: on a phone this group wraps onto its own lines,
+       and `0 0 auto` pinned it at the width of the chip plus the button side
+       by side, which then hung off both edges of the screen. */
+    flex: 0 1 auto;
+    min-width: 0;
     gap: 20px;
+}
+
+/* The logo does not shrink, and does not need to: the thing with slack in this
+   row is the grow name, which has an ellipsis. */
+.logo {
+    flex: 0 0 auto;
 }
 
 .status-indicator {
@@ -166,28 +177,32 @@ body {
 .sensor-alert-message { opacity: 0.9; font-size: 0.95em; }
 
 /* Grow Control Bar */
+/* In the header now, so it is a strip rather than a card: no background, no
+   border, no row of its own. It was never navigation and never a control -
+   it is the sentence the rest of the screen is read inside - and a full-width
+   card was a lot of room for a sentence. */
 .grow-bar {
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px 24px;
-    margin-bottom: 20px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 16px;
+    padding: 0 24px;
 }
 
 .grow-info {
     display: flex;
     align-items: center;
-    gap: 16px;
+    min-width: 0;
+    gap: 10px;
 }
 
 .grow-name {
-    font-size: 1.2em;
+    font-size: 1em;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .grow-stage {
@@ -199,6 +214,7 @@ body {
     letter-spacing: 0.5px;
 }
 
+.grow-stage.seedling { background: rgba(20, 184, 166, 0.2); color: var(--accent-teal); }
 .grow-stage.early_veg { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
 .grow-stage.late_veg { background: rgba(132, 204, 22, 0.2); color: var(--accent-lime); }
 .grow-stage.flowering { background: rgba(244, 114, 182, 0.2); color: #f472b6; }
@@ -253,6 +269,19 @@ body {
 .btn-ghost:hover {
     color: var(--text-primary);
     border-color: var(--accent-green);
+}
+
+/* For the button that confirms something destructive. It says what it does -
+   "Finalizar cultivo", not "OK" - and it should not look like the green button
+   that means "yes, go on" everywhere else. */
+.btn-danger {
+    background: var(--vpd-danger);
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+    transform: translateY(-1px);
 }
 
 /* Main Grid Layout */
@@ -484,15 +513,6 @@ body {
     color: var(--humidity-high);
 }
 
-.hero-card.hero-target .hero-value {
-    color: var(--accent-green);
-}
-
-.hero-card.hero-target {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.08) 100%);
-    border-color: var(--accent-green-dim);
-}
-
 /* Humidity Bar */
 .humidity-bar-container {
     margin-top: 16px;
@@ -699,21 +719,22 @@ body {
 .summary-stat-value.min { color: var(--temp-cool); }
 .summary-stat-value.max { color: var(--temp-hot); }
 
-/* Outdoor Section */
-.outdoor-grid {
+/* Outdoor: a card in the Ambiente row rather than a section of its own.
+   Inside and outside are read in one glance - the second is usually the reason
+   the first is drifting - and they used to be two stops apart on the page. */
+.hero-card.hero-outdoor {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.08) 100%);
+    border-color: rgba(20, 184, 166, 0.45);
+}
+
+.outdoor-pair {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 10px;
 }
 
-.outdoor-card {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.1) 100%);
-    border: 1px solid var(--accent-teal);
-    border-radius: 12px;
-    padding: 20px;
-}
-
-.outdoor-card .metric-label {
+.outdoor-reading .metric-label {
     color: var(--accent-teal);
 }
 
@@ -847,55 +868,49 @@ body {
 }
 
 .output-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.3em;
     font-weight: 600;
 }
 
+/* The lamp, before the word. "¿Qué relés están prendidos?" is answered from
+   across the room by which cards are lit, and reading three states off three
+   identically grey cards is not answering it. */
+.output-state::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: currentColor;
+}
+
 .output-state.on { color: var(--accent-green); }
-.output-state.off { color: var(--vpd-danger); }
+.output-state.off { color: var(--text-muted); }
 .output-state.unknown { color: var(--text-muted); }
 
-/* Paused */
-.pause-bar {
-    display: none;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 20px;
-    padding: 16px 20px;
-    border-radius: 12px;
-    /* Amber, not red: nothing is broken. Something is switched off on purpose
-       and must not be forgotten, which is a different thing to say. */
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid var(--vpd-adjusting);
+.output-state.on::before {
+    box-shadow: 0 0 12px var(--accent-green);
+    animation: pulse 2s infinite;
 }
 
-.pause-bar.show {
-    display: flex;
+/* Off is not a fault, so it is not red any more - it is simply quiet, and the
+   card recedes. Only the running ones are lit. */
+.output-card.is-on {
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.12) 100%);
+    border-color: var(--accent-green-dim);
 }
 
-.pause-bar-icon {
-    font-size: 1.6em;
-}
-
-.pause-bar-content {
-    flex: 1;
-}
-
-.pause-bar-title {
-    font-weight: 600;
-    color: var(--vpd-adjusting);
-    margin-bottom: 2px;
-}
-
-.pause-bar-message {
+.output-card.is-off .output-name {
     color: var(--text-secondary);
-    font-size: 0.85em;
-    line-height: 1.5;
 }
 
-.pause-bar-message strong {
-    color: var(--text-primary);
+/* Nothing known about it at all: neither on nor off, which is a third thing. */
+.output-card.is-unknown {
+    border-style: dashed;
 }
 
 .output-card.is-manual {
@@ -1006,6 +1021,40 @@ body {
     color: var(--bg-primary);
 }
 
+/* The grow scope selector, sitting before the time range: which crop, and then
+   which window of it. A 30-day window used to cross the end of one grow and
+   the start of the next and draw them as one curve. */
+.grow-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.grow-selector-label {
+    font-size: 0.8em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.grow-selector .form-control {
+    width: auto;
+    min-width: 160px;
+    padding: 8px 12px;
+    font-size: 0.9em;
+}
+
+.grow-scope-note {
+    margin: 0 0 16px 0;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent-lime);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
 .chart-wrapper {
     position: relative;
     height: 350px;
@@ -1081,6 +1130,69 @@ body {
     gap: 12px;
     justify-content: flex-end;
     margin-top: 28px;
+}
+
+/* A dialog says one thing and offers two answers, so it is narrower than the
+   forms the other modals hold. */
+.modal-dialog {
+    max-width: 420px;
+}
+
+.dialog-message {
+    color: var(--text-secondary);
+    line-height: 1.55;
+    white-space: pre-line;
+}
+
+/* The focus ring is the whole point of trapping the focus: without something
+   visible, "where am I" has no answer. */
+.modal-content :focus-visible {
+    outline: 2px solid var(--accent-green);
+    outline-offset: 2px;
+}
+
+/* ===============================
+   TOASTS
+   ===============================
+   "Se guardó" does not need to be acknowledged. Errors still get a dialog. */
+
+.toast-tray {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 1100;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    /* The tray spans the screen so its children can centre, but it must not
+       swallow clicks on whatever is underneath it. */
+    pointer-events: none;
+}
+
+.toast {
+    max-width: min(90vw, 420px);
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border-accent);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-md);
+    font-size: 0.92em;
+    animation: toast-in 0.18s ease-out;
+}
+
+.toast-ok { border-left: 3px solid var(--accent-green); }
+.toast-error { border-left: 3px solid var(--vpd-danger); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
 }
 
 .grow-list {
@@ -1521,8 +1633,9 @@ body {
 .stage-progress {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-width: 170px;
+    gap: 8px;
+    flex: 0 1 140px;
+    min-width: 90px;
 }
 
 .stage-progress-bar {
@@ -1867,6 +1980,7 @@ body {
     white-space: nowrap;
 }
 
+.feed-col.seedling { color: var(--accent-teal); }
 .feed-col.early_veg, .feed-col.late_veg { color: var(--accent-lime); }
 .feed-col.flowering { color: #c084fc; }
 .feed-col.dry { color: var(--temp-warm); }
@@ -2140,6 +2254,10 @@ body {
     margin-top: 0;
     padding: 12px 0;
     background: linear-gradient(var(--bg-primary) 70%, rgba(10, 15, 13, 0));
+    /* Three controls live here now — title, grow and range — so they wrap
+       instead of squeezing the select down to nothing on a phone. */
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 /* ===============================
@@ -2153,6 +2271,10 @@ body {
 .system-state {
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
+    /* Two words, on one line. Wrapped, the chip grows a second row and pushes
+       the header taller than everything beside it. */
+    white-space: nowrap;
     gap: 8px;
     padding: 8px 14px;
     background: var(--bg-card);
@@ -2196,9 +2318,35 @@ body {
     color: var(--accent-green);
 }
 
+/* Amber, and that is all it needs to be.
+   
+   It was louder than this - a fill, a doubled border and a glow, with the dot
+   pulsing - on the argument that the chip is the only announcement now that
+   the banner is gone, so it had to carry the whole weight of one. The argument
+   held for about a day. These states last: this tent has been stopped for two
+   of them on purpose, and a glowing, pulsing chip in the corner of every view
+   for two days is not a warning any more, it is wallpaper you learn to look
+   past. Quiet and unmistakably amber beats loud and ignored.
+   
+   What still does the work is that nothing else in the header is this colour,
+   it says how long it has been, and the verb to end it is right there. */
 .system-state.is-paused {
-    background: rgba(245, 158, 11, 0.12);
-    border-color: var(--vpd-adjusting);
+    background: rgba(245, 158, 11, 0.09);
+    border-color: rgba(245, 158, 11, 0.5);
+}
+
+/* How long it has been - the one thing the banner said that a chip did not.
+   Set in the muted text rather than in the state's own colour: it is the
+   detail you read after the two words, not a second alarm beside them. */
+.system-state-since {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    white-space: nowrap;
+}
+
+.system-state-since:empty {
+    display: none;
 }
 
 .system-state.is-paused .system-state-text {
@@ -2206,6 +2354,8 @@ body {
     font-weight: 600;
 }
 
+/* Not pulsing. A blinking light is for something that just happened and needs
+   answering; this is a state somebody chose and is living in. */
 .system-state.is-paused .status-dot {
     background: var(--vpd-adjusting);
     box-shadow: none;
@@ -2214,6 +2364,104 @@ body {
 
 .system-state.is-paused:hover .system-state-action {
     color: var(--vpd-adjusting);
+}
+
+/* Monitoring is teal, not amber: the tent is unattended either way, but one of
+   these is somebody deliberately watching an empty room and the other is a
+   tent stopped with its hands in the works. Still lit, still pulsing - it is
+   not a resting state and nothing but a person ends it. */
+.system-state.is-monitor {
+    background: rgba(20, 184, 166, 0.09);
+    border-color: rgba(20, 184, 166, 0.5);
+}
+
+.system-state.is-monitor .system-state-text {
+    color: var(--accent-teal);
+    font-weight: 600;
+}
+
+.system-state.is-monitor .status-dot {
+    background: var(--accent-teal);
+    box-shadow: none;
+    animation: none;
+}
+
+.system-state.is-monitor:hover .system-state-action {
+    color: var(--accent-teal);
+}
+
+/* The two ways to stand the controller down, side by side with what each one
+   does. Buttons, not radios: there is nothing to submit afterwards - pressing
+   one is the decision. */
+.modal-intro {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.stop-modes {
+    display: grid;
+    gap: 12px;
+}
+
+.stop-mode {
+    display: flex;
+    gap: 14px;
+    width: 100%;
+    padding: 16px;
+    text-align: left;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1em;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.stop-mode:hover,
+.stop-mode:focus-visible {
+    background: var(--bg-card-hover);
+    border-color: var(--border-accent);
+}
+
+.stop-mode:first-child:hover,
+.stop-mode:first-child:focus-visible {
+    border-color: var(--accent-teal);
+}
+
+.stop-mode:last-child:hover,
+.stop-mode:last-child:focus-visible {
+    border-color: var(--vpd-adjusting);
+}
+
+.stop-mode-icon {
+    flex: 0 0 auto;
+    font-size: 1.5em;
+    line-height: 1.2;
+}
+
+.stop-mode-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.stop-mode-name {
+    font-weight: 600;
+}
+
+.stop-mode-detail {
+    color: var(--text-secondary);
+    font-size: 0.86em;
+    line-height: 1.45;
+}
+
+.stop-mode-detail strong {
+    color: var(--text-primary);
 }
 
 .system-state.is-offline {
@@ -2242,6 +2490,68 @@ body {
     text-align: center;
 }
 
+/* In the header the grow is a sentence, not a row of badges.
+   
+   It arrived here as four bordered boxes - a pill for the stage, a pill for the
+   day in the stage, a pill for the day of the grow, a progress bar with an
+   estimated end - next to a bordered chip, a button and a full timestamp. Seven
+   outlined things in one row, and the one piece that actually says which grow
+   this is was the piece getting truncated to "Blue ...". That is a header you
+   stop reading.
+   
+   So the boxes go and the words stay: name, stage in its own colour, day. The
+   day of the whole grow, the progress bar and the estimated end are not gone,
+   they are in Cultivo, which is the screen for how the grow is going. */
+.header .grow-stage {
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+}
+
+.header .stage-day {
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.header .stage-day.overdue {
+    color: var(--vpd-adjusting);
+}
+
+.header .grow-day,
+.header .stage-progress {
+    display: none;
+}
+
+/* The name is the piece worth the room, so it is the last to give any up. */
+.header .grow-name {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 1080px) {
+    .header .last-update {
+        display: none;
+    }
+}
+
+/* Below this the row cannot hold three groups, so the grow context takes a
+   line of its own under the logo and the controls rather than being squeezed
+   to an ellipsis and two chips. */
+@media (max-width: 920px) {
+    .header {
+        flex-wrap: wrap;
+    }
+
+    .header .grow-bar {
+        order: 3;
+        flex-basis: 100%;
+        padding: 10px 0 0 0;
+    }
+}
+
 /* ===============================
    PANEL
    ===============================
@@ -2249,9 +2559,12 @@ body {
    there to scroll it. Everything here is read, not filled in.
 */
 
+/* Riego on the left, the 24 h chart on the right: the tile is the only thing
+   on this screen anybody acts on, so it gets the first half of the reading
+   order, and the chart is the context that explains the relays above. */
 .panel-grid {
     display: grid;
-    grid-template-columns: 1.7fr 1fr;
+    grid-template-columns: minmax(300px, 1fr) 1.6fr;
     gap: 24px;
     align-items: start;
 }
@@ -2294,37 +2607,33 @@ body {
     margin-top: 12px;
 }
 
+/* Tight, but not touching: three stacked sections need a seam between them or
+   the relay row reads as part of the Ambiente grid above it. The first header
+   in the view keeps the zero top margin the rule further up gives it. */
 .view-panel .section-header {
-    margin: 0 0 12px 0;
+    margin: 20px 0 12px 0;
 }
 
 .view-panel .section-title {
     font-size: 1.1em;
 }
 
-/* Three relays across a narrow column rather than stacked: the state is two
-   words, and stacking them costs 200px of a screen that has none to give. */
+/* Across the full width rather than down a narrow column: which relays are
+   closed is one of the three things this screen exists to say, and it was
+   being answered in the margin. */
 .view-panel .outputs-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 12px;
+    margin-bottom: 20px;
 }
 
 .view-panel .output-card,
-.view-panel .outdoor-card,
 .view-panel .sensor-card {
     padding: 14px;
 }
 
-.view-panel .outdoor-grid {
-    gap: 12px;
-}
-
-.view-panel .outdoor-card .metric-value {
-    font-size: 1.6em;
-}
-
-.view-panel .sensors-note {
-    display: none;
+.view-panel .outdoor-reading .metric-value {
+    font-size: 1.5em;
 }
 
 .chart-container-panel {
@@ -2341,8 +2650,12 @@ body {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* The watering tile: how long it has been, and what today's plan asks for. */
+/* The watering tile: how long it has been, how much solution, and what goes
+   in it. Three slots saying three different things - the panel used to be full
+   of pairs of boxes saying one thing twice. */
 .panel-feed {
+    display: flex;
+    flex-direction: column;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--humidity-high);
@@ -2354,9 +2667,20 @@ body {
     border-left-color: var(--vpd-adjusting);
 }
 
+.panel-feed-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.panel-feed-since-block {
+    min-width: 0;
+}
+
 .panel-feed-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.9em;
+    font-size: 1.8em;
     font-weight: 700;
     line-height: 1;
     color: var(--humidity-high);
@@ -2369,16 +2693,123 @@ body {
 .panel-feed-label {
     color: var(--text-secondary);
     font-size: 0.85em;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
-.panel-feed-detail {
+/* The volume the doses below were scaled against, so the tile reads as one
+   instruction: "10 L, y en esos 10 L va esto". */
+.panel-feed-litres {
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.panel-feed-litres small {
+    margin-left: 2px;
+    font-size: 0.5em;
+    font-weight: 500;
     color: var(--text-muted);
-    font-size: 0.82em;
-    margin-top: 10px;
-    padding-top: 10px;
+}
+
+.panel-feed-doses {
+    margin: 14px 0 4px 0;
+    padding-top: 12px;
     border-top: 1px solid var(--border-color);
-    line-height: 1.4;
+}
+
+/* A chart with twelve products in a week would otherwise push the relays and
+   the chart off a wall screen entirely. Capped and scrollable: the tile keeps
+   the height the rest of the view was budgeted against, and the overflow is
+   one flick away rather than a page that got 400px taller overnight.
+
+   The padding is for the scrollbar, which otherwise sits on top of the last
+   column and eats the "/L" off every dose. */
+.view-panel .panel-feed-doses {
+    max-height: 210px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding-right: 6px;
+}
+
+/* Name, what to pour, dose per litre. The middle column is what gets measured
+   into the jug, so it is the one set in the monospace. */
+.panel-feed-dose {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 0;
+    font-size: 0.9em;
+}
+
+.panel-feed-dose + .panel-feed-dose {
+    border-top: 1px dashed var(--border-color);
+}
+
+.panel-feed-dose-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-feed-dose-total {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--accent-lime);
+}
+
+.panel-feed-dose-rate {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    color: var(--text-muted);
+}
+
+.panel-feed-note {
+    color: var(--text-secondary);
+    font-size: 0.86em;
+    line-height: 1.45;
+}
+
+.panel-feed-cta {
+    margin-top: 14px;
+    justify-content: center;
+    text-align: center;
+}
+
+/* Estado: three lines at the foot of the panel. The sensor cards they summarise
+   live in Sistema now, and the Sensores row is the link that goes there. */
+/* A footnote, not a section: denser than the rows in Sistema, because what it
+   is competing for space with is the answer to "¿cómo está la carpa?". */
+.health-strip {
+    margin-top: 16px;
+    gap: 6px;
+}
+
+.health-strip .health-row {
+    padding: 6px 12px;
+    font-size: 0.8em;
+}
+
+.health-row-link {
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.health-row-link:hover {
+    background: var(--bg-card-hover);
+    border-left-color: var(--accent-green);
+}
+
+.health-row-link .health-row-detail {
+    color: var(--text-muted);
+    text-align: right;
 }
 
 /* ===============================
@@ -2916,6 +3347,15 @@ body {
     .chart-wrapper-panel {
         height: 280px;
     }
+
+    /* The cap exists to protect a fold that a single column does not have: a
+       phone is scrolled anyway, and a scroll region inside a scrolling page is
+       the worse of the two. */
+    .view-panel .panel-feed-doses {
+        max-height: none;
+        overflow-y: visible;
+        padding-right: 0;
+    }
 }
 
 @media (max-width: 768px) {
@@ -3428,4 +3868,73 @@ body {
     .quiet-fields label:last-child {
         grid-column: span 2;
     }
+}
+
+/* ===============================
+   LOGIN
+   ===============================
+   The PIN page, which is its own document: the dashboard fires a dozen
+   requests on load and every one of them would answer 401 behind a dialog. */
+
+.login-body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: var(--shadow-lg);
+}
+
+.login-logo {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.login-logo h1 {
+    font-size: 1.6em;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+}
+
+.login-logo h1 span {
+    color: var(--accent-green);
+}
+
+.login-intro {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.login-submit {
+    justify-content: center;
+    margin-top: 4px;
+}
+
+.login-error {
+    color: var(--vpd-danger);
+    font-size: 0.9em;
+}
+
+.login-note {
+    margin-top: 20px;
+    color: var(--text-muted);
+    font-size: 0.85em;
 }

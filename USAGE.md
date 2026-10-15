@@ -87,7 +87,41 @@ GET /api/sensor-history?start=1696118400&end=1696204800
 GET /api/sensor-history?start=1696118400&end=1696204800&limit=1000
 ```
 
-### 6. Estadísticas de la Base de Datos
+### 6. Alcance por cultivo
+
+El histórico se filtra **por cultivo**, no sólo por tiempo. Sin el parámetro, la
+respuesta es sobre el **cultivo activo**, que es de lo que habla el resto del
+tablero (la etapa, el contador de días, la banda objetivo). Una ventana de 30 o
+90 días sin filtrar cruza el final de un cultivo con el arranque del siguiente y
+los promedia como si fueran uno.
+
+```bash
+# El cultivo activo (es el default: no hace falta pedirlo)
+GET /api/sensor-history?period=30d
+
+# Un cultivo en particular, incluso uno ya cerrado
+GET /api/sensor-history?period=30d&grow_id=3
+
+# Todos los cultivos a la vez — hay que pedirlo
+GET /api/sensor-history?period=90d&grow_id=all
+```
+
+Vale igual en `/api/history/aggregated`, `/api/period-summary` y
+`/api/anomalies`. Cada respuesta incluye `grow_id` y `grow_scope`
+(`active` / `grow` / `all` / `none`) para que quien la dibuje pueda decir de qué
+está hablando.
+
+Dos detalles:
+
+- Con `grow_id=all`, las series se **cortan en cada cambio de cultivo**: el
+  punto de corte sale marcado con `"series_change": "grow_id"`, y los promedios
+  nunca mezclan dos cultivos en el mismo bucket.
+- `/api/vpd-score` y `/api/weekly-report` **rechazan** `grow_id=all`. El score
+  mide tiempo dentro de la banda de *una etapa*, y cada cultivo pasó por etapas
+  distintas: un solo número sobre todos puntúa lecturas contra bandas a las que
+  nunca estuvieron sujetas.
+
+### 7. Estadísticas de la Base de Datos
 
 ```bash
 # Información sobre la base de datos

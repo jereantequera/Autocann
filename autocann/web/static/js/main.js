@@ -3,7 +3,8 @@ import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } fro
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
-    exitTestMode, fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
+    enterMonitorMode, enterTestMode,
+    fetchCurrentData, fetchHistoricalData, fetchOutputsStatus,
     fetchPeriodSummary, setTestOutput, toggleTestMode, updateSummaryPeriodLabel,
 } from './dashboard.js';
 import { fetchHealth } from './health.js';
@@ -13,9 +14,9 @@ import {
 } from './feeding.js';
 import {
     activateGrow, createGrow, endGrow, fetchActiveGrow, showNewGrowModal,
-    showStageModal, updateStage, wireGrowListActions,
+    showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
-import { closeModal, closeTopModal } from './modals.js';
+import { closeModal, initModals } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
 import { applyConfig, state } from './state.js';
@@ -44,7 +45,9 @@ const POLLERS = [
     // One call for the whole verdict - sensores, lazo e histórico - en vez de
     // dos que podían contestar cosas distintas. The node posts each sensor
     // every 10 s, so polling faster buys nothing but load on the Raspberry.
-    { fn: fetchHealth, every: 10000, views: ['panel'] },
+    // Panel y Sistema: las tarjetas de sensores viven allá y el renglón que las
+    // resume, acá. Las dos salen de esta misma respuesta.
+    { fn: fetchHealth, every: 10000, views: ['panel', 'sistema'] },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000, views: ['stats'] },
@@ -145,10 +148,16 @@ const ACTIONS = {
     'feed-plan-add': addPlanProduct,
     'feed-save': saveIrrigation,
     'feed-reset': resetFormToPlan,
-    // One control in the header, so which way it goes depends on the state.
+    // One control, in the header, so which way it goes depends on the state.
+    // There used to be a second one - the banner's own Reanudar button - which
+    // went away with the banner: a state with two ways out is two things to
+    // keep in step for no gain.
+    //
+    // Stopping forks, so the chip opens the dialog that asks which way; these
+    // two are its buttons, and they are the only way into either state.
     'toggle-pause': toggleTestMode,
-    // The bar under the header only ever ends a pause; it is never the way in.
-    'resume-system': exitTestMode,
+    'enter-monitor': enterMonitorMode,
+    'enter-pause': enterTestMode,
     'test-output': setTestOutput,
 };
 
@@ -172,16 +181,10 @@ function wireActions() {
         }
     });
 
-    // Click on the backdrop closes the modal.
-    window.addEventListener('click', event => {
-        if (event.target.classList.contains('modal')) {
-            event.target.classList.remove('show');
-        }
-    });
-
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') closeTopModal();
-    });
+    // Escape, the backdrop and the focus trap all live in modals.js now: they
+    // are three halves of one behaviour, and keeping them here is how closing
+    // by backdrop ended up skipping the part that puts focus back.
+    initModals();
 
     document.querySelectorAll('.time-btn').forEach(btn => {
         btn.addEventListener('click', () => handleTimeBtnClick(btn));
@@ -217,6 +220,7 @@ async function start() {
     initCharts();
     wireActions();
     wireGrowListActions();
+    wireGrowFilter();
     wireFeeding();
     wireCalendar();
     wirePanel();

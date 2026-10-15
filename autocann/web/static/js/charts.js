@@ -4,6 +4,7 @@ import { config, state } from './state.js';
 const STAGE_MARKER_TOLERANCE_SECONDS = 12 * 3600;
 
 const STAGE_SHORT_NAMES = {
+    seedling: 'Plántula',
     early_veg: 'Veg. temprano',
     late_veg: 'Veg. tardío',
     flowering: 'Floración',

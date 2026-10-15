@@ -1,7 +1,8 @@
 import { apiGet } from './api.js';
-import { closeModal, showModal } from './modals.js';
+import { alertDialog, closeModal, confirmDialog, showModal, toast } from './modals.js';
 import { getVpdChart, renderStageMarkers } from './charts.js';
-import { fetchDatabaseStats, fetchHistoricalData } from './dashboard.js';
+import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './dashboard.js';
+import { fetchVpdScore } from './analytics.js';
 import { config, state } from './state.js';
 import { escapeHtml } from './util.js';
 
@@ -16,7 +17,7 @@ import { escapeHtml } from './util.js';
 
 function showNewGrowModal() {
     document.getElementById('newGrowName').value = '';
-    document.getElementById('newGrowStage').value = 'early_veg';
+    document.getElementById('newGrowStage').value = 'seedling';
     document.getElementById('newGrowNotes').value = '';
     showModal('newGrowModal');
 }
@@ -175,12 +176,20 @@ function renderStageTimeline(timeline) {
 // Modal functions
 
 async function createGrow() {
-    const name = document.getElementById('newGrowName').value.trim();
+    const field = document.getElementById('newGrowName');
+    const name = field.value.trim();
     const stage = document.getElementById('newGrowStage').value;
     const notes = document.getElementById('newGrowNotes').value.trim();
 
     if (!name) {
-        alert('Por favor ingresá un nombre para el cultivo');
+        await alertDialog({
+            title: 'Falta el nombre',
+            message: 'El cultivo necesita un nombre para poder distinguirlo del '
+                + 'anterior en los gráficos.',
+        });
+        // Back to the field it is complaining about, not to wherever focus
+        // happened to be.
+        field.focus();
         return;
     }
 
@@ -194,17 +203,27 @@ async function createGrow() {
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
             closeModal('newGrowModal');
+            toast(`Cultivo "${name}" creado`);
+            // The new grow is the active one, so every chart on screen is now
+            // about it.
+            state.growId = null;
             fetchActiveGrow();
             fetchDatabaseStats();
+            fetchGrowFilter();
             fetchHistoricalData(state.period, state.interval, state.hours);
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo crear el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error creating grow:', error);
-        alert('❌ Error al crear el cultivo');
+        await alertDialog({
+            title: 'No se pudo crear el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
@@ -213,7 +232,7 @@ async function updateStage() {
 
     try {
         const activeGrow = await fetch('/api/grows/active').then(r => r.json());
-        
+
         const response = await fetch(`/api/grows/${activeGrow.id}/stage`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -223,56 +242,100 @@ async function updateStage() {
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
             closeModal('stageModal');
+            toast(`Etapa: ${config.stageNames[newStage] || newStage}`);
             fetchActiveGrow();
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo cambiar la etapa',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error updating stage:', error);
-        alert('❌ Error al actualizar la etapa');
+        await alertDialog({
+            title: 'No se pudo cambiar la etapa',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
+/** The grow's name, for a dialog that has to say which one it is about. */
+function growName(growId) {
+    const item = document.querySelector(`.grow-item[data-grow-id="${growId}"]`);
+    return item?.querySelector('.grow-item-name')?.textContent.trim() || 'este cultivo';
+}
+
 async function activateGrow(growId) {
-    if (!confirm('¿Querés activar este cultivo?')) return;
+    const confirmed = await confirmDialog({
+        title: 'Activar cultivo',
+        message: `El tablero entero pasa a hablar de "${growName(growId)}": los `
+            + 'gráficos, las estadísticas y el plan de riego. El lazo de control '
+            + 'toma su etapa en menos de un minuto.',
+        confirmLabel: 'Activar cultivo',
+        // Not destructive: nothing is lost, and painting it red next to
+        // "Finalizar cultivo" would make both reds mean less.
+        danger: false,
+    });
+    if (!confirmed) return;
 
     try {
         const response = await fetch(`/api/grows/${growId}/activate`, { method: 'POST' });
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
+            toast('Cultivo activado');
+            state.growId = null;
             loadGrowsList();
             fetchActiveGrow();
             fetchDatabaseStats();
+            fetchGrowFilter();
             fetchHistoricalData(state.period, state.interval, state.hours);
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo activar el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error activating grow:', error);
-        alert('❌ Error al activar el cultivo');
+        await alertDialog({
+            title: 'No se pudo activar el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
 async function endGrow(growId) {
-    if (!confirm('¿Querés finalizar este cultivo?')) return;
+    const confirmed = await confirmDialog({
+        title: 'Finalizar cultivo',
+        message: `"${growName(growId)}" queda cerrado con la fecha de hoy. El `
+            + 'histórico no se borra y se puede seguir mirando eligiéndolo en '
+            + 'Estadísticas, pero el cultivo no se puede reabrir.',
+        confirmLabel: 'Finalizar cultivo',
+    });
+    if (!confirmed) return;
 
     try {
         const response = await fetch(`/api/grows/${growId}/end`, { method: 'POST' });
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ ${result.message}`);
+            toast('Cultivo finalizado');
             loadGrowsList();
+            fetchGrowFilter();
         } else {
-            alert(`❌ Error: ${result.error}`);
+            await alertDialog({
+                title: 'No se pudo finalizar el cultivo',
+                message: result.error || 'El backend rechazó el pedido.',
+            });
         }
     } catch (error) {
         console.error('Error ending grow:', error);
-        alert('❌ Error al finalizar el cultivo');
+        await alertDialog({
+            title: 'No se pudo finalizar el cultivo',
+            message: 'No se pudo contactar al backend.',
+        });
     }
 }
 
@@ -338,6 +401,76 @@ async function loadGrowsList() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The grow scope selector in Estadísticas
+// ---------------------------------------------------------------------------
+// The history is filtered by grow, not only by time. A 30- or 90-day window
+// used to reach back past the end of the previous crop and draw ten months of
+// an empty tent and a real grow as one continuous curve.
+//
+// The default is the active grow — everything else on screen is about that
+// grow, from the stage to the day counter — and "todos los cultivos" is still
+// there, as something you pick.
+
+const ALL_GROWS_OPTION = 'all';
+
+/** Fill the selector from the grow list, keeping whatever is selected. */
+function renderGrowFilter(grows) {
+    const select = document.getElementById('grow-filter');
+    if (!select) return;
+
+    const options = [
+        '<option value="">Cultivo activo</option>',
+        ...(grows || []).map(grow => {
+            const id = Number(grow.id);
+            const samples = Number.isFinite(grow.sample_count)
+                ? ` · ${grow.sample_count.toLocaleString('es-AR')} muestras` : '';
+            return `<option value="${id}">${escapeHtml(grow.name)}`
+                + `${grow.is_active ? ' (activo)' : ''}${samples}</option>`;
+        }),
+        `<option value="${ALL_GROWS_OPTION}">Todos los cultivos</option>`,
+    ];
+
+    select.innerHTML = options.join('');
+    // Re-selecting after innerHTML: the list is refetched on every visit, and
+    // losing the choice would quietly take the charts back to the active grow.
+    select.value = state.growId === null ? '' : String(state.growId);
+    if (select.value !== (state.growId === null ? '' : String(state.growId))) {
+        // The chosen grow is gone from the list; fall back rather than show a
+        // selector that disagrees with the charts.
+        state.growId = null;
+        select.value = '';
+    }
+}
+
+function fetchGrowFilter() {
+    apiGet('/api/grows', { key: 'grow-filter' }).then(data => {
+        if (data && data.grows) renderGrowFilter(data.grows);
+    });
+}
+
+function wireGrowFilter() {
+    const select = document.getElementById('grow-filter');
+    if (!select) return;
+
+    select.addEventListener('change', () => {
+        const value = select.value;
+        state.growId = value === '' ? null
+            : value === ALL_GROWS_OPTION ? ALL_GROWS_OPTION : Number(value);
+        // Everything in this view reads the same scope, so all of it is
+        // refetched together: two charts disagreeing about which grow they are
+        // drawing is the exact confusion this selector exists to end.
+        fetchHistoricalData(state.period, state.interval, state.hours);
+        fetchPeriodSummary();
+        fetchVpdScore();
+    });
+
+    document.addEventListener('view:enter', event => {
+        if (event.detail?.view === 'stats') fetchGrowFilter();
+    });
+    fetchGrowFilter();
+}
+
 function wireGrowListActions() {
     const list = document.getElementById('growList');
     if (!list) return;
@@ -363,4 +496,5 @@ function wireGrowListActions() {
 export {
     fetchStageTimeline, showNewGrowModal, showStageModal, loadGrowsList, fetchActiveGrow,
     createGrow, updateStage, activateGrow, endGrow, wireGrowListActions,
+    renderGrowFilter, wireGrowFilter,
 };

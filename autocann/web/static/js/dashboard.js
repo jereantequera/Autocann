@@ -1,7 +1,11 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
-import { config, state } from './state.js';
-import { escapeHtml, fmtNum, formatDuration, humidityDiffLabel } from './util.js';
+import { alertDialog, closeModal, showModal, toast } from './modals.js';
+import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, config, state } from './state.js';
+import {
+    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
+    withGrow,
+} from './util.js';
 
 /** Live readings, period summary, sensor badges and relay cards. */
 
@@ -67,8 +71,11 @@ function updateCurrentData(data) {
         fmtNum(data.temperature, 1) + '<span class="hero-unit">°C</span>';
     document.getElementById('current-humidity').innerHTML =
         fmtNum(data.humidity, 1) + '<span class="hero-unit">%</span>';
-    document.getElementById('current-target-humidity').innerHTML =
-        fmtNum(data.target_humidity, 1) + '<span class="hero-unit">%</span>';
+    // A line inside the humidity card, not a big number of its own: the '%'
+    // is in the template because the target is read as "objetivo 60%", not as
+    // a measurement in its own right.
+    document.getElementById('current-target-humidity').textContent =
+        fmtNum(data.target_humidity, 1);
     document.getElementById('current-vpd').innerHTML =
         fmtNum(data.leaf_vpd, 2) + '<span class="hero-unit">kPa</span>';
     document.getElementById('current-leaf-temp').textContent =
@@ -109,8 +116,17 @@ function updateCurrentData(data) {
         vpdHint.textContent = '';
     }
     
-    document.getElementById('last-update').textContent = 
-        `Actualizado: ${new Date().toLocaleString('es-AR', { hour12: false })}`;
+    // The time, and nothing else. It read "Actualizado: 14/10/2026, 17:26:38",
+    // which is a date you already know, to a precision nobody reads, in the
+    // corner of a row that was already too full. What it is for is answering
+    // "is this live?" at a glance; the full stamp is in the tooltip for the
+    // rare time that is the actual question.
+    const now = new Date();
+    const stamp = document.getElementById('last-update');
+    stamp.textContent = now.toLocaleTimeString('es-AR', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    stamp.title = `Última actualización: ${now.toLocaleString('es-AR', { hour12: false })}`;
 }
 
 // El estado de los sensores -y el de todo lo demas- vive en health.js, que
@@ -175,8 +191,8 @@ function fetchPeriodSummary() {
     } else {
         url = `/api/period-summary?days=${state.period}`;
     }
-    
-    apiGet(url, { key: 'summary' })
+
+    apiGet(withGrow(url, state.growId), { key: 'summary' })
         .then(data => { if (data) updatePeriodSummary(data); })
         .catch(error => console.error('Error fetching period summary:', error));
 }
@@ -206,21 +222,34 @@ let testMode = { active: false };
 let offline = false;
 
 /**
- * How long the pause has lasted, in words.
+ * How long it has been, in one token.
  *
- * Not formatDuration: that one describes time *left*, so it reads zero and
- * below as "no duration" and renders "--". Zero seconds of elapsed time is a
- * real answer - it means you just pressed the button - and "en pausa desde
- * hace --" reads like something failed to load.
+ * Not formatDuration: that one spells out "44 h 32 min", and the minutes are
+ * noise on a state that has lasted two days - this is read to know roughly how
+ * long, never to the minute. It also describes time *left*, so it reads zero
+ * and below as "no duration" and renders "--", when zero seconds of elapsed
+ * time is a real answer: it means you just pressed the button.
  */
 function pausedFor(seconds) {
-    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'un momento';
-    if (seconds < 60) return 'menos de un minuto';
-    return formatDuration(seconds);
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'hace un rato';
+    if (seconds < 60) return 'recién';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours} h`;
+    return `${Math.floor(hours / 24)} d`;
 }
 
 /**
- * The header chip, and the bar under it.
+ * The header chip, which is the whole announcement.
+ *
+ * There was a full-width amber banner under the header as well, repeating the
+ * chip in three more sentences on every view. Two elements saying one thing is
+ * how you end up reading neither, so the banner is gone and what it had that a
+ * chip did not - how long the pause has lasted, and that nothing but a person
+ * ends it - is in the chip and its tooltip. The chip is still impossible to
+ * miss while it lasts: it goes amber, keeps the dot pulsing, and is on every
+ * view because the header is.
  *
  * One renderer for two inputs, because one element cannot have two owners: a
  * backend that stopped answering and a controller that was paused are
@@ -232,18 +261,25 @@ function renderSystemState() {
     const dot = document.getElementById('system-state-dot');
     const text = document.getElementById('system-state-text');
     const action = document.getElementById('system-state-action');
-    const bar = document.getElementById('pause-bar');
     const elapsed = document.getElementById('pause-elapsed');
     if (!chip) return;
 
-    const paused = !!testMode.active;
+    // A tent that is not being controlled is still not being controlled when
+    // the mode is one this build does not recognise, so anything unknown reads
+    // as stopped rather than as running.
+    const stopped = !!testMode.active;
+    const monitoring = stopped && testMode.mode === MODE_MONITOR;
 
-    if (bar) bar.classList.toggle('show', paused && !offline);
-    if (elapsed) elapsed.textContent = pausedFor(testMode.elapsed_seconds);
-
-    chip.classList.toggle('is-paused', paused && !offline);
+    chip.classList.toggle('is-paused', stopped && !monitoring && !offline);
+    chip.classList.toggle('is-monitor', monitoring && !offline);
     chip.classList.toggle('is-offline', offline);
     dot.classList.toggle('offline', offline);
+
+    // Empty rather than "--" when there is nothing to time: the span collapses
+    // and the chip goes back to being two words wide.
+    if (elapsed) {
+        elapsed.textContent = (stopped && !offline) ? pausedFor(testMode.elapsed_seconds) : '';
+    }
 
     if (offline) {
         text.textContent = 'Sin conexión';
@@ -257,11 +293,20 @@ function renderSystemState() {
     }
 
     chip.disabled = false;
-    text.textContent = paused ? 'Sistema en pausa' : 'Sistema activo';
-    action.textContent = paused ? 'Reanudar' : 'Pausar';
-    chip.title = paused
-        ? 'El lazo no está controlando la carpa'
-        : 'Detener el control automático para trabajar en la carpa';
+    // The verb is what pressing it does, which is why both stopped states share
+    // one: from either, the chip hands the tent back to the controller.
+    text.textContent = monitoring ? 'Monitoreo'
+        : stopped ? 'Sistema en pausa' : 'Sistema activo';
+    action.textContent = stopped ? 'Controlar' : 'Detener';
+    chip.title = monitoring
+        ? 'El lazo no está controlando la carpa y nada se enciende, pero el '
+          + 'histórico se sigue guardando. No se reanuda solo — sigue así hasta '
+          + 'que lo saques, incluso si se reinicia la Raspberry.'
+        : stopped
+            ? 'El lazo no está controlando la carpa: los relés quedan donde los pongas '
+              + 'y no se guarda nada en el histórico. No se reanuda solo — sigue así '
+              + 'hasta que lo saques, incluso si se reinicia la Raspberry.'
+            : 'Dejar de controlar: monitoreo, o pausa para trabajar en la carpa';
 }
 
 document.addEventListener('connection:changed', event => {
@@ -282,8 +327,7 @@ function outputCardHtml(output, mode) {
 
     const label = escapeHtml(output.label || output.name || 'Salida');
     const name = escapeHtml(output.name || '');
-    const pin = (output.pin_bcm !== undefined && output.pin_bcm !== null)
-        ? `BCM ${Number(output.pin_bcm)}` : '';
+    const pin = outputPinLabel(output.pin);
 
     let controls = '';
     if (mode.active && output.name) {
@@ -305,16 +349,43 @@ function outputCardHtml(output, mode) {
         `;
     }
 
+    // The class, not just the text: the card itself lights up, which is what
+    // makes "¿qué relés están prendidos?" answerable without reading a word.
     return `
-        <div class="output-card ${mode.active ? 'is-manual' : ''}">
+        <div class="output-card is-${stateClass} ${mode.active ? 'is-manual' : ''}">
             <div class="output-header">
                 <div class="output-name">${label}</div>
-                <div class="output-pin">${pin}</div>
+                <div class="output-pin" title="${escapeHtml(pin.title)}">${escapeHtml(pin.text)}</div>
             </div>
             <div class="output-state ${stateClass}">${stateText}</div>
             ${controls}
         </div>
     `;
+}
+
+/**
+ * "2 de 3 encendidas", and never a bare tick.
+ *
+ * A count stays true when a fourth relay is wired in and nothing else is
+ * touched; an icon that means "fine" would have to be told what fine is.
+ */
+function renderOutputsBadge(outputs) {
+    const badge = document.getElementById('outputs-badge');
+    if (!badge) return;
+
+    if (!outputs.length) {
+        badge.className = 'sensor-badge';
+        badge.textContent = 'sin salidas';
+        return;
+    }
+    // Only the ones actually answering: a relay whose state is unknown is not
+    // an off relay, and counting it as one is how a stuck reading reads as calm.
+    const known = outputs.filter(o => typeof o.state === 'boolean');
+    const on = known.filter(o => o.state === true).length;
+    badge.className = on ? 'sensor-badge ok' : 'sensor-badge';
+    badge.textContent = known.length < outputs.length
+        ? `${on} de ${outputs.length} encendidas · ${outputs.length - known.length} sin estado`
+        : `${on} de ${outputs.length} encendidas`;
 }
 
 function updateOutputsStatus(payload) {
@@ -323,6 +394,17 @@ function updateOutputsStatus(payload) {
 
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
+    renderOutputsBadge(outputs);
+
+    // Qué placa conmuta, dicho una vez en el encabezado: las tres salidas
+    // cuelgan siempre de la misma, y el número de cada tarjeta no se entiende
+    // sin saber de qué placa es.
+    const source = document.getElementById('outputs-source');
+    if (source) {
+        const label = relaySourceLabel(outputs[0]?.pin);
+        source.textContent = label.text;
+        source.title = label.title;
+    }
 
     if (!grid) return;
 
@@ -339,36 +421,67 @@ function updateOutputsStatus(payload) {
     grid.innerHTML = outputs.map(o => outputCardHtml(o, testMode)).join('');
 }
 
-async function enterTestMode() {
-    // Said plainly because it is now true: nothing ends this but a person.
-    if (!confirm(
-        'El lazo deja de controlar la carpa: los relés van a quedar donde vos los pongas '
-        + 'y no se va a guardar nada en el histórico.\n\n'
-        + 'No se reanuda solo. Sigue en pausa hasta que lo saques, aunque se '
-        + 'reinicie la Raspberry.'
-    )) return;
+/**
+ * How each stopped state announces itself once it has been entered.
+ *
+ * Monitoring is not an error, so it does not get the red toast a pause does:
+ * one is somebody stopping the tent to work on it, the other is somebody
+ * deliberately watching a room that has nothing in it yet.
+ */
+const STOP_TOASTS = {
+    [MODE_MONITOR]: ['Monitoreo: nada se enciende, el histórico sigue', { kind: 'ok' }],
+    [MODE_PAUSED]: ['Sistema en pausa', { kind: 'error' }],
+};
 
-    const result = await apiPost('/api/test-mode', { enabled: true });
+/**
+ * Ask which way to stop.
+ *
+ * Not a confirmDialog: that one has a button and a cancel, and the question
+ * here is *which* stop. The modal puts the two side by side with what each
+ * does to the relays and to the history, because that difference is the whole
+ * reason there are two.
+ */
+function askHowToStop() {
+    showModal('stopModeModal');
+}
+
+async function setMode(mode) {
+    const result = await apiPost('/api/test-mode', { mode });
     if (!result.ok) {
-        alert(`❌ No se pudo pausar: ${result.error}`);
+        await alertDialog({ title: 'No se pudo cambiar el estado', message: result.error });
         return;
     }
+    const [message, options] = STOP_TOASTS[mode] || ['Control automático de vuelta', {}];
+    toast(message, options);
     fetchOutputsStatus();
+}
+
+async function enterMonitorMode() {
+    closeModal('stopModeModal');
+    await setMode(MODE_MONITOR);
+}
+
+async function enterTestMode() {
+    closeModal('stopModeModal');
+    await setMode(MODE_PAUSED);
 }
 
 async function exitTestMode() {
-    const result = await apiPost('/api/test-mode', { enabled: false });
-    if (!result.ok) {
-        alert(`❌ No se pudo reanudar: ${result.error}`);
-        return;
-    }
-    fetchOutputsStatus();
+    await setMode(MODE_ACTIVE);
 }
 
-/** The header chip: one control, so which way it goes depends on the state. */
+/**
+ * The header chip.
+ *
+ * Asymmetric on purpose. Stopping is a fork - monitoring or pause - so it opens
+ * the modal that asks which. Going back to control is one thing, so it is one
+ * click: the dialog on the way in is where the consequences were explained,
+ * and asking again on the way out would be asking somebody to confirm that
+ * they want their tent looked after.
+ */
 function toggleTestMode() {
     if (testMode.active) exitTestMode();
-    else enterTestMode();
+    else askHowToStop();
 }
 
 async function setTestOutput(trigger) {
@@ -380,7 +493,7 @@ async function setTestOutput(trigger) {
         state: trigger.dataset.state === 'true',
     });
     if (!result.ok) {
-        alert(`❌ ${result.error}`);
+        await alertDialog({ title: 'No se pudo mover el relé', message: result.error });
     }
     // Refresh either way: on failure the buttons must go back to showing what
     // is actually requested, not what was clicked.
@@ -403,7 +516,7 @@ function fetchDatabaseStats() {
 
 function fetchHistoricalData(days, interval, hours = null) {
     let url;
-    
+
     if (hours !== null) {
         const now = Math.floor(Date.now() / 1000);
         const start = now - (hours * 3600);
@@ -411,21 +524,49 @@ function fetchHistoricalData(days, interval, hours = null) {
     } else {
         url = `/api/history/aggregated?days=${days}&interval=${interval}`;
     }
-    
+
     // Keyed by endpoint, not by URL, so switching time range cancels
     // nothing but still never stacks two history requests.
-    apiGet(url, { key: 'history' }).then(data => {
+    apiGet(withGrow(url, state.growId), { key: 'history' }).then(data => {
         if (!data) return;
         updateHistoricalCharts(hours !== null
             ? { data: data.data || [], count: data.count || 0, aggregated: false }
             : data);
+        renderGrowScopeNote(data);
         // The x-axis just changed, so the markers need repositioning.
-        if (state.timeline) renderStageMarkers(state.timeline);
+        // Only for the active grow: the markers come from its stage timeline,
+        // and drawing them over another grow's curve would date its stages
+        // from somebody else's calendar.
+        if (state.timeline && state.growId === null) renderStageMarkers(state.timeline);
     });
+}
+
+/**
+ * Say which grow the charts are about, when it is not the obvious one.
+ *
+ * The scope is resolved on the server — leaving the parameter out means "the
+ * active grow" — so a chart that does not ask has no way to label itself, and
+ * one whose meaning changes the moment somebody activates another grow,
+ * silently, is worse than one with no label.
+ */
+function renderGrowScopeNote(payload) {
+    const note = document.getElementById('grow-scope-note');
+    if (!note) return;
+
+    const scope = payload?.grow_scope;
+    if (scope === 'all') {
+        note.textContent = 'Todos los cultivos. Las curvas se cortan en cada cambio de cultivo.';
+    } else if (scope === 'none') {
+        note.textContent = 'No hay ningún cultivo activo: nada que mostrar hasta que arranques uno.';
+    } else {
+        note.textContent = '';
+    }
+    note.hidden = !note.textContent;
 }
 
 export {
     updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData,
-    fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData,
-    enterTestMode, exitTestMode, toggleTestMode, setTestOutput, renderSystemState,
+    fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData, renderGrowScopeNote,
+    enterMonitorMode, enterTestMode, exitTestMode, toggleTestMode, setTestOutput,
+    renderSystemState,
 };

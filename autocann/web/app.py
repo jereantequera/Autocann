@@ -7,11 +7,17 @@ from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
 from autocann.config import (
+    CONTROL_MODES,
+    DESIRED_OUTPUTS_KEY,
+    DESIRED_OUTPUTS_MAX_AGE_SECONDS,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
+    MODE_ACTIVE,
+    MODE_PAUSED,
     PRIMARY,
     TEST_MODE_KEY,
     TEST_MODE_OUTPUTS_KEY,
     TEST_MODE_SETTING,
+    UNCONTROLLED_MODES,
     WITNESS,
     indoor_sensor_key,
     indoor_sensors_from_env,
@@ -23,6 +29,7 @@ from autocann.control.feeding import (
     effective_week,
     plan_for_week,
     scale_to_volume,
+    water_only_reason,
     weeks_in_stage,
 )
 from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
@@ -35,6 +42,7 @@ from autocann.control.vpd_math import (
     humidity_range_for_stage,
 )
 from autocann.db import (
+    ALL_GROWS,
     create_grow,
     delete_irrigation,
     detect_anomalies,
@@ -67,20 +75,17 @@ from autocann.hardware.outputs import (
     manual_override_key,
     output_names,
     parse_bool_flag,
+    pin_sources,
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
+from autocann.web.auth import register_auth
 from autocann.web.diagnostics import (
     health_snapshot,
     reframe_history_anomalies,
     register_diagnostics,
 )
-
-#: A desired-output state older than this means the control loop is not
-#: running. Roughly ten of its cycles: long enough that a slow iteration or
-#: a blocked sensor read never trips it, short enough to matter.
-DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
 
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
@@ -100,13 +105,64 @@ def _with_gaps(points, expected_interval_seconds):
     temperature fell smoothly" rather than "there is no data here". Each marker
     carries a datetime so it still gets an axis label, and no measurements, so
     every series plots a gap at that point.
+
+    `grow_id` breaks the series too. Two grows one after the other are not one
+    continuous curve: without this, a 90-day window spanning the end of one
+    crop and the start of the next drew a single line through the changeover,
+    which is the most misleading shape this chart can take.
     """
-    marked = insert_gaps(points, expected_interval_seconds)
+    marked = insert_gaps(points, expected_interval_seconds, series_key="grow_id")
     for point in marked:
-        if point.get("gap"):
+        if point.get("gap") and point.get("timestamp") is not None:
             point["datetime"] = datetime.fromtimestamp(
                 point["timestamp"], ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
     return marked
+
+
+def _requested_grow():
+    """
+    The `grow_id` query parameter, in the form the database layer wants.
+
+    A string rather than `type=int` so that `grow_id=all` can be asked for at
+    all: an integer has no spelling for "every grow", and leaving the parameter
+    out has to keep meaning "whatever grow is active", which is what the
+    dashboard is about.
+
+    Raises ValueError on anything else, so a typo is a 400 rather than a
+    silent fall back to a different scope than the caller asked for.
+    """
+    raw = (request.args.get("grow_id") or "").strip().lower()
+    if not raw:
+        return None
+    if raw == ALL_GROWS:
+        return ALL_GROWS
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(
+            f"'grow_id' debe ser un número o '{ALL_GROWS}', no {raw!r}") from None
+
+
+def _grow_scope(grow_id):
+    """
+    How a response says which grow it is about.
+
+    Served on every scoped endpoint. The dashboard cannot infer it: the default
+    is resolved server-side, so a chart that does not ask gets the active grow
+    and has no way to label it — and a chart whose meaning changes when
+    somebody activates another grow, without saying so, is worse than one with
+    no label at all.
+    """
+    if grow_id == ALL_GROWS:
+        return {"grow_id": None, "grow_scope": ALL_GROWS}
+    if grow_id is not None:
+        return {"grow_id": int(grow_id), "grow_scope": "grow"}
+    active = get_active_grow()
+    return {
+        "grow_id": int(active["id"]) if active else None,
+        "grow_name": active["name"] if active else None,
+        "grow_scope": "active" if active else "none",
+    }
 
 
 def _indoor_delta(readings):
@@ -133,6 +189,36 @@ def _indoor_delta(readings):
     }
 
 
+
+def static_asset_version() -> str:
+    """
+    A cache-busting token that changes when the files behind it do.
+
+    It used to be `__version__`, which has read "0.1.0" since the first commit
+    and has never been bumped once. Every stylesheet and every module shipped
+    since then went out behind the same query string, so the promise in
+    index.html - that a deploy busts the browser cache - had never been kept:
+    the tablet on the tent wall kept its old app.css against freshly deployed
+    markup, which is worse than no cache-busting, because it looks like the
+    deploy broke the page.
+
+    The newest mtime under static/ answers it exactly, and without anyone
+    having to remember anything: `git pull` stamps every file it rewrites, so
+    the token moves on the deploys that changed an asset and stays put on the
+    ones that did not. The version stays in front of it so the string is still
+    recognisable as this app's.
+    """
+    try:
+        newest = max(
+            (path.stat().st_mtime for path in STATIC_DIR.rglob("*") if path.is_file()),
+            default=0.0,
+        )
+    except OSError:
+        # An unreadable static dir is a problem, but not this function's to
+        # report: serving a stale token is better than failing to build the app.
+        return __version__
+    return f"{__version__}-{int(newest):x}" if newest else __version__
+
 def create_app() -> Flask:
     app = Flask(
         __name__,
@@ -141,11 +227,16 @@ def create_app() -> Flask:
         static_url_path="/static",
     )
 
+    # Computed once, here: the services restart on every deploy, so there is
+    # nothing a per-request stat would catch that this misses, and walking
+    # static/ on every page load would be a directory scan per visit.
+    asset_version = static_asset_version()
+
     @app.context_processor
     def inject_version():
         # Appended to static URLs so a deploy busts the browser cache without
         # having to serve the assets with no-cache.
-        return {"asset_version": __version__}
+        return {"asset_version": asset_version}
     redis_cfg = redis_config_from_env()
     # One client for the life of the process, with a bounded pool and a socket
     # that gives up: see autocann/redis_pool.py for what the defaults cost.
@@ -178,6 +269,7 @@ def create_app() -> Flask:
                     for band in [humidity_range_for_stage(stage)]
                 },
                 "stage_names": {
+                    "seedling": "Plántula",
                     "early_veg": "Vegetativo Temprano",
                     "late_veg": "Vegetativo Tardío",
                     "flowering": "Floración",
@@ -211,14 +303,17 @@ def create_app() -> Flask:
             }
         )
 
-    def _test_mode_since():
+    def _control_mode():
         """
-        When the pause started, or None when the loop is in control.
+        Which of the three states the tent is in, as (mode, since).
 
         The database is the truth and Redis is the mirror, so a Redis that was
         restarted or flushed does not read as "not paused" and quietly hand the
         tent back to the controller. Redis is still answered from first because
         it is the common case and costs nothing.
+
+        A bare timestamp in Redis predates monitoring, and the only safe
+        reading of it is the one it always had: a pause.
         """
         raw = None
         try:
@@ -227,14 +322,32 @@ def create_app() -> Flask:
             raw = None
 
         if raw:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
             try:
-                return int(raw)
+                return MODE_PAUSED, int(raw)
             except (TypeError, ValueError):
                 pass
+            try:
+                mirrored = json.loads(raw)
+            except (TypeError, ValueError):
+                mirrored = None
+            if isinstance(mirrored, dict):
+                mode = mirrored.get("mode")
+                if mode not in UNCONTROLLED_MODES:
+                    mode = MODE_PAUSED
+                try:
+                    return mode, int(mirrored.get("since"))
+                except (TypeError, ValueError):
+                    return mode, int(datetime.now(ARGENTINA_TZ).timestamp())
 
         stored = get_setting(TEST_MODE_SETTING, None)
         if not isinstance(stored, dict) or not stored.get("active"):
-            return None
+            return MODE_ACTIVE, None
+
+        mode = stored.get("mode")
+        if mode not in UNCONTROLLED_MODES:
+            mode = MODE_PAUSED
 
         since = stored.get("since")
         try:
@@ -245,13 +358,13 @@ def create_app() -> Flask:
         # Seen in the database but not in Redis: put the mirror back, so the
         # control loop - which only reads Redis each cycle - sees it too.
         try:
-            redis_client.set(TEST_MODE_KEY, str(since))
+            redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
         except Exception:
             pass
-        return since
+        return mode, since
 
     def _test_mode_payload():
-        since = _test_mode_since()
+        mode, since = _control_mode()
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
             requested = json.loads(raw) if raw else {}
@@ -261,7 +374,12 @@ def create_app() -> Flask:
             requested = {}
 
         return {
+            # Kept, and kept meaning the same thing: "the loop is not in
+            # charge". Every caller that only ever asked that question - the
+            # relay buttons, the chip's disabled state - keeps working without
+            # learning about the third state.
             "active": since is not None,
+            "mode": mode,
             "since": since,
             # How long it has been, not how long is left: there is no deadline
             # to count down to any more, and the number that matters is how long
@@ -278,7 +396,8 @@ def create_app() -> Flask:
     @app.route("/api/output-status", methods=["GET"])
     def get_output_status():
         """
-        Endpoint to get current output/relay status from Redis plus BCM pin mapping.
+        Endpoint to get current output/relay status from Redis plus, per output,
+        the board and pin that actually switch it.
 
         Carries the test-mode state as well. The dashboard draws both from this
         one answer so they cannot disagree: two polls could show manual buttons
@@ -295,6 +414,9 @@ def create_app() -> Flask:
         except Exception:
             held = {}
 
+        # Resolved once, not per output: it reads the environment.
+        sources = pin_sources()
+
         outputs = []
         for o in get_outputs():
             redis_key = o.get("redis_key")
@@ -305,7 +427,7 @@ def create_app() -> Flask:
                 {
                     "name": o.get("name"),
                     "label": o.get("label"),
-                    "pin_bcm": o.get("pin_bcm"),
+                    "pin": sources.get(o.get("name")),
                     "redis_key": redis_key,
                     "state": state,
                     "manual_override": parse_bool_flag(override_raw),
@@ -380,7 +502,7 @@ def create_app() -> Flask:
                 "output": {
                     "name": output.get("name"),
                     "label": output.get("label"),
-                    "pin_bcm": output.get("pin_bcm"),
+                    "pin": pin_sources().get(name),
                     "redis_key": output.get("redis_key"),
                     "requested_state": state,
                     "expires_in_seconds": None if state is None else duration,
@@ -415,7 +537,7 @@ def create_app() -> Flask:
             })
 
         try:
-            raw = redis_client.get("desired_outputs")
+            raw = redis_client.get(DESIRED_OUTPUTS_KEY)
         except Exception as e:
             return failsafe(f"redis unavailable: {e}")
         if not raw:
@@ -666,30 +788,54 @@ def create_app() -> Flask:
     @app.route("/api/test-mode", methods=["POST"])
     def set_test_mode():
         """
-        Pause the control loop, or hand the tent back to it.
+        Put the tent in one of its three states.
 
-        Body (JSON):
-        - enabled: boolean
+        Body (JSON), either:
+        - mode: "active" | "monitor" | "paused"
+        - enabled: boolean  (the older spelling; true means "paused")
 
-        The pause lasts until somebody ends it. It used to expire after eight
-        hours; what that bought - never being left uncontrolled by accident -
-        is now bought by saying so in the header on every view instead, and what
-        it cost was relays closing again at a moment nobody chose.
+        `enabled` is still accepted because it is what every build before
+        monitoring sent, and a dashboard cached in a browser on the tent wall
+        goes on sending it for as long as that tab stays open.
+
+        The three states exist because "no decidas" and "no guardes" turned out
+        not to be the same request. Pausing is for working on the installation:
+        nothing decides, nothing is recorded, and the relays follow what is
+        asked by hand. Monitoring is for a tent that is set up but not planted:
+        nothing decides and nothing switches, and every reading is recorded,
+        because what the room does on its own is the baseline worth having
+        before there is anything alive in there to protect.
+
+        Neither ends on its own. The pause used to expire after eight hours;
+        what that bought - never being left uncontrolled by accident - is now
+        bought by saying so in the header on every view instead, and what it
+        cost was relays closing again at a moment nobody chose.
 
         Written to the database first, then mirrored into Redis. The loop reads
         Redis, so the order matters only when one of the two writes fails: a
-        pause recorded and not mirrored is noticed and repaired on the next
-        read, while a pause mirrored and not recorded would vanish on the next
+        state recorded and not mirrored is noticed and repaired on the next
+        read, while one mirrored and not recorded would vanish on the next
         reboot with nothing to notice it.
         """
         data = request.get_json(silent=True) or {}
-        enabled = data.get("enabled")
-        if not isinstance(enabled, bool):
-            return jsonify({"error": "Missing or invalid 'enabled' (must be boolean)"}), 400
 
-        if not enabled:
-            if not set_setting(TEST_MODE_SETTING, {"active": False}):
-                return jsonify({"error": "No se pudo registrar el fin de la pausa"}), 500
+        mode = data.get("mode")
+        if mode is None:
+            enabled = data.get("enabled")
+            if not isinstance(enabled, bool):
+                return jsonify({
+                    "error": "Missing or invalid 'mode' "
+                             f"(one of: {', '.join(CONTROL_MODES)})"
+                }), 400
+            mode = MODE_PAUSED if enabled else MODE_ACTIVE
+        if mode not in CONTROL_MODES:
+            return jsonify({
+                "error": f"Unknown mode '{mode}'. Valid modes: {', '.join(CONTROL_MODES)}"
+            }), 400
+
+        if mode == MODE_ACTIVE:
+            if not set_setting(TEST_MODE_SETTING, {"active": False, "mode": MODE_ACTIVE}):
+                return jsonify({"error": "No se pudo devolver el control al lazo"}), 500
             try:
                 redis_client.delete(TEST_MODE_KEY)
                 # Cleared together: a later pause must not begin by energising
@@ -699,17 +845,29 @@ def create_app() -> Flask:
                 return jsonify({"error": f"Failed to leave test mode: {e}"}), 500
             return jsonify({"success": True, **_test_mode_payload()})
 
-        since = int(datetime.now(ARGENTINA_TZ).timestamp())
-        if not set_setting(TEST_MODE_SETTING, {"active": True, "since": since}):
-            return jsonify({"error": "No se pudo registrar la pausa"}), 500
+        # Switching between the two stopped states keeps the original instant:
+        # the tent has been uncontrolled since then either way, and restarting
+        # the count would make a stop somebody forgot about look fresh.
+        _, current_since = _control_mode()
+        since = current_since if current_since is not None \
+            else int(datetime.now(ARGENTINA_TZ).timestamp())
+
+        if not set_setting(TEST_MODE_SETTING,
+                           {"active": True, "since": since, "mode": mode}):
+            return jsonify({"error": "No se pudo registrar el estado"}), 500
         try:
-            redis_client.set(TEST_MODE_KEY, str(since))
-            # Everything starts off. Pausing is not a reason for a relay to
-            # close.
-            redis_client.set(
-                TEST_MODE_OUTPUTS_KEY,
-                json.dumps({name: False for name in output_names()}),
-            )
+            redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
+            if mode == MODE_PAUSED:
+                # Everything starts off. Pausing is not a reason for a relay to
+                # close.
+                redis_client.set(
+                    TEST_MODE_OUTPUTS_KEY,
+                    json.dumps({name: False for name in output_names()}),
+                )
+            else:
+                # Monitoring switches nothing, so a request left over from an
+                # earlier pause must not survive into it.
+                redis_client.delete(TEST_MODE_OUTPUTS_KEY)
         except Exception as e:
             return jsonify({"error": f"Failed to enter test mode: {e}"}), 500
 
@@ -740,8 +898,14 @@ def create_app() -> Flask:
             valid = ", ".join(output_names())
             return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
 
-        if _test_mode_since() is None:
-            return jsonify({"error": "El sistema no está en pausa"}), 409
+        # Only the pause. Monitoring switching a relay by hand would be the one
+        # thing that makes its history worthless: the whole value of those rows
+        # is that they record a room with nothing running in it.
+        if _control_mode()[0] != MODE_PAUSED:
+            return jsonify({
+                "error": "Los relés sólo se mueven a mano con el sistema en pausa. "
+                         "En monitoreo nada se enciende, a propósito."
+            }), 409
 
         try:
             raw = redis_client.get(TEST_MODE_OUTPUTS_KEY)
@@ -854,6 +1018,13 @@ def create_app() -> Flask:
     def get_sensor_history():
         """
         Endpoint to get sensor history from SQLite database.
+
+        Scoped to a grow. `grow_id=<n>` picks one, `grow_id=all` asks for every
+        grow at once, and leaving it out means the active grow — which is what
+        the rest of the dashboard is about, so it is what a chart with no
+        selector should show. Filtering by time alone used to put ten months of
+        an empty tent and a real crop on the same curve as soon as the window
+        reached back past the changeover.
         """
         try:
             period = request.args.get("period")
@@ -861,6 +1032,11 @@ def create_app() -> Flask:
             end = request.args.get("end", type=int)
             limit = request.args.get("limit", type=int)
             aggregate = request.args.get("aggregate", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            scope = _grow_scope(grow_id)
 
             if period:
                 current_time = datetime.now(ARGENTINA_TZ)
@@ -885,8 +1061,9 @@ def create_app() -> Flask:
             if start is None and end is None:
                 if limit is None:
                     limit = 100
-                data = get_latest_sensor_data(limit=limit)
-                return jsonify({"data": data, "count": len(data), "aggregated": False})
+                data = get_latest_sensor_data(limit=limit, grow_id=grow_id)
+                return jsonify({"data": data, "count": len(data),
+                                "aggregated": False, **scope})
 
             # Fill in whichever bound is missing: a None would reach the SQL
             # comparison and silently match nothing.
@@ -902,7 +1079,8 @@ def create_app() -> Flask:
             if aggregate:
                 if aggregate < 1:
                     return jsonify({"error": "'aggregate' must be a positive number of seconds"}), 400
-                data = _with_gaps(get_aggregated_data(start, end, aggregate), aggregate)
+                data = _with_gaps(
+                    get_aggregated_data(start, end, aggregate, grow_id), aggregate)
                 return jsonify(
                     {
                         "data": data,
@@ -911,16 +1089,22 @@ def create_app() -> Flask:
                         "end": end,
                         "aggregated": True,
                         "interval_seconds": aggregate,
+                        **scope,
                     }
                 )
 
             # get_sensor_data_range returns newest first; the gap check needs
-            # chronological order, and so do the charts.
+            # chronological order, and so do the charts. Sorted by grow as well,
+            # so two grows arrive as two runs rather than interleaved — which is
+            # what lets the gap marker land between them instead of on every
+            # other point.
             data = _with_gaps(
-                sorted(get_sensor_data_range(start, end, limit), key=lambda r: r["timestamp"]),
+                sorted(get_sensor_data_range(start, end, limit, grow_id),
+                       key=lambda r: (r["grow_id"], r["timestamp"])),
                 SAMPLE_INTERVAL_SECONDS,
             )
-            return jsonify({"data": data, "count": len(data), "start": start, "end": end, "aggregated": False})
+            return jsonify({"data": data, "count": len(data), "start": start,
+                            "end": end, "aggregated": False, **scope})
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -982,12 +1166,17 @@ def create_app() -> Flask:
     def period_summary():
         """
         Get summary statistics (avg, min, max) for a time period.
-        Query params: hours (float) or days (int), grow_id (optional)
+
+        Query params: hours (float) or days (int), grow_id (optional: an id,
+        `all`, or absent for the active grow).
         """
         try:
             hours = request.args.get("hours", type=float)
             days = request.args.get("days", type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             current_time = datetime.now(ARGENTINA_TZ)
             end_timestamp = int(current_time.timestamp())
@@ -1001,7 +1190,7 @@ def create_app() -> Flask:
                 start_timestamp = end_timestamp - (24 * 3600)
 
             summary = get_period_summary(start_timestamp, end_timestamp, grow_id)
-            return jsonify(summary)
+            return jsonify({**summary, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1010,7 +1199,10 @@ def create_app() -> Flask:
         try:
             days = request.args.get("days", default=7, type=int)
             interval = request.args.get("interval", default="hourly", type=str)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             interval_map = {"hourly": 3600, "6hourly": 6 * 3600, "daily": 24 * 3600}
             if interval not in interval_map:
@@ -1032,9 +1224,9 @@ def create_app() -> Flask:
                     "count": len(data),
                     "days": days,
                     "interval": interval,
-                    "grow_id": grow_id,
                     "start_datetime": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
                     "end_datetime": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                    **_grow_scope(grow_id),
                 }
             )
         except Exception as e:
@@ -1073,9 +1265,8 @@ def create_app() -> Flask:
             stage = data.get("stage", "early_veg")
             notes = data.get("notes", "")
 
-            valid_stages = ["early_veg", "late_veg", "flowering", "dry"]
-            if stage not in valid_stages:
-                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(valid_stages)}'}), 400
+            if stage not in STAGES:
+                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
 
             grow_id = create_grow(name, stage, notes)
             if grow_id:
@@ -1126,9 +1317,8 @@ def create_app() -> Flask:
                 return jsonify({"error": "Stage is required"}), 400
 
             stage = data["stage"]
-            valid_stages = ["early_veg", "late_veg", "flowering", "dry"]
-            if stage not in valid_stages:
-                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(valid_stages)}'}), 400
+            if stage not in STAGES:
+                return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
 
             success = update_grow_stage(grow_id, stage, notes=data.get("notes"))
             if success:
@@ -1146,14 +1336,23 @@ def create_app() -> Flask:
     def vpd_score_endpoint():
         """
         Get VPD score (% of time in optimal range).
-        Query params: days (int, default 7), grow_id (optional)
+
+        Query params: days (int, default 7), grow_id (optional). `all` is
+        refused here on purpose: the score measures time inside *a stage's*
+        band, and one number over several grows scores readings against bands
+        they were never held to.
         """
         try:
             days = request.args.get("days", default=7, type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             score = get_vpd_score(days=days, grow_id=grow_id)
-            return jsonify(score)
+            if score.get("error"):
+                return jsonify(score)
+            return jsonify({**score, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1161,13 +1360,21 @@ def create_app() -> Flask:
     def weekly_report_endpoint():
         """
         Get comprehensive weekly report.
-        Query params: grow_id (optional)
+
+        Query params: grow_id (optional). Scoped to one grow, including the
+        previous-week comparison: a trend measured against a week the tent
+        stood empty is not a trend.
         """
         try:
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             report = get_weekly_report(grow_id=grow_id)
-            return jsonify(report)
+            if report.get("error"):
+                return jsonify(report)
+            return jsonify({**report, **_grow_scope(grow_id)})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1179,7 +1386,10 @@ def create_app() -> Flask:
         """
         try:
             hours = request.args.get("hours", default=24, type=int)
-            grow_id = request.args.get("grow_id", type=int)
+            try:
+                grow_id = _requested_grow()
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
             anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
             # El detector mira la base, que es el lugar correcto para buscar un
@@ -1261,9 +1471,10 @@ def create_app() -> Flask:
                     "weeks_in_stage": weeks_in_stage(stage) if stage else 0,
                     "litres": litres,
                     "items": due,
-                    # Nothing due inside a stage that has products elsewhere is a
-                    # flush, not a gap in the chart.
-                    "flush": week > 0 and not due,
+                    # A week with nothing due is an instruction, and which one
+                    # depends on the stage: a seedling drinks plain water, the
+                    # last week of flowering is the flush.
+                    "water_only": water_only_reason(stage, week, due),
                 }
             )
         except Exception as e:
@@ -1343,6 +1554,12 @@ def create_app() -> Flask:
     # porque es lo único acá que no contesta sobre la carpa sino sobre el
     # equipamiento que la mide.
     register_diagnostics(app, redis_client)
+
+    # El PIN va último, después de que existan todas las rutas: el gate es un
+    # before_request sobre la app entera, así que no puede quedar ninguna ruta
+    # registrada después que se le escape. Sin AUTOCANN_PIN no instala nada y
+    # todo se comporta exactamente como antes.
+    register_auth(app)
 
     return app
 

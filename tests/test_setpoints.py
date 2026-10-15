@@ -63,6 +63,20 @@ def test_target_always_sits_inside_its_own_band(stage, temperature):
     assert 0.0 <= setpoint.target_humidity <= 100.0
 
 
+@pytest.mark.parametrize("temperature", TEMPERATURES)
+def test_a_seedling_is_asked_to_be_wetter_than_early_veg(temperature):
+    """
+    The point of the stage: the same tent, told to hold more water in the air.
+    If the target came out at or below early_veg's, adding the stage would have
+    fixed the day counter and left the loop chasing the old setpoint.
+    """
+    seedling = resolve_setpoint("seedling", temperature, 60.0)
+    early = resolve_setpoint("early_veg", temperature, 60.0)
+    assert seedling.target_humidity > early.target_humidity
+    # And still something a humidifier can reach, not 100%.
+    assert seedling.target_humidity <= 90.0
+
+
 def test_unknown_stage_is_rejected_rather_than_silently_accepted():
     with pytest.raises(ValueError, match="Unknown stage"):
         resolve_setpoint("bogus", 24.0, 60.0)

@@ -16,18 +16,24 @@ from __future__ import annotations
 import argparse
 import json
 import signal
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime
 from time import monotonic, sleep
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from autocann.config import (
+    DESIRED_OUTPUTS_KEY,
     INDOOR_SENSOR_MAX_AGE_SECONDS,
+    MODE_ACTIVE,
+    MODE_MONITOR,
+    MODE_PAUSED,
     RELAY_MODE_GPIO,
     RELAY_MODE_REMOTE,
     TEST_MODE_KEY,
     TEST_MODE_OUTPUTS_KEY,
     TEST_MODE_SETTING,
+    UNCONTROLLED_MODES,
     ControlTuning,
     IndoorSensors,
     control_tuning_from_env,
@@ -62,7 +68,12 @@ from autocann.db import (
     store_control_event,
     store_sensor_sample,
 )
-from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
+from autocann.hardware.outputs import (
+    get_outputs,
+    manual_override_key,
+    parse_bool_flag,
+    pin_sources,
+)
 from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
 
@@ -94,12 +105,6 @@ SENSOR_REINIT_INTERVAL_SECONDS = 30.0
 #: detector would never fire.
 DRIFT_BASELINE_KEY = "indoor_drift_baseline"
 
-#: Redis key holding the full desired output state. A remote relay node
-#: polls it; the poll is both the command and the keepalive, so this is
-#: rewritten every cycle even when nothing changed. Silence is the signal
-#: that tells the node the loop is gone.
-DESIRED_OUTPUTS_KEY = "desired_outputs"
-
 #: Recurring warnings print at most this often, so a day-long fault does not
 #: write 28,800 identical lines to the log.
 WARN_INTERVAL_SECONDS = 60.0
@@ -113,6 +118,24 @@ DHT_RETRY_DELAY_SECONDS = 2.0
 #: DHT22 GPIO pins (BCM), used only in local-sensor mode.
 DHT22_INDOOR_PIN = 4
 DHT22_OUTDOOR_PIN = 13
+
+#: How often the outdoor sensor is read, on its own thread.
+#:
+#: The outdoor reading feeds a chart and nothing else — no decision in this
+#: program depends on it — so it is read at the cadence a chart needs rather
+#: than at the cadence of the control loop. It used to be read inline, which
+#: meant a dead DHT22 outside stalled the critical loop for about two seconds
+#: of retries and sleeps on every single cycle, for a number nobody decides
+#: anything with.
+OUTDOOR_READ_INTERVAL_SECONDS = 60.0
+
+#: A cached outdoor reading older than this is not served at all.
+#:
+#: The cache exists so the loop never blocks, not so the dashboard can be told
+#: something old as if it were current. Five of the reader's own cycles: long
+#: enough that a few failed reads in a row do not blink the number out, short
+#: enough that a sensor that died stops having an opinion about the weather.
+OUTDOOR_MAX_AGE_SECONDS = 5 * OUTDOOR_READ_INTERVAL_SECONDS
 
 _redis_cfg = redis_config_from_env()
 #: Bounded pool, and a socket with a timeout so that the `try/except` around
@@ -175,8 +198,13 @@ class Relays:
 
     def setup(self) -> None:
         if self.mode == RELAY_MODE_REMOTE:
-            for spec in self._specs.values():
-                print(f"📡 {spec['label']} → nodo remoto")
+            # The node's own GPIO, which is the number the dashboard shows too:
+            # this board's header is not in the circuit at all.
+            sources = pin_sources(self.mode)
+            for name, spec in self._specs.items():
+                source = sources.get(name) or {}
+                print(f"📡 {spec['label']} → {source.get('node') or 'nodo remoto'} "
+                      f"GPIO {source.get('number')}")
             self.all_off(log_event=False)
             self.publish_outputs()
             return
@@ -342,6 +370,93 @@ class Relays:
                 pass
 
 
+def flush_history(accumulator: SampleAccumulator, last_db_save: float,
+                  now: float) -> float:
+    """
+    Write the interval's row if the interval is up. Returns the new deadline.
+
+    Extracted when monitoring arrived, because both regimes store history and
+    two copies of this is how one of them quietly starts summarising its
+    interval differently from the other.
+    """
+    if now - last_db_save < DB_SAVE_INTERVAL_SECONDS:
+        return last_db_save
+
+    summary = accumulator.build()
+    if summary is None:
+        # Nothing usable in the whole interval. Leaving a hole is the honest
+        # record; the charts draw it as a break.
+        accumulator.reset()
+        return now
+    if not store_sensor_sample(summary):
+        # Could not store - most often because there is no active grow to hang
+        # the row on. Keep accumulating rather than dropping the interval.
+        return last_db_save
+
+    print(f"💾 Muestra guardada: {summary['sample_n']} lecturas, "
+          f"T {summary.get('temperature_min')}–{summary.get('temperature_max')}°C, "
+          f"HR {summary.get('humidity_min')}–{summary.get('humidity_max')}%")
+    accumulator.reset()
+    return now
+
+
+def run_monitor_cycle(relays: "Relays", sensors: "Sensors",
+                      accumulator: SampleAccumulator, now: float) -> None:
+    """
+    One cycle with the controller switched off and the history still running.
+
+    The other half of `run_test_mode_cycle`, and the difference is the whole
+    point of the mode: the readings go into the accumulator, so the row that
+    gets written every few minutes is written in monitoring exactly as it is in
+    control. What the room does on its own is the baseline somebody setting a
+    tent up actually wants, and a pause threw it away.
+
+    Nothing switches. The relays are driven to off every cycle rather than left
+    alone, because the desired state has to keep being published either way:
+    the remote node de-energises 60 s after the last successful poll, and a
+    loop that went quiet here would have the node reaching its own failsafe
+    instead of being told. Told is better - it is the same outcome arrived at
+    on purpose, and it is what the dashboard then shows.
+
+    What is *not* recorded is any of the control context: no stage, no target
+    humidity, no action. There is no controller, so there is no target, and a
+    row carrying one would describe a decision nobody made. That is also what
+    makes a monitoring stretch recognisable in the history afterwards without
+    inventing a flag for it: real readings, no decision.
+    """
+    relays.all_off()
+
+    reading = sensors.read()
+    payload = dict(reading or {})
+    payload.update(
+        {
+            "mode": MODE_MONITOR,
+            "timestamp": int(_now_local().timestamp()),
+            "datetime": _now_local().strftime("%Y-%m-%d %H:%M:%S"),
+            "stage": None,
+            "target_humidity": None,
+            "vpd_in_range": None,
+            "control_action": None,
+            "control_reason": "monitoreo: el lazo no decide, pero se guarda",
+            "manual_overrides": {},
+        }
+    )
+    _set_redis("sensors", json.dumps(payload))
+
+    if reading is None:
+        # Counts towards the interval's quality even though it carries no
+        # numbers, exactly as the controlled path does: a stretch where half
+        # the reads failed must not be stored as if it were clean.
+        accumulator.push(None, quality=QUALITY_FAILSAFE)
+        sensors.publish_status(indoor_ok=False, indoor_error="Sin lectura válida (monitoreo)")
+        return
+
+    quality = QUALITY_OK if sensors.reading_age_seconds <= LOOP_INTERVAL_SECONDS * 3 \
+        else QUALITY_DEGRADED
+    accumulator.push(payload, quality=quality)
+    sensors.publish_status(indoor_ok=True)
+
+
 def run_test_mode_cycle(relays: "Relays", sensors: "Sensors", tuning: ControlTuning,
                         since: int, now: float) -> None:
     """
@@ -395,36 +510,108 @@ def read_test_mode_since() -> Optional[int]:
     be driven by hand without it either, so carrying on controlling the tent is
     the useful answer rather than standing down with nobody able to intervene.
     """
+    mode, since = read_control_mode()
+    return since if mode in UNCONTROLLED_MODES else None
+
+
+def parse_mode_mirror(raw) -> Tuple[str, Optional[int]]:
+    """
+    The Redis mirror, as (mode, since).
+
+    Two formats, on purpose. It now holds `{"mode": ..., "since": ...}`, but a
+    Redis that survived the deploy which added monitoring still holds a bare
+    timestamp from before - and the one reading of that which is safe is the
+    one it always had: a pause. Guessing "monitor" would hand the relays to a
+    controller somebody had deliberately stopped.
+    """
+    if not raw:
+        return MODE_ACTIVE, None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+
+    text = str(raw).strip()
+    try:
+        return MODE_PAUSED, int(text)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        stored = json.loads(text)
+    except (TypeError, ValueError):
+        return MODE_ACTIVE, None
+    if not isinstance(stored, dict):
+        return MODE_ACTIVE, None
+
+    mode = stored.get("mode")
+    if mode not in UNCONTROLLED_MODES:
+        # A mode this build does not know is not a reason to start driving a
+        # tent somebody stopped. Stand down and keep the history.
+        mode = MODE_MONITOR if mode else MODE_PAUSED
+    try:
+        since = int(stored.get("since"))
+    except (TypeError, ValueError):
+        since = None
+    return mode, since
+
+
+def read_control_mode() -> Tuple[str, Optional[int]]:
+    """
+    Which of the three states the tent is in, and since when.
+
+    Read from Redis every cycle because it is cheap. Redis is a mirror, not the
+    truth - `restore_pause_mirror` puts it back from the database - so the one
+    thing this cannot do is treat a missing key as "resume". It still treats an
+    *unreachable* Redis as resume, which is a different case: the loop cannot
+    be driven by hand without it either, so carrying on controlling the tent is
+    the useful answer rather than standing down with nobody able to intervene.
+    """
     try:
         raw = redis_client.get(TEST_MODE_KEY)
     except Exception:
-        return None
-    if not raw:
-        return None
+        return MODE_ACTIVE, None
+    return parse_mode_mirror(raw)
+
+
+def stored_control_mode() -> Tuple[str, Optional[int]]:
+    """
+    What the database says, which is the truth.
+
+    A record written before monitoring existed carries no `mode`, and every one
+    of those meant a pause.
+    """
+    stored = get_setting(TEST_MODE_SETTING, None)
+    if not isinstance(stored, dict) or not stored.get("active"):
+        return MODE_ACTIVE, None
+
+    mode = stored.get("mode")
+    if mode not in UNCONTROLLED_MODES:
+        mode = MODE_PAUSED
     try:
-        return int(raw)
+        since = int(stored.get("since"))
     except (TypeError, ValueError):
-        return None
+        since = None
+    return mode, since
 
 
 def restore_pause_mirror() -> None:
     """
-    Put the Redis mirror back when the database says the tent is paused.
+    Put the Redis mirror back when the database says the tent is not controlled.
 
     Redis is memory. Restarting it, or the Raspberry, used to mean a pause
     silently ended and the relays started moving again at a moment nobody
     chose. Checked on the settings interval rather than every cycle: it only
     has to beat somebody walking back to the tent.
     """
-    stored = get_setting(TEST_MODE_SETTING, None)
-    if not isinstance(stored, dict) or not stored.get("active"):
+    mode, since = stored_control_mode()
+    if mode not in UNCONTROLLED_MODES:
         return
     try:
         if redis_client.get(TEST_MODE_KEY):
             return
-        since = int(stored.get("since") or int(_now_local().timestamp()))
-        redis_client.set(TEST_MODE_KEY, str(since))
-        print("⏸️ Pausa restaurada desde la base: Redis no la tenía")
+        since = int(since or int(_now_local().timestamp()))
+        redis_client.set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
+        label = "Monitoreo" if mode == MODE_MONITOR else "Pausa"
+        print(f"⏸️ {label} restaurado desde la base: Redis no lo tenía")
     except Exception:
         pass
 
@@ -466,6 +653,21 @@ def read_manual_overrides() -> Dict[str, bool]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class OutdoorReading:
+    """
+    One outdoor sample and the monotonic instant it was taken at.
+
+    The timestamp travels with the values on purpose: a cached reading that
+    cannot say how old it is would be served forever, and a chart drawing
+    yesterday's weather as today's is the failure this whole cache has to avoid.
+    """
+
+    temperature: float
+    humidity: float
+    at: float
+
+
 class Sensors:
     """Indoor (ESP32 via Redis, or local DHT22) and outdoor (local DHT22) readings."""
 
@@ -496,6 +698,14 @@ class Sensors:
         #: never trip.
         self.last_reading_at: Optional[float] = None
         self._last_warned: Dict[str, float] = {}
+        #: Last outdoor sample, written by the reader thread and read by the
+        #: control loop, so it is guarded. Starts empty: no reading is the
+        #: honest state until one arrives.
+        self._outdoor: Optional[OutdoorReading] = None
+        self._outdoor_error: Optional[str] = "Sin lectura exterior todavía"
+        self._outdoor_lock = threading.Lock()
+        self._outdoor_stop = threading.Event()
+        self._outdoor_thread: Optional[threading.Thread] = None
 
     def _warn_throttled(self, key: str, message: str) -> None:
         """Print a recurring warning at most once per WARN_INTERVAL_SECONDS."""
@@ -531,31 +741,50 @@ class Sensors:
                 print(f"🎚️  Calibración {name}: {cal.temperature_offset:+.1f}°C, "
                       f"{cal.humidity_offset:+.1f}%")
 
-    def init_dht22(self) -> None:
-        """(Re)initialise the local DHT22 sensors that are actually needed."""
+    def _init_dht22(self, attr: str, gpio_num: int, label: str) -> None:
+        """(Re)create one local DHT22 object."""
         try:
             import adafruit_dht
         except Exception as e:
-            print(f"⚠️ adafruit_dht unavailable, skipping local DHT22 sensors: {e}")
+            self._warn_throttled(
+                f"dht_import_{label}",
+                f"⚠️ adafruit_dht unavailable, skipping local DHT22 {label}: {e}")
             return
 
-        wanted = [("_dht_out", DHT22_OUTDOOR_PIN, "outdoor")]
-        if not self.use_esp32_indoor:
-            wanted.append(("_dht_in", DHT22_INDOOR_PIN, "indoor"))
-
-        for attr, gpio_num, label in wanted:
-            existing = getattr(self, attr)
-            if existing is not None:
-                try:
-                    existing.exit()
-                except Exception:
-                    pass
+        existing = getattr(self, attr)
+        if existing is not None:
             try:
-                setattr(self, attr, adafruit_dht.DHT22(self._board_pin(gpio_num), use_pulseio=False))
-                print(f"✅ DHT22 {label} initialised on GPIO {gpio_num}")
-            except Exception as e:
-                setattr(self, attr, None)
-                print(f"❌ DHT22 {label} init failed on GPIO {gpio_num}: {e}")
+                existing.exit()
+            except Exception:
+                pass
+        try:
+            setattr(self, attr, adafruit_dht.DHT22(self._board_pin(gpio_num), use_pulseio=False))
+            print(f"✅ DHT22 {label} initialised on GPIO {gpio_num}")
+        except Exception as e:
+            setattr(self, attr, None)
+            print(f"❌ DHT22 {label} init failed on GPIO {gpio_num}: {e}")
+
+    def init_indoor_dht22(self) -> None:
+        """
+        (Re)initialise the local indoor DHT22, when there is one.
+
+        Split from the outdoor sensor deliberately. The control loop calls this
+        from its failsafe branch, while the outdoor object belongs to the reader
+        thread; re-creating both from here would have two threads closing and
+        replacing the same device under each other.
+        """
+        if self.use_esp32_indoor:
+            return
+        self._init_dht22("_dht_in", DHT22_INDOOR_PIN, "indoor")
+
+    def init_outdoor_dht22(self) -> None:
+        """
+        (Re)initialise the outdoor DHT22.
+
+        Only the reader thread calls this, which is what makes `_dht_out` safe
+        to touch without a lock.
+        """
+        self._init_dht22("_dht_out", DHT22_OUTDOOR_PIN, "outdoor")
 
     def _read_dht22(self, sensor, name: str) -> Tuple[Optional[float], Optional[float]]:
         if sensor is None:
@@ -575,6 +804,92 @@ class Sensors:
                 sleep(DHT_RETRY_DELAY_SECONDS)
 
         return None, None
+
+    # -- outdoor, off the critical path ------------------------------------
+
+    def refresh_outdoor(self) -> Optional[OutdoorReading]:
+        """
+        Take one outdoor reading, blocking, and cache it.
+
+        Called from the reader thread. Exposed because it is also the whole of
+        the behaviour worth testing: a test calls it once and then reads the
+        cache, with no thread involved.
+
+        A failed read does **not** clear the cache. The last reading stays
+        valid for as long as it is fresh enough — a DHT22 that misses two
+        checksums in a row has not changed the weather — and ages out on its
+        own after that, which is what keeps a stale value from being served as
+        a current one.
+        """
+        temperature, humidity = self._read_dht22(self._dht_out, "outdoor")
+        with self._outdoor_lock:
+            if temperature is None or humidity is None:
+                self._outdoor_error = (
+                    "DHT22 exterior sin inicializar" if self._dht_out is None
+                    else "El DHT22 exterior no contestó")
+                return self._outdoor
+            self._outdoor = OutdoorReading(
+                float(temperature), float(humidity), monotonic())
+            self._outdoor_error = None
+            return self._outdoor
+
+    def outdoor_reading(self) -> Tuple[Optional[float], Optional[float]]:
+        """
+        The cached outdoor reading, or `(None, None)` when there is no fresh one.
+
+        Never blocks and never raises: this is what the control loop calls.
+        """
+        with self._outdoor_lock:
+            cached = self._outdoor
+        if cached is None or monotonic() - cached.at > OUTDOOR_MAX_AGE_SECONDS:
+            return None, None
+        return cached.temperature, cached.humidity
+
+    def outdoor_status(self) -> Dict[str, Any]:
+        """`{ok, error}` for the outdoor sensor, judged on its actual reading."""
+        temperature, _ = self.outdoor_reading()
+        if temperature is not None:
+            return {"ok": True, "error": None}
+        with self._outdoor_lock:
+            cached, error = self._outdoor, self._outdoor_error
+        if cached is not None and error is None:
+            # It read fine at some point and then went quiet long enough for the
+            # cache to expire, which no single failed read reports.
+            error = "La última lectura exterior quedó vieja"
+        return {"ok": False, "error": error or "Sin lectura exterior"}
+
+    def _outdoor_loop(self) -> None:
+        """Read the outdoor sensor forever, slowly, on its own thread."""
+        while not self._outdoor_stop.is_set():
+            try:
+                if self._dht_out is None:
+                    self.init_outdoor_dht22()
+                self.refresh_outdoor()
+            except Exception as e:
+                # This thread dying would freeze the outdoor reading at
+                # whatever it last was until the cache expired, and then show
+                # nothing, with no explanation anywhere.
+                self._warn_throttled("outdoor_thread", f"⚠️ Lector exterior: {e}")
+            self._outdoor_stop.wait(OUTDOOR_READ_INTERVAL_SECONDS)
+
+    def start_outdoor_reader(self) -> None:
+        """Start the background reader, unless it is already running."""
+        if self._outdoor_thread is not None and self._outdoor_thread.is_alive():
+            return
+        self._outdoor_stop.clear()
+        # A daemon thread: the loop's shutdown path must not wait out a DHT22
+        # read to de-energise the relays.
+        self._outdoor_thread = threading.Thread(
+            target=self._outdoor_loop, name="outdoor-dht22", daemon=True)
+        self._outdoor_thread.start()
+        print(f"🌤️  Sensor exterior: leído aparte cada "
+              f"{OUTDOOR_READ_INTERVAL_SECONDS:.0f}s, nunca en el lazo")
+
+    def stop_outdoor_reader(self) -> None:
+        self._outdoor_stop.set()
+        thread = self._outdoor_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
     # -- ESP32 over Redis --------------------------------------------------
 
@@ -685,7 +1000,7 @@ class Sensors:
 
         if temperature is None or humidity is None:
             if self._dht_in is None and not self.use_esp32_indoor:
-                self.init_dht22()
+                self.init_indoor_dht22()
             temperature, humidity = self._read_dht22(self._dht_in, "indoor")
             if temperature is not None:
                 self.indoor_source = "dht22_local"
@@ -714,7 +1029,11 @@ class Sensors:
             "indoor_source": self.indoor_source,
         }
 
-        outside_temp, outside_humidity = self._read_dht22(self._dht_out, "outdoor")
+        # Read from the cache the background thread fills, never from the
+        # sensor: the DHT22 outside retries with sleeps between attempts, and
+        # paying ~2 s of that per cycle left the relays unsupervised for a
+        # number that feeds a chart and no decision at all.
+        outside_temp, outside_humidity = self.outdoor_reading()
         if outside_temp is not None and outside_humidity is not None:
             data["outside_temperature_raw"] = round(outside_temp, 2)
             data["outside_humidity_raw"] = round(outside_humidity, 2)
@@ -741,10 +1060,10 @@ class Sensors:
     def publish_status(self, indoor_ok: bool, indoor_error: Optional[str] = None) -> None:
         status = {
             "indoor": {"ok": indoor_ok, "error": indoor_error, "source": self.indoor_source},
-            "outdoor": {
-                "ok": self._dht_out is not None,
-                "error": None if self._dht_out is not None else "DHT22 outdoor not initialised",
-            },
+            # Judged on whether there is a fresh reading, not on whether the
+            # sensor object exists. An initialised DHT22 that answers nothing
+            # used to report "ok" while the charts drew an empty outdoor curve.
+            "outdoor": self.outdoor_status(),
         }
         if self.drift_report is not None:
             # A drifting sensor still reads "ok": it answers, in range, on time.
@@ -767,6 +1086,9 @@ class Sensors:
         _set_redis("sensor_status", json.dumps(status))
 
     def close(self) -> None:
+        # The reader thread owns `_dht_out`, so it is stopped before the device
+        # is released rather than after.
+        self.stop_outdoor_reader()
         for sensor in (self._dht_in, self._dht_out):
             try:
                 if sensor is not None:
@@ -874,7 +1196,10 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     relays.setup()
     sensors.load_calibration()
     sensors.load_drift_baseline()
-    sensors.init_dht22()
+    sensors.init_indoor_dht22()
+    # The outdoor sensor initialises itself inside its own thread, so a DHT22
+    # that takes seconds to come up does not delay the first control decision.
+    sensors.start_outdoor_reader()
 
     print("📡 Indoor sensor: ESP32 via the web API" if use_esp32_indoor
           else "🔌 Indoor sensor: local DHT22")
@@ -897,7 +1222,11 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     last_db_save = monotonic()
     last_sensor_reinit = 0.0
     unknown_stage_warned: Optional[str] = None
-    in_test_mode = False
+    #: Which uncontrolled mode the loop is in, or None while it is in charge.
+    #: A boolean until monitoring existed, when there was only one way to be
+    #: stood down; it has to name *which* now, so that switching straight from
+    #: one to the other is noticed instead of looking like no change at all.
+    uncontrolled_mode = None
     last_settings_check = -SETTINGS_CHECK_INTERVAL_SECONDS
     # Its own clock, not the settings one: the paused branch `continue`s before
     # that gets updated, so sharing it would re-read the database every cycle
@@ -926,22 +1255,40 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     last_pause_check = loop_started
                     restore_pause_mirror()
 
-                test_mode_since = read_test_mode_since()
-                if test_mode_since is not None:
-                    if not in_test_mode:
-                        in_test_mode = True
+                control_mode, mode_since = read_control_mode()
+                if control_mode in UNCONTROLLED_MODES:
+                    if uncontrolled_mode != control_mode:
+                        uncontrolled_mode = control_mode
                         relays.log_events = False
-                        started = datetime.fromtimestamp(test_mode_since, ARGENTINA_TZ)
-                        print(f"⏸️ En pausa desde {started.strftime('%H:%M:%S')} — "
-                              "el lazo no decide, los relés siguen lo que se pida "
-                              "a mano y no se guarda nada. Sigue así hasta que "
-                              "alguien la saque.")
-                    run_test_mode_cycle(relays, sensors, config, test_mode_since, loop_started)
+                        started = datetime.fromtimestamp(
+                            mode_since or int(loop_started), ARGENTINA_TZ)
+                        if control_mode == MODE_MONITOR:
+                            print(f"◍ Monitoreo desde {started.strftime('%H:%M:%S')} — "
+                                  "el lazo no decide y nada se enciende, pero el "
+                                  "histórico se sigue guardando. Sigue así hasta "
+                                  "que alguien lo saque.")
+                        else:
+                            print(f"⏸️ En pausa desde {started.strftime('%H:%M:%S')} — "
+                                  "el lazo no decide, los relés siguen lo que se pida "
+                                  "a mano y no se guarda nada. Sigue así hasta que "
+                                  "alguien la saque.")
+                        # Whatever was half-accumulated was accumulated under a
+                        # different regime. Mixing it into the first row of this
+                        # one would average a controlled tent with an idle one.
+                        accumulator.reset()
+                        last_db_save = loop_started
+
+                    if control_mode == MODE_MONITOR:
+                        run_monitor_cycle(relays, sensors, accumulator, loop_started)
+                        last_db_save = flush_history(accumulator, last_db_save, loop_started)
+                    else:
+                        run_test_mode_cycle(relays, sensors, config,
+                                            mode_since or int(loop_started), loop_started)
                     sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
-                if in_test_mode:
-                    in_test_mode = False
+                if uncontrolled_mode is not None:
+                    ended, uncontrolled_mode = uncontrolled_mode, None
                     relays.log_events = True
                     # The controller's state machine describes a tent it has not
                     # been driving: its timers date from before the test. Starting
@@ -952,7 +1299,8 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
                     accumulator.reset()
                     last_db_save = loop_started
-                    print("✅ Pausa terminada — vuelve el control automático")
+                    print(f"✅ {'Monitoreo' if ended == MODE_MONITOR else 'Pausa'} "
+                          "terminado — vuelve el control automático")
 
                 if loop_started - last_settings_check >= SETTINGS_CHECK_INTERVAL_SECONDS:
                     last_settings_check = loop_started
@@ -1006,11 +1354,13 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     if decision.changed:
                         print(f"⚠️ No valid sensor data ({decision.reason}) — all outputs off")
                     # Re-creating the sensor objects every 3s achieves nothing and
-                    # floods the log, so back off between attempts.
+                    # floods the log, so back off between attempts. Only the
+                    # indoor one: the outdoor sensor re-initialises itself on
+                    # its own thread, and it is not why the loop is in failsafe.
                     if loop_started - last_sensor_reinit >= SENSOR_REINIT_INTERVAL_SECONDS:
                         last_sensor_reinit = loop_started
                         print("🔄 Reinitialising sensors...")
-                        sensors.init_dht22()
+                        sensors.init_indoor_dht22()
                     sleep(LOOP_INTERVAL_SECONDS)
                     continue
 
@@ -1081,19 +1431,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 accumulator.push(sensors_data, quality=quality,
                                  control_action=decision.action)
 
-                if loop_started - last_db_save >= DB_SAVE_INTERVAL_SECONDS:
-                    summary = accumulator.build()
-                    if summary is None:
-                        # Nothing usable in the whole interval. Leaving a hole is
-                        # the honest record; the charts draw it as a break.
-                        last_db_save = loop_started
-                        accumulator.reset()
-                    elif store_sensor_sample(summary):
-                        print(f"💾 Muestra guardada: {summary['sample_n']} lecturas, "
-                              f"T {summary.get('temperature_min')}–{summary.get('temperature_max')}°C, "
-                              f"HR {summary.get('humidity_min')}–{summary.get('humidity_max')}%")
-                        last_db_save = loop_started
-                        accumulator.reset()
+                last_db_save = flush_history(accumulator, last_db_save, loop_started)
 
             except Exception as e:
                 print(f"❌ Error in main loop: {e}")
@@ -1119,7 +1457,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "stage",
         nargs="?",
-        choices=["early_veg", "late_veg", "flowering", "dry"],
+        choices=list(STAGES),
         help="Override the active grow's stage (optional)",
     )
     source = parser.add_mutually_exclusive_group()

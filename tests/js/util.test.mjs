@@ -10,8 +10,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    escapeHtml, fmtNum, fmtSigned, formatAge, formatDate, formatDuration, getScoreClass,
-    getScoreLabel, humidityDiffLabel, parseLocalDatetime,
+    doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
+    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
+    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
+    withGrow,
 } from '../../autocann/web/static/js/util.js';
 
 test('escapeHtml neutralises markup that reaches innerHTML', () => {
@@ -155,4 +157,167 @@ test('humidityDiffLabel returns nothing when a payload carries no readings', () 
 test('humidityDiffLabel keeps a real zero as a reading, not as a missing one', () => {
     assert.equal(humidityDiffLabel(0, 60).state, 'too-low');
     assert.equal(humidityDiffLabel(60, 0).state, 'too-high');
+});
+
+// ---------------------------------------------------------------------------
+// Feeding
+// ---------------------------------------------------------------------------
+// These three used to live inside feeding.js, where the panel could not reach
+// them. The panel tile and the Riego tab render the same plan, so a second copy
+// of the arithmetic is a second answer to "¿cuánto le pongo?".
+
+test('fmtDose writes a dose the way it is read aloud', () => {
+    assert.equal(fmtDose(1), '1');
+    assert.equal(fmtDose(1.5), '1,5');
+    assert.equal(fmtDose(0), '0');
+    assert.equal(fmtDose(undefined), '--');
+    assert.equal(fmtDose(NaN), '--');
+});
+
+test('doseAmount multiplies the per-litre dose by the volume', () => {
+    assert.equal(doseAmount({ dose: 4, unit: 'ml/L' }, 10), '40 ml');
+    assert.equal(doseAmount({ dose: 0.5, unit: 'g/L' }, 7), '3,5 g');
+});
+
+test('doseAmount rounds to a tenth, like the backend does', () => {
+    // scale_to_volume() stores round(dose * litres, 1); a locally recomputed
+    // amount that rounds differently is the panel and the form disagreeing.
+    assert.equal(doseAmount({ dose: 0.33, unit: 'ml/L' }, 10), '3,3 ml');
+    assert.equal(doseAmount({ dose: 1.25, unit: 'ml/L' }, 3), '3,8 ml');
+});
+
+test('doseAmount survives a missing item or volume instead of rendering NaN', () => {
+    assert.equal(doseAmount(undefined, 10), '0 ml');
+    assert.equal(doseAmount({ dose: 4, unit: 'ml/L' }, undefined), '0 ml');
+    assert.equal(doseAmount({ dose: 'x', unit: 'g/L' }, 10), '0 g');
+});
+
+/**
+ * "YYYY-MM-DD" for `days` ago, in *local* time.
+ *
+ * Not toISOString(): that is UTC, and the log stores an Argentine date. Three
+ * hours west of Greenwich, an evening test would build tomorrow's date and the
+ * helper would correctly answer "-1 day" to a question nobody asked.
+ */
+function daysAgo(days) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - days);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+         + `-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+test('lastWateringLabel counts midnight to midnight, not hour to hour', () => {
+    // A watering logged this morning stays "Hoy" all day, and one logged last
+    // night does not flip to "Hace 2 días" when the clock passes its hour.
+    assert.equal(lastWateringLabel(daysAgo(0)).text, 'Hoy');
+    assert.equal(lastWateringLabel(daysAgo(0)).days, 0);
+    assert.equal(lastWateringLabel(daysAgo(1)).text, 'Ayer');
+    assert.equal(lastWateringLabel(daysAgo(3)).text, 'Hace 3 días');
+});
+
+test('lastWateringLabel turns stale at the fourth day, on both screens', () => {
+    // The tile's amber edge and the header badge read the same threshold, so
+    // the panel and the Riego tab cannot disagree about when it has been a while.
+    assert.equal(lastWateringLabel(daysAgo(3)).stale, false);
+    assert.equal(lastWateringLabel(daysAgo(4)).stale, true);
+});
+
+test('lastWateringLabel crosses a month boundary without going negative', () => {
+    // `setDate(0)` walks back into the previous month, which is the case a
+    // subtraction on the day number alone gets wrong.
+    assert.equal(lastWateringLabel('2026-02-28').days > 0, true);
+});
+
+test('lastWateringLabel returns nothing for a tent with no log yet', () => {
+    // Not an alarm and not a zero: nobody has watered it, which the tile says
+    // in its own words rather than as "Hace 0 días".
+    for (const value of [undefined, null, '', 'ayer', {}]) {
+        assert.equal(lastWateringLabel(value), null, `fecha ${String(value)}`);
+    }
+});
+
+test('waterOnlyNote tells a seedling apart from a flush', () => {
+    // The same watering - agua sola - at opposite ends of the grow. The tile
+    // said "semana de lavado" for both, which about a two-week-old seedling
+    // reads as an instruction to wash out a medium nobody fed.
+    assert.match(waterOnlyNote('seedling').text, /^Plántula/);
+    assert.match(waterOnlyNote('flush').text, /^Semana de lavado/);
+    assert.notEqual(waterOnlyNote('seedling').badge, waterOnlyNote('flush').badge);
+});
+
+test('waterOnlyNote says nothing when the week does carry doses', () => {
+    // null is what /api/feeding/today sends for a week with something due, and
+    // the badge then counts products instead.
+    for (const value of [null, undefined, '', 'raro', 0]) {
+        assert.equal(waterOnlyNote(value), null, `motivo ${String(value)}`);
+    }
+});
+
+test('growParam leaves the default unspoken so the backend picks the active grow', () => {
+    // The selector's own "Cultivo activo" option has value "", and nothing
+    // sets state.growId before the first fetch.
+    for (const empty of [null, undefined, '']) {
+        assert.equal(growParam(empty), '');
+    }
+});
+
+test('growParam spells every grow and names one by id', () => {
+    assert.equal(growParam('all'), 'grow_id=all');
+    assert.equal(growParam(7), 'grow_id=7');
+    assert.equal(growParam('7'), 'grow_id=7');
+});
+
+test('growParam refuses a scope that is not one instead of sending it', () => {
+    // The backend answers 400 for these, which on screen is a blank chart with
+    // no explanation. Nothing asked for is better than something invented.
+    for (const bogus of [NaN, 'todos', 1.5, {}, [1, 2]]) {
+        assert.equal(growParam(bogus), '', String(bogus));
+    }
+});
+
+test('withGrow appends with whichever separator the url already needs', () => {
+    assert.equal(withGrow('/api/vpd-score?days=7', 3), '/api/vpd-score?days=7&grow_id=3');
+    assert.equal(withGrow('/api/weekly-report', 'all'), '/api/weekly-report?grow_id=all');
+    assert.equal(withGrow('/api/weekly-report', null), '/api/weekly-report');
+});
+
+test('outputPinLabel names the node when the node is what switches the relay', () => {
+    // El defecto: con los relés en el nodo, la pantalla decía "BCM 25" para la
+    // ventilación. El 25 existe en las dos placas y en el ESP32 es el
+    // humidificador, así que mandaba a medir el header correcto con la etiqueta
+    // equivocada.
+    const label = outputPinLabel({ scope: 'remote', node: 'ESP32 relés', number: 27 });
+    assert.equal(label.text, 'GPIO 27');
+    assert.match(label.title, /ESP32 relés/);
+    assert.match(label.title, /no la Raspberry/);
+});
+
+test('outputPinLabel keeps saying BCM when the Raspberry is the one switching', () => {
+    assert.equal(outputPinLabel({ scope: 'local', node: null, number: 7 }).text, 'BCM 7');
+});
+
+test('outputPinLabel shows nothing rather than a pin it was not given', () => {
+    // Un "BCM NaN" o un "GPIO undefined" en la tarjeta es peor que el hueco:
+    // parece un dato.
+    for (const source of [null, undefined, {}, { scope: 'remote' },
+                          { scope: 'local', number: null }, { scope: 'remote', number: 'IN1' }]) {
+        assert.deepEqual(outputPinLabel(source), { text: '', title: '' }, JSON.stringify(source));
+    }
+});
+
+test('outputPinLabel still names a remote pin when nobody named the node', () => {
+    const label = outputPinLabel({ scope: 'remote', node: '', number: 25 });
+    assert.equal(label.text, 'GPIO 25');
+    assert.match(label.title, /nodo remoto/);
+});
+
+test('relaySourceLabel says which board the panel is talking about', () => {
+    assert.equal(relaySourceLabel({ scope: 'remote', node: 'ESP32 relés', number: 25 }).text,
+                 'ESP32 relés');
+    assert.equal(relaySourceLabel({ scope: 'local', node: null, number: 7 }).text,
+                 'GPIO de la Raspberry');
+    // Sin payload el encabezado queda vacío: inventar una placa es el defecto.
+    assert.deepEqual(relaySourceLabel(undefined), { text: '', title: '' });
+    assert.deepEqual(relaySourceLabel({ scope: 'otra' }), { text: '', title: '' });
 });

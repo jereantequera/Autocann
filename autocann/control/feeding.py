@@ -73,8 +73,9 @@ def plan_for_week(plan: Sequence[Dict], stage: str, week: int) -> List[Dict]:
     The products due on one week of one stage, in the plan's own order.
 
     `plan` is a sequence of product dicts, each with `doses` mapping
-    `stage -> {week: dose}`. Products with no dose that week are left out; a
-    week where nothing is due is a flush week and comes back empty.
+    `stage -> {week: dose}`. Products with no dose that week are left out, and a
+    week where nothing is due comes back empty — which is an instruction, not a
+    hole: see `water_only_reason` for which instruction.
     """
     if week <= 0:
         return []
@@ -96,6 +97,27 @@ def plan_for_week(plan: Sequence[Dict], stage: str, week: int) -> List[Dict]:
             "dose": dose,
         })
     return due
+
+
+#: Stages the chart is meant to leave empty, because they are watered with
+#: plain water. A seedling lives off what the substrate already holds: it has
+#: no root mass to take up a feed, and a salt it cannot use stays in the medium
+#: and burns the first roots that reach it.
+WATER_ONLY_STAGES = frozenset({"seedling"})
+
+
+def water_only_reason(stage: str, week: int, due: Sequence[Dict]) -> Optional[str]:
+    """
+    Why this week carries no nutrients: `"seedling"`, `"flush"`, or None.
+
+    An empty week reads as two different instructions depending on where it
+    falls, and the dashboard has to say which one: plain water because the plant
+    is too young to be fed, or plain water to wash the medium out before
+    harvest. None means something *is* due.
+    """
+    if week <= 0 or due:
+        return None
+    return "seedling" if stage in WATER_ONLY_STAGES else "flush"
 
 
 def scale_to_volume(items: Iterable[Dict], litres: float) -> List[Dict]:

@@ -1,20 +1,30 @@
 import { apiGet } from './api.js';
 import { navigate } from './views.js';
-import { escapeHtml, getScoreClass, getScoreLabel } from './util.js';
+import { state } from './state.js';
+import { escapeHtml, getScoreClass, getScoreLabel, withGrow } from './util.js';
 
 /** VPD score, anomaly banner and the weekly report. */
 
 function updateVpdScore(data) {
-    if (data.error) {
-        console.error('VPD Score error:', data.error);
-        return;
-    }
-
     const scoreEl = document.getElementById('vpd-score-value');
     const labelEl = document.getElementById('vpd-score-label');
     const rangeEl = document.getElementById('vpd-score-range');
     const barEl = document.getElementById('vpd-score-bar');
     const labelsEl = document.getElementById('vpd-score-days-labels');
+
+    if (data.error) {
+        // Said on screen, not only in the console. The one error a person can
+        // actually reach is asking for every grow at once: the score is a
+        // percentage of time inside *a stage's* band, so there is no single
+        // answer across grows that were in different stages.
+        console.error('VPD Score error:', data.error);
+        scoreEl.textContent = '--%';
+        scoreEl.className = 'vpd-score-value';
+        labelEl.textContent = data.error;
+        barEl.innerHTML = '';
+        labelsEl.innerHTML = '';
+        return;
+    }
 
     const score = data.overall_score;
     if (score !== null && score !== undefined) {
@@ -54,7 +64,8 @@ function updateVpdScore(data) {
 }
 
 function fetchVpdScore() {
-    apiGet('/api/vpd-score?days=7').then(data => { if (data) updateVpdScore(data); });
+    apiGet(withGrow('/api/vpd-score?days=7', state.growId), { key: 'vpd-score' })
+        .then(data => { if (data) updateVpdScore(data); });
 }
 
 const ANOMALIES_DISMISS_KEY = 'anomalies_dismissed_until';

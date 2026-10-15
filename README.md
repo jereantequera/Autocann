@@ -4,7 +4,7 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 
 ## Características
 
-- Control automático de VPD según etapa (vegetativo temprano/tardío, floración, secado)
+- Control automático de VPD según etapa (plántula, vegetativo temprano/tardío, floración, secado)
 - Monitoreo de temperatura y humedad interior y exterior
 - Control de humidificador / deshumidificador con protección contra ciclado corto
 - Dashboard web con Flask
@@ -53,6 +53,12 @@ El loop de control descarta datos de más de 60 segundos y apaga las salidas.
 - VCC → 3.3V
 - GND → GND
 - DATA → GPIO 13 (con pull-up de 4.7k–10k a 3.3V)
+
+El exterior **no alimenta ninguna decisión**: sólo se grafica. Por eso se lee en
+un hilo aparte, una vez por minuto, y el lazo de control toma el último valor
+cacheado sin bloquearse nunca. Si el sensor deja de contestar, el valor envejece
+y a los cinco minutos se apaga: los campos salen en `None` y la tarjeta queda en
+`--`. Nunca se copian ahí los valores de interior.
 
 ## Instalación
 
@@ -109,7 +115,7 @@ Con uv, podés ejecutar los scripts directamente:
 
 ```bash
 # Control de VPD
-uv run python -m autocann.cli.vpd early_veg  # o late_veg, flowering, dry
+uv run python -m autocann.cli.vpd seedling  # o early_veg, late_veg, flowering, dry
 
 # Backend web
 uv run python -m autocann.cli.backend
@@ -119,6 +125,7 @@ uv run python -m autocann.cli.backend
 
 El sistema soporta diferentes etapas con rangos de VPD específicos:
 
+- **seedling**: VPD 0.4-0.8 kPa (plántula; se riega con agua sola)
 - **early_veg**: VPD 0.6-1.0 kPa (vegetativo temprano)
 - **late_veg**: VPD 0.8-1.2 kPa (vegetativo tardío)
 - **flowering**: VPD 1.2-1.5 kPa (floración)
@@ -152,7 +159,8 @@ http://<ip-de-tu-raspberry>:5000
 - `GET`/`POST /api/test-mode` - Pausa: el lazo deja de decidir, hasta que alguien
   la saca
 - `POST /api/test-mode/outputs` - Accionar un relé a mano mientras está en pausa
-- `GET /api/output-status` - Estado de los relés y overrides activos
+- `GET /api/output-status` - Estado de los relés y overrides activos, con la
+  placa y el pin que efectivamente conmutan cada salida
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
 - `GET /api/vpd-score`, `GET /api/weekly-report`, `GET /api/anomalies` - Analítica
@@ -187,6 +195,11 @@ fallan, el failsafe gana: apaga todo e ignora los overrides.
 ## Configuración de Pines GPIO
 
 Los pines GPIO ahora están centralizados en `autocann/config.py` (y usados por `autocann/hardware/outputs.py`).
+
+> [!IMPORTANT]
+> Esta tabla vale **sólo con `AUTOCANN_RELAY_MODE=gpio`**. Con los relés en un
+> nodo remoto los pines que están en el circuito son los del nodo, no éstos —
+> ver [Relés en un nodo remoto](#relés-en-un-nodo-remoto).
 
 **Defaults reales (los del código, en numeración BCM):**
 
@@ -413,6 +426,23 @@ iteración, aunque no haya cambiado nada. No es redundancia:
 
 Ninguna depende de que la anterior haya funcionado.
 
+### Qué chequea `make check` en este modo
+
+Mira la placa que conmuta, no la que está al lado. En remoto nombra el nodo y
+sus GPIO, y verifica lo único que esta punta puede romper: que el lazo esté
+publicando `desired_outputs` y que lo publicado entre en la ventana de 30 s de
+la primera barrera. Si no, falla diciendo que el nodo va a recibir todo apagado
+y manda al lazo, que es quien publica.
+
+**Del nodo no afirma nada**, porque no se puede: sólo consulta y no reporta
+nada, así que en la Pi no queda registro de que haya consultado. Lo que informa
+es qué se le serviría a cualquier nodo que consulte ahora.
+
+En `AUTOCANN_RELAY_MODE=gpio` sigue abriendo un pin del header, que ahí sí es
+suyo. Antes lo hacía en los dos modos: con los relés en el nodo eso daba verde
+sobre una placa que no está en el circuito, incluso con el lazo muerto y los
+tres relés caídos.
+
 ### Cableado
 
 Placa de 4 canales opto, activo-bajo, **con el jumper JD-VCC sacado**:
@@ -433,6 +463,24 @@ VCC (header de 2 pines) → nada, es la misma red que el VCC de señal
 signifique apagado, y de eso dependen todas las barreras de arriba.
 
 El firmware está en `firmware/relay_node/relay_node.ino`.
+
+### El mapeo del nodo también vive en el backend
+
+El dashboard muestra el pin de cada salida, así que tiene que saber cuál es. El
+nodo no lo informa — sólo consulta —, y enseñarle a informarlo es reflashearlo
+por USB adentro de la carpa. Así que el mapeo está en `RelayNodePins`
+(`autocann/config.py`) **copiado del firmware**, que sigue siendo la autoridad:
+`tests/test_relays.py` lee el `.ino` y falla si los dos se separan.
+
+| Variable | Default | Qué es |
+|---|---|---|
+| `AUTOCANN_RELAY_NODE_PIN_HUMIDITY_UP` | 25 | GPIO del nodo, IN1 |
+| `AUTOCANN_RELAY_NODE_PIN_HUMIDITY_DOWN` | 26 | GPIO del nodo, IN2 |
+| `AUTOCANN_RELAY_NODE_PIN_VENTILATION` | 27 | GPIO del nodo, IN3 |
+| `AUTOCANN_RELAY_NODE_NAME` | `ESP32 relés` | Con qué nombre aparece la placa en el panel |
+
+Si reflasheás el nodo con otros pines, cambiá el firmware y después corré
+`make test`: el test te va a decir qué quedó desalineado.
 
 ## Administración Remota (SSH)
 
@@ -608,7 +656,7 @@ fresco, pero si el problema persiste mirá la
 [recomendación de hardware](#recomendación-de-hardware-para-empezar-de-cero).
 
 ```bash
-make check           # chequea dependencias, Redis, base de datos, GPIO y procesos
+make check           # dependencias, Redis, base, relés y procesos
 ```
 
 ### Sensores I2C no detectados

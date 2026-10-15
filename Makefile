@@ -141,10 +141,15 @@ test:
 	@echo "Corriendo tests..."
 	uv run --extra dev python -m pytest tests/ -q
 
+# Todas las suites de tests/js/, no una lista escrita a mano: decía
+# `util.test.mjs` y nada más, así que health.test.mjs se agregó y `make test-js`
+# siguió diciendo que todo pasaba sin haberla corrido nunca. El test de Python
+# que las corre (tests/test_frontend.py) ya las busca con un glob; esto hace lo
+# mismo para que las dos puertas miren el mismo conjunto.
 test-js:
 	@echo "Corriendo tests de JavaScript..."
 	@command -v node > /dev/null 2>&1 \
-		&& node --test tests/js/util.test.mjs \
+		&& node --test tests/js/*.test.mjs \
 		|| echo "node no está instalado, salteado"
 
 lint:

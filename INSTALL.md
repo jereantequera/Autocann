@@ -78,6 +78,44 @@ make run-backend  # En una terminal
 make run-vpd      # En otra terminal
 ```
 
+### Paso 6 (opcional): Poner un PIN
+
+El tablero conmuta relés. Sin PIN, cualquiera en la LAN puede prender un
+humidificador. La variable va en `scripts/start_services.sh` (o en el
+`Environment=` del unit de systemd):
+
+```bash
+export AUTOCANN_PIN="4821"
+```
+
+- **Vacía o sin definir, no pide nada** y todo se comporta exactamente como
+  antes. Es a propósito: un deploy que se olvida la variable no puede dejarte
+  afuera de tu propio tablero. No poder ver la carpa es peor falla que ser
+  legible desde la red en la que ya estás.
+- Se pide una vez por navegador y la sesión dura **30 días**. El tablero se usa
+  desde el celular parado en la carpa; pedirlo todos los días es cómo termina
+  escrito al lado de la puerta. Se cierra la sesión desde **Sistema → Sesión**.
+- Cambiar el PIN **cierra todas las sesiones** abiertas con el anterior.
+- Después de 10 intentos fallidos esa IP espera 5 minutos.
+
+> ⚠️ **Los dos nodos ESP32 quedan exentos, y tiene que ser así.**
+> `GET /api/outputs/desired`, `POST /api/sensor/indoor` y `POST /api/node/log`
+> no piden PIN nunca. El firmware se graba a mano, con un cable USB, parado en
+> la carpa: no puede mandar una cookie porque el servidor empezó a pedirla. El
+> primero es el crítico — el nodo de relés lo pide cada 2 segundos y **se
+> desenergiza solo a los 60 segundos sin un poll exitoso**, así que un 401 ahí
+> abre todos los relés de la carpa un minuto después, de madrugada, sin nada en
+> pantalla que lo explique. La lista está en `autocann/web/auth.py` con el
+> motivo escrito al lado.
+>
+> Lo que sí cubre el PIN es la mitad de la API que mueve cosas: los relés, la
+> pausa, los cultivos, el plan de riego, la calibración y las franjas de
+> silencio.
+
+Opcionalmente, `AUTOCANN_SECRET_KEY` fija la clave con la que se firma la
+cookie. Sin ella se deriva del PIN, que es lo que hace que reiniciar el backend
+no mande a todo el mundo de vuelta a la pantalla de login.
+
 ---
 
 ## Instalación en macOS/Linux/Windows (Desarrollo)

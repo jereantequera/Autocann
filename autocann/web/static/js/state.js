@@ -5,6 +5,15 @@
  * shared and who writes to it.
  */
 
+/**
+ * The three states the tent can be in, spelled exactly as the backend spells
+ * them. Here rather than as string literals in each module: `'monitor'`
+ * misspelt in one place is a chip that silently renders a pause.
+ */
+export const MODE_ACTIVE = 'active';
+export const MODE_MONITOR = 'monitor';
+export const MODE_PAUSED = 'paused';
+
 export const state = {
     period: 1,
     interval: 'hourly',
@@ -12,6 +21,16 @@ export const state = {
     stage: 'early_veg',
     /** Stage periods of the active grow, for the chart markers. */
     timeline: null,
+    /**
+     * Which grow the statistics are about.
+     *
+     * `null` means the active one, which is what the rest of the dashboard is
+     * about — the grow bar, the stage, the day counter. A number names a grow,
+     * and `'all'` asks for every one of them, which only happens because
+     * somebody picked it: a 30-day window used to silently cross the end of one
+     * crop and the start of the next into a single curve.
+     */
+    growId: null,
 };
 
 /**
@@ -23,12 +42,14 @@ export const state = {
  */
 export const config = {
     vpdRanges: {
+        seedling: { min: 0.4, max: 0.8 },
         early_veg: { min: 0.6, max: 1.0 },
         late_veg: { min: 0.8, max: 1.2 },
         flowering: { min: 1.2, max: 1.5 },
         dry: { min: 0.8, max: 1.2 },
     },
     stageNames: {
+        seedling: 'Plántula',
         early_veg: 'Vegetativo Temprano',
         late_veg: 'Vegetativo Tardío',
         flowering: 'Floración',

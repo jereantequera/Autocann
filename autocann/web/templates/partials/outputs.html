@@ -1,16 +1,27 @@
-        <!-- Outputs Section -->
+        <!-- Outputs: which relays are closed right now -->
         <!--
              The button that paused the loop used to be in this header, and the
              banner announcing the pause right below it. Both moved to the top
              of the page: pausing is not a property of the relay section, it is
              the state of the whole system, and it has to be visible from the
              views that are not this one.
+
+             The badge counts them. "Ventilación encendida" is only half an
+             answer when the question asked from the doorway is how much of the
+             installation is currently running.
         -->
-        <div class="section-header">
+        <div class="section-header section-header-row">
             <h2 class="section-title">
                 <span class="section-title-icon">🔌</span>
-                Salidas (Relays)
+                Salidas
+                <!--
+                     Qué placa conmuta estos relés. Lo llena el JS porque
+                     depende de AUTOCANN_RELAY_MODE, y sin eso los pines de
+                     las tarjetas no dicen de qué header son.
+                -->
+                <span class="section-subtitle" id="outputs-source"></span>
             </h2>
+            <span class="sensor-badge" id="outputs-badge">⏳</span>
         </div>
 
         <div class="outputs-grid" id="outputs-grid">

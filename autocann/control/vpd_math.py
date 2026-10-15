@@ -14,7 +14,17 @@ from typing import Dict, Optional, Tuple
 
 #: VPD target band per stage, in kPa. `dry` is controlled by humidity, not VPD,
 #: but it still needs a band so the analytics can score it.
+#:
+#: The order is the order of the cycle: `estimated_remaining_days` and the feed
+#: chart's columns both read it as the sequence a grow goes through.
+#:
+#: `seedling` is wetter than everything after it on purpose. A sprout has
+#: almost no roots and a cuticle that barely holds water, so it drinks through
+#: its leaves; the dry air that keeps a flowering canopy healthy dries a
+#: seedling out faster than it can drink. Half a step below early_veg, same
+#: 0.2 kPa overlap the other adjacent stages have.
 VPD_RANGES: Dict[str, Tuple[float, float]] = {
+    "seedling": (0.4, 0.8),
     "early_veg": (0.6, 1.0),
     "late_veg": (0.8, 1.2),
     "flowering": (1.2, 1.5),
@@ -31,6 +41,7 @@ STAGES = tuple(VPD_RANGES.keys())
 #: Typical length of each stage, in days. Used to show "day 12 of ~56" and to
 #: estimate a harvest date; purely indicative, a grow is driven by the plant.
 STAGE_EXPECTED_DAYS: Dict[str, int] = {
+    "seedling": 14,
     "early_veg": 21,
     "late_veg": 28,
     "flowering": 56,

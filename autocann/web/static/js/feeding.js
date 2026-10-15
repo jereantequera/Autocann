@@ -1,6 +1,7 @@
 import { apiGet } from './api.js';
+import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
-import { escapeHtml } from './util.js';
+import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -14,13 +15,26 @@ let today = null;
 /** Last payload of /api/feed-plan, and the working copy the editor edits. */
 let plan = null;
 let planDraft = null;
-/** The log rows, and which one is one click away from being deleted. */
+/** The log rows. */
 let history = [];
-let pendingDelete = null;
 /** Set once the grower edits the form, so a poll does not overwrite their input. */
 let formTouched = false;
 
 const UNITS = ['ml/L', 'g/L'];
+
+/**
+ * La letra que va arriba de cada columna de la grilla.
+ *
+ * Una tabla y no una cadena de ternarios con un `else` final: ese `else` daba
+ * 'S' a cualquier etapa nueva, y plántula y secado habrían compartido letra.
+ */
+const STAGE_INITIALS = {
+    seedling: 'P',
+    early_veg: 'V',
+    late_veg: 'L',
+    flowering: 'F',
+    dry: 'S',
+};
 
 function el(id) {
     return document.getElementById(id);
@@ -36,17 +50,6 @@ function announce() {
     document.dispatchEvent(new CustomEvent('feeding:updated', {
         detail: { today, irrigations: history },
     }));
-}
-
-/** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
-function dose(value) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
-    return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
-}
-
-function amountLabel(item, litres) {
-    const total = (Number(item.dose) || 0) * (Number(litres) || 0);
-    return `${dose(Math.round(total * 10) / 10)} ${item.unit === 'g/L' ? 'g' : 'ml'}`;
 }
 
 function stageName(stage) {
@@ -71,12 +74,10 @@ function renderToday() {
         ? `${stageName(today.stage)} · semana ${today.week} de ${today.weeks_in_stage}`
         : stageName(today.stage);
 
-    if (today.flush) {
+    const waterOnly = waterOnlyNote(today.water_only);
+    if (waterOnly) {
         doses.innerHTML = `
-            <div class="feed-flush">
-                Semana de lavado: el plan no lleva nutrientes.
-                Regá con agua sola y el pH corregido.
-            </div>`;
+            <div class="feed-flush">${escapeHtml(waterOnly.text)}</div>`;
         return;
     }
     if (!today.items.length) {
@@ -93,8 +94,8 @@ function renderToday() {
         <div class="feed-dose-row">
             <span class="feed-dose-name">${escapeHtml(item.name)}</span>
             <span class="feed-dose-amount">
-                ${escapeHtml(amountLabel(item, litres))}
-                <small>${escapeHtml(dose(item.dose))} ${escapeHtml(item.unit)}</small>
+                ${escapeHtml(doseAmount(item, litres))}
+                <small>${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}</small>
             </span>
         </div>`).join('');
 }
@@ -131,11 +132,11 @@ function renderForm() {
                    aria-label="${escapeHtml(product.name)}">
             <span class="feed-product-name">
                 ${escapeHtml(product.name)}
-                <small>${planned ? `plan ${escapeHtml(dose(planned))} ${escapeHtml(product.unit)}`
+                <small>${planned ? `plan ${escapeHtml(fmtDose(planned))} ${escapeHtml(product.unit)}`
                                  : escapeHtml(product.unit)}</small>
             </span>
             <input type="number" class="feed-product-dose" min="0" step="0.5"
-                   inputmode="decimal" value="${planned ? dose(planned).replace(',', '.') : ''}"
+                   inputmode="decimal" value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
                    aria-label="Dosis de ${escapeHtml(product.name)}">
             <span class="feed-product-total"></span>
         </label>`;
@@ -156,7 +157,7 @@ function refreshTotals() {
 
         row.classList.toggle('on', active);
         total.textContent = active && product
-            ? amountLabel({ dose: value, unit: product.unit }, litres)
+            ? doseAmount({ dose: value, unit: product.unit }, litres)
             : '--';
     });
 }
@@ -200,12 +201,14 @@ function renderHistory() {
         return;
     }
 
-    if (badge) {
-        const last = new Date(`${history[0].date}T12:00:00`);
-        const days = Math.round((Date.now() - last.getTime()) / 86400000);
-        badge.textContent = days <= 0 ? 'regado hoy'
-            : `hace ${days} ${days === 1 ? 'día' : 'días'}`;
-        badge.classList.toggle('stale', days >= 4);
+    // The same helper the panel tile reads, so the two badges cannot disagree
+    // about how long it has been - they used to count from different hours of
+    // the day and cross over at different moments.
+    const since = lastWateringLabel(history[0].date);
+    if (badge && since) {
+        badge.textContent = since.days <= 0 ? 'regado hoy'
+            : `hace ${since.days} ${since.days === 1 ? 'día' : 'días'}`;
+        badge.classList.toggle('stale', since.stale);
     }
 
     box.innerHTML = history.map(entry => {
@@ -213,28 +216,29 @@ function renderHistory() {
         const items = (entry.items || []).map(item => `
             <span class="feed-pill${item.on_plan ? '' : ' off'}">
                 ${escapeHtml(item.name)}
-                ${escapeHtml(dose(item.dose))} ${escapeHtml(item.unit)}
-                · ${escapeHtml(amountLabel(item, entry.litres))}
+                ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
+                · ${escapeHtml(doseAmount(item, entry.litres))}
             </span>`).join('') || '<span class="feed-pill">Solo agua</span>';
 
         const measures = [
             entry.stage ? `${escapeHtml(stageName(entry.stage))} S${Number(entry.week) || '?'}` : '',
-            Number.isFinite(entry.ph) ? `pH ${escapeHtml(dose(entry.ph))}` : '',
-            Number.isFinite(entry.ec) ? `EC ${escapeHtml(dose(entry.ec))}` : '',
+            Number.isFinite(entry.ph) ? `pH ${escapeHtml(fmtDose(entry.ph))}` : '',
+            Number.isFinite(entry.ec) ? `EC ${escapeHtml(fmtDose(entry.ec))}` : '',
         ].filter(Boolean).map(text => `<span class="feed-tag">${text}</span>`).join('');
 
         return `
         <div class="feed-entry">
             <div class="feed-entry-head">
                 <span class="feed-entry-date">${escapeHtml(entry.date)}</span>
-                <span class="feed-entry-litres">${escapeHtml(dose(entry.litres))} L</span>
+                <span class="feed-entry-litres">${escapeHtml(fmtDose(entry.litres))} L</span>
             </div>
             <div class="feed-entry-tags">${measures}</div>
             <div class="feed-entry-items">${items}</div>
             ${entry.notes ? `<div class="feed-entry-note">${escapeHtml(entry.notes)}</div>` : ''}
             <div class="feed-entry-foot">
-                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}">
-                    ${pendingDelete === id ? 'Confirmar borrado' : 'Borrar'}
+                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}"
+                        data-irrigation-date="${escapeHtml(entry.date)}">
+                    Borrar
                 </button>
             </div>
         </div>`;
@@ -262,9 +266,8 @@ function renderPlanEditor() {
     const columns = plan.columns;
     const header = columns.map((column, index) => {
         const first = index === 0 || columns[index - 1].stage !== column.stage;
-        const initial = column.stage === 'early_veg' ? 'V'
-            : column.stage === 'late_veg' ? 'L'
-            : column.stage === 'flowering' ? 'F' : 'S';
+        const initial = STAGE_INITIALS[column.stage]
+            || (column.stage || '?').charAt(0).toUpperCase();
         return `<th class="feed-col ${escapeHtml(column.stage)}${first ? ' stage-start' : ''}"
                     title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
                 >${initial}${column.week}</th>`;
@@ -435,7 +438,6 @@ function fetchIrrigations() {
     apiGet('/api/irrigations?limit=60', { key: 'irrigations' }).then(data => {
         if (!data || !data.irrigations) return;
         history = data.irrigations;
-        pendingDelete = null;
         renderHistory();
         announce();
     });
@@ -444,7 +446,12 @@ function fetchIrrigations() {
 async function saveIrrigation() {
     const litres = Number(el('feed-litres').value);
     if (!(litres > 0)) {
-        alert('Poné cuántos litros de solución preparaste');
+        await alertDialog({
+            title: 'Faltan los litros',
+            message: 'Las dosis del plan son por litro, así que sin el volumen no '
+                + 'hay nada que registrar.',
+        });
+        el('feed-litres').focus();
         return;
     }
 
@@ -469,32 +476,49 @@ async function saveIrrigation() {
         el('feed-ec').value = '';
         el('feed-notes').value = '';
         formTouched = false;
+        toast(`Riego de ${litres} L registrado`);
         fetchFeedingToday();
         fetchIrrigations();
     } catch (error) {
         console.error('Error recording irrigation:', error);
-        alert(`❌ ${error.message}`);
+        await alertDialog({
+            title: 'No se pudo registrar el riego',
+            message: error.message,
+        });
     } finally {
         button.disabled = false;
     }
 }
 
-async function deleteIrrigation(irrigationId) {
-    // Two clicks instead of confirm(): the same pattern the grow list uses for
-    // destructive actions, and it does not block the page.
-    if (pendingDelete !== irrigationId) {
-        pendingDelete = irrigationId;
-        renderHistory();
-        return;
-    }
-    pendingDelete = null;
+/**
+ * Delete a logged watering, after asking.
+ *
+ * This used to be two clicks on the same button, with the second one reading
+ * "Confirmar borrado". It did not block the page, which was the point, but it
+ * said nothing about *what* was being deleted, and a list where one row is
+ * silently armed is a list where the poll that re-renders it disarms the row
+ * under your finger. A dialog that names the date is both safer and clearer.
+ */
+async function deleteIrrigation(irrigationId, date) {
+    const confirmed = await confirmDialog({
+        title: 'Borrar riego',
+        message: `Se borra el riego del ${date} y todo lo que se anotó que llevaba. `
+            + 'No se puede deshacer.',
+        confirmLabel: 'Borrar riego',
+    });
+    if (!confirmed) return;
+
     try {
         const response = await fetch(`/api/irrigations/${irrigationId}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('No se pudo borrar');
+        toast('Riego borrado');
         fetchIrrigations();
     } catch (error) {
         console.error('Error deleting irrigation:', error);
-        alert('❌ No se pudo borrar el riego');
+        await alertDialog({
+            title: 'No se pudo borrar el riego',
+            message: 'El backend rechazó el pedido o no contestó.',
+        });
     }
 }
 
@@ -525,7 +549,10 @@ function wireFeeding() {
 
     el('feed-history').addEventListener('click', event => {
         const button = event.target.closest('.feed-delete');
-        if (button) deleteIrrigation(Number(button.dataset.irrigationId));
+        if (button) {
+            deleteIrrigation(Number(button.dataset.irrigationId),
+                             button.dataset.irrigationDate);
+        }
     });
 
     wirePlanEditor();

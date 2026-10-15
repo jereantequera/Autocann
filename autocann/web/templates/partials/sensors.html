@@ -8,12 +8,21 @@
              Ahora todo esto sale de /api/health, que es un solo veredicto, y
              cada tarjeta dice en castellano qué le pasa y qué mirar.
 
-             El hero de arriba muestra el primario después del filtro de mediana
-             y de la calibración, que es el número sobre el que se controla.
-             Acá se ve lo que cada sensor posteó de verdad, que es la única
-             forma de ver al testigo — y de notar que los dos se están
-             contradiciendo antes de que el detector de deriva junte muestras
-             suficientes para decirlo.
+             Vive en Sistema, no en el Panel. Son seis tarjetas de diagnóstico —
+             lectura cruda, rol, antigüedad, deriva — y estaban ocupando la
+             mitad de la pantalla que se mira de lejos para saber cómo está la
+             carpa, repitiendo en chico los números que el Ambiente muestra en
+             grande. Lo que el Panel necesita de todo esto es una línea: si los
+             sensores están posteando o no. Eso quedó allá; esto es la pantalla
+             a la que se viene cuando esa línea dice que algo anda mal, al lado
+             de la calibración, la conectividad y el log del nodo.
+
+             El Ambiente muestra el primario después del filtro de mediana y de
+             la calibración, que es el número sobre el que se controla. Acá se
+             ve lo que cada sensor posteó de verdad, que es la única forma de
+             ver al testigo — y de notar que los dos se están contradiciendo
+             antes de que el detector de deriva junte muestras suficientes para
+             decirlo.
         -->
         <div class="section-header section-header-row">
             <h2 class="section-title">
@@ -21,7 +30,6 @@
                 Sensores
             </h2>
             <span class="sensor-badge" id="sensors-badge">⏳</span>
-            <a class="btn btn-ghost btn-mini" href="#/sistema" id="sensors-log-link">📜 Ver log del nodo</a>
         </div>
 
         <div class="sensors-grid" id="indoor-sensors-grid">
@@ -32,26 +40,7 @@
             </div>
         </div>
 
-        <!--
-             Dos renglones que no son el estado de un sensor pero que se
-             confunden con él todo el tiempo: el lazo puede estar en pausa o
-             caído con los sensores perfectos, y el histórico puede no estar
-             guardándose con todo lo demás andando.
-        -->
-        <div class="health-rows">
-            <div class="health-row" id="health-loop">
-                <span class="health-row-name">Lazo de control</span>
-                <span class="health-row-state" id="health-loop-state">⏳</span>
-                <span class="health-row-detail" id="health-loop-detail"></span>
-            </div>
-            <div class="health-row" id="health-history">
-                <span class="health-row-name">Histórico</span>
-                <span class="health-row-state" id="health-history-state">⏳</span>
-                <span class="health-row-detail" id="health-history-detail"></span>
-            </div>
-        </div>
-
         <div class="sensors-note">
             Lecturas crudas, tal como las posteó el nodo: sin filtro de mediana
-            ni calibración. Pueden diferir unas décimas de las tarjetas de arriba.
+            ni calibración. Pueden diferir unas décimas de las tarjetas del Panel.
         </div>

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from flask import jsonify, request
 
@@ -32,13 +32,17 @@ from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     OBSERVER,
     PRIMARY,
+    MODE_ACTIVE,
+    MODE_MONITOR,
+    MODE_PAUSED,
     TEST_MODE_KEY,
     TEST_MODE_SETTING,
+    UNCONTROLLED_MODES,
     WITNESS,
     indoor_sensors_from_env,
     is_valid_sensor_id,
 )
-from autocann.db import get_sensor_data_range, get_setting
+from autocann.db import ALL_GROWS, get_sensor_data_range, get_setting
 from autocann.time import ARGENTINA_TZ
 
 # ---------------------------------------------------------------------------
@@ -189,22 +193,31 @@ def sensor_verdict(entry: Dict, *, max_age: int = INDOOR_SENSOR_MAX_AGE_SECONDS)
 
 
 def loop_verdict(payload: Optional[Dict], age_seconds: Optional[float],
-                 paused_since: Optional[int], now: int) -> Dict:
+                 paused_since: Optional[int], now: int,
+                 mode: str = MODE_PAUSED) -> Dict:
     """
-    Whether the loop is deciding, paused, or not running.
+    Whether the loop is deciding, standing down, or not running.
 
-    Paused is checked first and on its own evidence. A paused loop that also
-    went quiet would otherwise be reported as down, and somebody would go
+    Standing down is checked first and on its own evidence. A stopped loop that
+    also went quiet would otherwise be reported as down, and somebody would go
     restart a service that was stopped on purpose.
+
+    Both ways of standing down are `warn` rather than `ok`. Monitoring keeps
+    the history, which is the whole reason it exists, but the tent is still
+    nobody's responsibility while it lasts - and a tent left uncontrolled by
+    accident is the failure either mode can produce.
     """
     if paused_since is not None:
+        monitoring = mode == MODE_MONITOR
         return {
-            "state": "paused",
+            "state": MODE_MONITOR if monitoring else "paused",
             "level": "warn",
-            "label": "En pausa",
+            "label": "Monitoreo" if monitoring else "En pausa",
             "detail": f"El lazo no está controlando la carpa desde "
                       f"{describe_age(now - paused_since)}. "
-                      "Tampoco se guarda histórico mientras tanto.",
+                      + ("El histórico se sigue guardando."
+                         if monitoring else
+                         "Tampoco se guarda histórico mientras tanto."),
             "age_seconds": age_seconds,
             "paused_since": paused_since,
             "paused_seconds": max(0, now - paused_since),
@@ -264,6 +277,10 @@ def history_verdict(age_seconds: Optional[float], loop_state: str) -> Dict:
             "age_seconds": age_seconds,
         }
 
+    # Monitoring is not exempt: it writes history, so a gap in it is as real a
+    # fault here as it is under control, and reporting it as expected would
+    # hide exactly the failure the mode exists to avoid.
+
     if age_seconds is None:
         return {
             "state": "empty",
@@ -279,7 +296,9 @@ def history_verdict(age_seconds: Optional[float], loop_state: str) -> Dict:
             "level": "error",
             "label": "No se está guardando",
             "detail": f"La última muestra guardada es de {describe_age(age_seconds)} "
-                      "y el lazo dice estar corriendo.",
+                      + ("y el monitoreo dice estar guardando."
+                         if loop_state == MODE_MONITOR else
+                         "y el lazo dice estar corriendo."),
             "age_seconds": age_seconds,
         }
 
@@ -563,31 +582,62 @@ def _json_get(redis_client, key):
         return None
 
 
-def paused_since(redis_client) -> Optional[int]:
+def control_mode(redis_client) -> Tuple[str, Optional[int]]:
     """
-    When the system was paused, or None when the loop is in charge.
+    Which of the three states the tent is in, and since when.
 
     Redis first because it is the fast path, the settings table second because
     it is the truth: a Redis that was restarted must not read as "not paused"
     and quietly hand a tent somebody is working inside back to the controller.
+
+    A bare timestamp in Redis is the format from before monitoring existed, and
+    the only safe reading of it is the one it always had: a pause.
     """
     try:
         raw = redis_client.get(TEST_MODE_KEY)
     except Exception:
         raw = None
-    since = _as_int(raw)
-    if since is not None:
-        return since
+
+    if raw:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        since = _as_int(raw)
+        if since is not None:
+            return MODE_PAUSED, since
+        try:
+            mirrored = json.loads(raw)
+        except (TypeError, ValueError):
+            mirrored = None
+        if isinstance(mirrored, dict):
+            mode = mirrored.get("mode")
+            return (mode if mode in UNCONTROLLED_MODES else MODE_PAUSED), \
+                _as_int(mirrored.get("since"), 0)
 
     stored = get_setting(TEST_MODE_SETTING, None)
     if isinstance(stored, dict) and stored.get("active"):
-        return _as_int(stored.get("since"), 0)
-    return None
+        mode = stored.get("mode")
+        return (mode if mode in UNCONTROLLED_MODES else MODE_PAUSED), \
+            _as_int(stored.get("since"), 0)
+    return MODE_ACTIVE, None
+
+
+def paused_since(redis_client) -> Optional[int]:
+    """When the loop stopped being in charge, whichever way it stopped."""
+    return control_mode(redis_client)[1]
 
 
 def _last_stored_sample_age(now: int) -> Optional[float]:
+    """
+    How long ago the loop last wrote a row, for any grow.
+
+    Deliberately ALL_GROWS: the question here is whether the installation is
+    still recording, which is about the Raspberry and not about a crop. Scoped
+    to the active grow, this would read as "the history stopped" during the
+    minutes between ending one grow and starting the next, when nothing is
+    wrong with anything.
+    """
     try:
-        rows = get_sensor_data_range(limit=1)
+        rows = get_sensor_data_range(limit=1, grow_id=ALL_GROWS)
     except Exception:
         return None
     if not rows:
@@ -718,11 +768,14 @@ def health_snapshot(redis_client) -> Dict:
     # The published mode is believed as well as the stored pause: it is what the
     # loop itself says it is doing, and it stays right across a rename of the
     # key the pause is stored under.
-    since = paused_since(redis_client)
+    mode, since = control_mode(redis_client)
     if since is None and published and str(published.get("mode") or "") in ("test", "paused"):
+        mode = MODE_PAUSED
         since = _as_int(published.get("test_mode_since")
                         or published.get("test_mode_until")) or now
-    loop = loop_verdict(published, loop_age, since, now)
+    elif since is None and published and str(published.get("mode") or "") == MODE_MONITOR:
+        mode, since = MODE_MONITOR, now
+    loop = loop_verdict(published, loop_age, since, now, mode=mode)
 
     history = history_verdict(_last_stored_sample_age(now), loop["state"])
 
