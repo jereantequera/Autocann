@@ -36,11 +36,30 @@ gh issue list --state open --label ready --json number,title,labels,createdAt,as
 - First, deal with leftovers: an open PR from an earlier run (branch
   `issue/<n>-…`) whose checks you can now finish → finish it before new work.
 - Skip issues labelled `needs-human`, `in-progress`, or with an assignee.
+- **Skip issues someone is already on**, even without the label: an open PR
+  that mentions it (`gh pr list --state open --search "<n>"`), a remote branch
+  for it (`git ls-remote --heads origin "issue/<n>-*"`), or a recent comment
+  saying it's being worked. Also skip it if a PR merged in the last day
+  already touches the same thing — comment on the issue asking whether it's
+  still needed.
 - Order: `p1` → `p2` → `p3` → unlabelled, then oldest first. Take up to 2.
+- **Don't pick two issues that touch the same files** in one run (compare the
+  files each issue names, or what a quick read of the code says it will
+  change). Take the higher-ranked one; the other waits for the next run.
 - If there is nothing `ready`, say so in one line and stop. Don't invent work
   (that is the `product-manager` skill's job).
 
-Mark each picked issue: `gh issue edit <n> --add-label in-progress`.
+Claim each picked issue before writing any code, so nobody else (a person, or
+another run) picks it up:
+
+```bash
+gh issue edit <n> --add-label in-progress
+gh issue comment <n> --body "🤖 ship-issues is working on this (branch \`issue/<n>-<slug>\`)."
+```
+
+Re-read the issue right after claiming: if someone else claimed it in the
+meantime (another `in-progress` comment or an assignee), back off and remove
+your label.
 
 ## 2. Spec it
 

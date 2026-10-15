@@ -46,11 +46,33 @@ if the current checkout is on another branch: `git worktree add
    `bug` issue with the output.
 4. **Plans and history:** `apps/tent/ROADMAP.md`, `apps/tent/CHANGELOG.md`,
    `docs/platform.md`, `git log --oneline -30`.
-5. **Backlog:** `gh issue list --state all --limit 100` and
-   `gh pr list --state all --limit 30`, so you don't file what exists or was
-   rejected (`wontfix`).
+5. **Backlog — read it before filing anything:**
+   ```bash
+   gh issue list --state all --limit 200 --json number,title,state,labels,assignees,body
+   gh pr list --state all --limit 50 --json number,title,state,headRefName,body
+   ```
+   Read every open issue, not only the ones this skill filed: people file
+   issues by hand too (in any language), and the `ship-issues` routine may be
+   working one right now (`in-progress`, an open PR, or a branch
+   `issue/<n>-…`). Closed and `wontfix` issues tell you what was already done
+   or rejected.
 
-## 2. Decide what matters
+## 2. Groom what already exists
+
+Before adding anything new, take care of the open issues:
+
+- **Untriaged** (no `ready` / `needs-human`): read it and the code it touches,
+  then add type, priority and `ready` or `needs-human` with the same rules as
+  in step 4. If it needs a decision, comment with the concrete question. Don't
+  rewrite a person's issue; add your scope, acceptance criteria and evidence
+  as a comment.
+- **In progress** (`in-progress`, assigned, or with an open PR or branch):
+  don't touch its labels and don't file anything that overlaps it.
+- **Stale or already fixed** on `main`: comment with the evidence (commit,
+  screenshot) and close it only if it's from this skill (`from-pm`);
+  otherwise just comment.
+
+## 3. Decide what matters
 
 Judge each candidate by: who it hurts (the grower looking at the wall tablet,
 the operator, a future customer), how often, and how cheap the fix is. Look
@@ -59,9 +81,14 @@ missing feedback after an action, slow endpoints, untested code paths, docs
 that drift from the code, roadmap phases not started (`apps/tent/ROADMAP.md`
 fases 4–6), and platform gaps.
 
-Rank them. Keep the top 5 at most.
+Check each candidate against the open issues and PRs from step 1. If one
+already covers it (even partly, even worded differently), **comment there**
+with your new evidence instead of filing a duplicate. If it overlaps work in
+progress, drop it for this run.
 
-## 3. File the issues
+Rank what's left. Keep the top 5 at most.
+
+## 4. File the issues
 
 Make sure the labels exist (idempotent):
 
@@ -106,8 +133,8 @@ Labels: a type (`bug` / `enhancement` / `documentation`), a priority
 Add `control` whenever the change alters control-loop behaviour (setpoints,
 VPD math, relay logic, watchdogs). The routine never auto-merges those.
 
-## 4. Report
+## 5. Report
 
 End with a short summary to the user (in their language, Spanish): what you
-looked at, the issues filed with links and labels, anything urgent (e.g. the
+looked at, existing issues you triaged or commented on, the issues filed with links and labels, anything urgent (e.g. the
 loop or production backend down), and what you deliberately didn't file.
