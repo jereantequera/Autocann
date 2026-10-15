@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-import redis
 from flask import Flask, jsonify, render_template, request
 
 from autocann import __version__
@@ -70,6 +69,7 @@ from autocann.hardware.outputs import (
     parse_bool_flag,
 )
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
+from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
 from autocann.web.diagnostics import (
     health_snapshot,
@@ -147,7 +147,9 @@ def create_app() -> Flask:
         # having to serve the assets with no-cache.
         return {"asset_version": __version__}
     redis_cfg = redis_config_from_env()
-    redis_client = redis.Redis(host=redis_cfg.host, port=redis_cfg.port, db=redis_cfg.db)
+    # One client for the life of the process, with a bounded pool and a socket
+    # that gives up: see autocann/redis_pool.py for what the defaults cost.
+    redis_client = pooled_client(redis_cfg)
 
     @app.route("/")
     def index():

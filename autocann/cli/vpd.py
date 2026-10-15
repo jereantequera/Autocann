@@ -21,8 +21,6 @@ from datetime import datetime
 from time import monotonic, sleep
 from typing import Any, Dict, FrozenSet, Optional, Tuple
 
-import redis
-
 from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
     RELAY_MODE_GPIO,
@@ -65,6 +63,7 @@ from autocann.db import (
     store_sensor_sample,
 )
 from autocann.hardware.outputs import get_outputs, manual_override_key, parse_bool_flag
+from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
 
 LOOP_INTERVAL_SECONDS = 3.0
@@ -116,7 +115,9 @@ DHT22_INDOOR_PIN = 4
 DHT22_OUTDOOR_PIN = 13
 
 _redis_cfg = redis_config_from_env()
-redis_client = redis.Redis(host=_redis_cfg.host, port=_redis_cfg.port, db=_redis_cfg.db)
+#: Bounded pool, and a socket with a timeout so that the `try/except` around
+#: every read and write below can actually fire. See autocann/redis_pool.py.
+redis_client = pooled_client(_redis_cfg)
 
 
 def _now_local() -> datetime:
