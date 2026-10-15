@@ -56,6 +56,7 @@ from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALIT
 from autocann.control.vpd_math import (
     LEAF_TEMP_OFFSET_C,
     STAGES,
+    calculate_leaf_vpd,
     calculate_vpd,
     humidity_range_bounds_for_stage,
     humidity_range_for_stage,
@@ -1121,26 +1122,29 @@ def resolve_setpoint(stage: str, air_temperature_c: float, humidity: float) -> S
     """
     Translate a stage into a humidity setpoint and deadband.
 
-    Every stage is expressed as a humidity band: VPD stages convert their kPa
-    band at leaf temperature, `dry` has an explicit one. The setpoint is the
-    band's midpoint and the deadband is its half-width, so "inside the deadband"
-    and "inside the stage's range" are the same statement and the controller
-    never works to tighten something that is already in spec.
+    Every stage is expressed as a humidity band of the air: VPD stages convert
+    their kPa band into the humidity that puts the *leaf* inside it, `dry` has
+    an explicit band. The setpoint is the band's midpoint and the deadband is
+    its half-width, so "inside the deadband" and "inside the stage's range" are
+    the same statement and the controller never works to tighten something that
+    is already in spec.
 
-    Both the setpoint and the in-range check are evaluated at leaf temperature.
-    They used to disagree — the setpoint came from air temperature while the
-    check used leaf temperature — which parked the tent at the wet edge of the
-    band instead of its centre.
+    The leaf sits LEAF_TEMP_OFFSET_C below the air. Leaf VPD is the leaf's
+    saturation pressure minus the vapour actually in the air (see
+    calculate_leaf_vpd), so both the setpoint and the in-range check use the
+    leaf temperature for the VPD and the air temperature for the humidity.
     """
     leaf_temperature = round(air_temperature_c - LEAF_TEMP_OFFSET_C, 1)
-    leaf_vpd = calculate_vpd(leaf_temperature, humidity)
+    leaf_vpd = calculate_leaf_vpd(air_temperature_c, leaf_temperature, humidity)
 
     explicit = humidity_range_for_stage(stage)
     if explicit is not None:
         low, high = explicit
         in_range = low <= humidity <= high
     else:
-        low, high = sorted(humidity_range_bounds_for_stage(stage, leaf_temperature))
+        low, high = sorted(
+            humidity_range_bounds_for_stage(stage, air_temperature_c, leaf_temperature)
+        )
         in_range = vpd_is_in_range(leaf_vpd, stage)
 
     return Setpoint(

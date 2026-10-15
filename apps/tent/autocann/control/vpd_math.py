@@ -86,6 +86,45 @@ def calculate_vpd(temperature_c: float, humidity_percent: float) -> float:
     return round(svp - avp, 2)
 
 
+def calculate_leaf_vpd(
+    air_temperature_c: float, leaf_temperature_c: float, humidity_percent: float
+) -> float:
+    """
+    Leaf VPD in kPa: the saturation pressure at the leaf minus the vapour
+    pressure actually in the air.
+
+        VPD_leaf = SVP(T_leaf) - SVP(T_air) * RH / 100
+
+    The relative humidity is measured on the air, so the vapour it stands for
+    is SVP(T_air) * RH / 100 even though the leaf is the surface being judged.
+    Using SVP(T_leaf) for that term too would pretend the air is saturated at
+    the leaf's temperature and overstate the deficit by
+    RH * (SVP(T_air) - SVP(T_leaf)) — about 0.16 kPa at 25 °C / 60 % with a
+    1.5 °C leaf offset.
+    """
+    svp_leaf = saturation_vapor_pressure(leaf_temperature_c)
+    avp_air = saturation_vapor_pressure(air_temperature_c) * (humidity_percent / 100.0)
+    return round(svp_leaf - avp_air, 2)
+
+
+def calculate_humidity_for_leaf_vpd(
+    air_temperature_c: float, leaf_temperature_c: float, target_vpd_kpa: float
+) -> float:
+    """
+    Relative humidity (%) of the air that gives `target_vpd_kpa` at the leaf.
+
+    The inverse of `calculate_leaf_vpd`: solve
+    SVP(T_leaf) - SVP(T_air) * RH / 100 = target for RH, which gives
+    RH = (SVP(T_leaf) - target) / SVP(T_air) * 100. The denominator is the
+    air's saturation pressure because the humidity is a property of the air.
+    """
+    svp_leaf = saturation_vapor_pressure(leaf_temperature_c)
+    svp_air = saturation_vapor_pressure(air_temperature_c)
+    humidity = (svp_leaf - target_vpd_kpa) / svp_air * 100
+
+    return round(min(max(humidity, 0.0), 100.0), 2)
+
+
 def vpd_range_for_stage(stage: str) -> Tuple[float, float]:
     try:
         return VPD_RANGES[stage]
@@ -93,29 +132,43 @@ def vpd_range_for_stage(stage: str) -> Tuple[float, float]:
         raise ValueError(f"Unknown stage '{stage}'. Valid stages: {', '.join(STAGES)}") from None
 
 
-def humidity_range_bounds_for_stage(stage: str, temperature_c: float) -> Tuple[float, float]:
+def humidity_range_bounds_for_stage(
+    stage: str, air_temperature_c: float, leaf_temperature_c: Optional[float] = None
+) -> Tuple[float, float]:
     """
-    Humidity band (%) that keeps VPD inside the stage's band at this temperature.
+    Humidity band (%) of the air that keeps leaf VPD inside the stage's band.
+
+    `air_temperature_c` is the air the humidity is measured in; the leaf is at
+    `leaf_temperature_c`. Without a leaf temperature the leaf is taken to be at
+    the air's, and the result is the plain air-VPD band.
 
     Note the inversion: a *low* VPD needs *high* humidity, so the returned tuple
     is (humidity_at_vpd_min, humidity_at_vpd_max) and is therefore descending.
     """
+    if leaf_temperature_c is None:
+        leaf_temperature_c = air_temperature_c
     vpd_min, vpd_max = vpd_range_for_stage(stage)
     return (
-        calculate_humidity_for_vpd(temperature_c, vpd_min),
-        calculate_humidity_for_vpd(temperature_c, vpd_max),
+        calculate_humidity_for_leaf_vpd(air_temperature_c, leaf_temperature_c, vpd_min),
+        calculate_humidity_for_leaf_vpd(air_temperature_c, leaf_temperature_c, vpd_max),
     )
 
 
-def calculate_target_humidity(stage: str, temperature_c: float) -> float:
+def calculate_target_humidity(
+    stage: str, air_temperature_c: float, leaf_temperature_c: Optional[float] = None
+) -> float:
     """
-    Humidity setpoint (%) for a stage: the midpoint of the stage's humidity band.
+    Humidity setpoint (%) of the air for a stage: the midpoint of the stage's
+    humidity band at this air and leaf temperature.
 
-    Pass the *same* temperature the in-range check will use. The control loop
-    judges VPD at leaf temperature, so it must pass leaf temperature here too —
-    passing air temperature pushes the real setpoint to the wet edge of the band.
+    Pass the same air and leaf temperatures the in-range check will use. The
+    control loop judges VPD at the leaf, and the humidity it sets is the air's,
+    so both temperatures are needed: the leaf sets the target VPD, the air sets
+    how much vapour a given humidity means.
     """
-    low_bound, high_bound = humidity_range_bounds_for_stage(stage, temperature_c)
+    low_bound, high_bound = humidity_range_bounds_for_stage(
+        stage, air_temperature_c, leaf_temperature_c
+    )
     return round((low_bound + high_bound) / 2, 0)
 
 

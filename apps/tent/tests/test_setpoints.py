@@ -4,10 +4,15 @@ import pytest
 
 from autocann.cli.vpd import resolve_setpoint
 from autocann.control.vpd_math import (
+    LEAF_TEMP_OFFSET_C,
     STAGES,
     VPD_RANGES,
+    calculate_humidity_for_leaf_vpd,
+    calculate_leaf_vpd,
+    calculate_target_humidity,
     calculate_vpd,
     humidity_range_bounds_for_stage,
+    saturation_vapor_pressure,
     vpd_is_in_range,
 )
 
@@ -38,7 +43,9 @@ def test_hitting_the_target_lands_mid_band_not_at_an_edge(stage, temperature):
     target, leaf VPD should sit near the middle of the stage's kPa band.
     """
     setpoint = resolve_setpoint(stage, temperature, 50.0)
-    vpd_at_target = calculate_vpd(setpoint.leaf_temperature, setpoint.target_humidity)
+    vpd_at_target = calculate_leaf_vpd(
+        temperature, setpoint.leaf_temperature, setpoint.target_humidity
+    )
     vpd_min, vpd_max = VPD_RANGES[stage]
 
     assert vpd_is_in_range(vpd_at_target, stage)
@@ -84,10 +91,11 @@ def test_unknown_stage_is_rejected_rather_than_silently_accepted():
 
 @pytest.mark.parametrize("stage", [s for s in STAGES if s != "dry"])
 def test_humidity_band_matches_the_stages_kpa_band(stage):
-    low, high = sorted(humidity_range_bounds_for_stage(stage, 22.5))
+    leaf = round(22.5 - LEAF_TEMP_OFFSET_C, 1)
+    low, high = sorted(humidity_range_bounds_for_stage(stage, 22.5, leaf))
     vpd_min, vpd_max = VPD_RANGES[stage]
-    assert calculate_vpd(22.5, high) == pytest.approx(vpd_min, abs=0.02)
-    assert calculate_vpd(22.5, low) == pytest.approx(vpd_max, abs=0.02)
+    assert calculate_leaf_vpd(22.5, leaf, high) == pytest.approx(vpd_min, abs=0.02)
+    assert calculate_leaf_vpd(22.5, leaf, low) == pytest.approx(vpd_max, abs=0.02)
 
 
 def test_control_tuning_reads_the_environment(monkeypatch):
@@ -108,3 +116,58 @@ def test_control_tuning_rejects_nonsense(monkeypatch, value):
     monkeypatch.setenv("AUTOCANN_MIN_ON_SECONDS", value)
     with pytest.raises(ValueError):
         control_tuning_from_env()
+
+
+def test_leaf_vpd_takes_the_air_vapour_at_the_air_temperature():
+    """
+    Leaf VPD = SVP(leaf) - SVP(air) * RH/100. The humidity is a property of the
+    air, so the vapour term must use the air's saturation pressure; the old
+    formula used the leaf's and overstated the deficit.
+    """
+    air, leaf, rh = 25.0, 23.5, 60.0
+    expected = saturation_vapor_pressure(leaf) - saturation_vapor_pressure(air) * rh / 100
+    assert calculate_leaf_vpd(air, leaf, rh) == pytest.approx(round(expected, 2), abs=0.005)
+
+
+def test_leaf_vpd_equals_air_vpd_when_the_leaf_is_at_air_temperature():
+    for temperature in TEMPERATURES:
+        for humidity in HUMIDITIES:
+            assert calculate_leaf_vpd(temperature, temperature, humidity) == calculate_vpd(
+                temperature, humidity
+            )
+
+
+@pytest.mark.parametrize("target", [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.6])
+def test_humidity_for_leaf_vpd_round_trips_through_leaf_vpd(target):
+    air, leaf = 25.0, 23.5
+    humidity = calculate_humidity_for_leaf_vpd(air, leaf, target)
+    assert calculate_leaf_vpd(air, leaf, humidity) == pytest.approx(target, abs=0.01)
+
+
+def test_early_veg_band_at_25_c_with_the_leaf_offset_is_about_60_to_72_percent():
+    low, high = sorted(
+        humidity_range_bounds_for_stage("early_veg", 25.0, 25.0 - LEAF_TEMP_OFFSET_C)
+    )
+    assert low == pytest.approx(59.8, abs=0.1)
+    assert high == pytest.approx(72.5, abs=0.1)
+
+
+def test_humidity_band_without_a_leaf_temperature_is_the_air_only_band():
+    for stage in STAGES:
+        if stage == "dry":
+            continue
+        assert humidity_range_bounds_for_stage(stage, 24.0) == humidity_range_bounds_for_stage(
+            stage, 24.0, 24.0
+        )
+        assert calculate_target_humidity(stage, 24.0) == calculate_target_humidity(
+            stage, 24.0, 24.0
+        )
+
+
+def test_resolve_setpoint_band_is_the_leaf_band_at_the_air_temperature():
+    setpoint = resolve_setpoint("early_veg", 25.0, 60.0)
+    expected = sorted(
+        humidity_range_bounds_for_stage("early_veg", 25.0, round(25.0 - LEAF_TEMP_OFFSET_C, 1))
+    )
+    assert setpoint.humidity_band == pytest.approx(tuple(expected))
+    assert setpoint.leaf_vpd == calculate_leaf_vpd(25.0, setpoint.leaf_temperature, 60.0)

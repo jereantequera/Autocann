@@ -423,7 +423,7 @@ def create_app() -> Flask:
             else:
                 low, high = sorted(
                     humidity_range_bounds_for_stage(
-                        stage, round(temperature - LEAF_TEMP_OFFSET_C, 1)
+                        stage, temperature, round(temperature - LEAF_TEMP_OFFSET_C, 1)
                     )
                 )
             points.append({
