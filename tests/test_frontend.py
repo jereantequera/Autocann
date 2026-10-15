@@ -964,8 +964,8 @@ def test_monitoring_is_not_exempt_from_the_history_check():
     it writes, so a gap is as real a fault there as under control - and calling
     it expected would hide exactly the failure the mode exists to prevent.
     """
-    from autocann.web.diagnostics import history_verdict
     from autocann.config import MODE_MONITOR
+    from autocann.web.diagnostics import history_verdict
 
     assert history_verdict(999999, "paused")["level"] == "ok"
     assert history_verdict(999999, MODE_MONITOR)["level"] == "error"

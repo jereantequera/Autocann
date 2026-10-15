@@ -3,18 +3,22 @@
 Plan para ir agregando features de forma incremental. Cada fase es independiente
 y deja el sistema funcionando: se puede parar entre fases.
 
-**Estado:** Fases 0, 1 y 2 completas. Antes de seguir con la 3, [validar con el cultivo real](#validación-con-el-cultivo-real-dogfooding).
+**Estado:** Fases 0 a 3 completas, y la validación con data real ya se hizo
+(resultados del 2026-10-02 más abajo). Lo que sigue abierto es de la 4 en
+adelante, más el [dogfooding del hardware](#b--dogfooding-del-hardware), que es
+hoy lo que de verdad bloquea.
 
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | Refactor del front | ✅ |
 | 1 | Contador de días por etapa | ✅ |
 | 2 | Data más confiable | ✅ |
-| 3 | Calendario de riego | ⬜ |
+| 3 | Calendario de riego | ✅ con otro diseño — ver la fase |
 | 4 | Estadísticas más útiles | ⬜ |
 | 5 | Mejores filtros y visualizaciones | ⬜ |
 | 6 | Notificaciones configurables | ⬜ |
-| — | **Validación con el cultivo real** | ⬜ ← conviene hacerla ahora |
+| — | Validación con el cultivo real | ✅ 2026-10-02 |
+| — | **Dogfooding del hardware** | ⬜ ← lo que bloquea hoy |
 
 ---
 
@@ -54,7 +58,7 @@ responsive está pensado). Los problemas son estructurales:
 | Chart.js desde CDN sin fallback | ✅ corregido |
 | Todo en un archivo de 3013 líneas | ✅ corregido |
 | `VPD_RANGES` duplicado en el template | ✅ corregido |
-| Modales sin cierre con Escape; alertas sin `aria-live` | ✅ corregido (falta atrapar el foco) |
+| Modales sin cierre con Escape; alertas sin `aria-live` | ✅ corregido, foco atrapado incluido |
 
 ---
 
@@ -127,6 +131,11 @@ static/css/app.css          1298   extraído verbatim
 static/js/*.js              1520   9 módulos ES
 static/vendor/              234KB  Chart.js + plugin de anotaciones
 ```
+
+> [!NOTE]
+> Esa es la foto del día del refactor, no el inventario de hoy: el front creció
+> con las fases siguientes y va por **18 módulos ES y 16 parciales**. El
+> inventario vigente está en [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 **Una desviación del plan:** el CSS quedó en **un solo archivo** en vez de tres.
 El orden de las reglas *es* la cascada, y repartirlas por concepto arriesga
@@ -352,8 +361,15 @@ cualquier umbral absoluto.
 
 ### ✅ Hecho
 
-Los puntos 1 a 4. El 5 (cross-check entre sensores) queda para cuando haya un
-segundo sensor interior — sin él no hay nada que comparar.
+Los cinco puntos. El 5 (cross-check entre sensores) también está hecho:
+`autocann/control/drift.py` implementa los tres detectores — divergencia, valor
+congelado y pegado al tope de escala — con sus tests, y
+`GET /api/sensors/indoor` los expone.
+
+Lo que falta no es código sino un sensor **en el mismo aire que el primario**:
+el segundo DHT22 quedó encima de la lámpara a propósito, así que corre como
+observador y la carpa está sin detección de deriva hasta que haya un tercero.
+Ver [Sensores interiores y detección de deriva](./README.md#sensores-interiores-y-detección-de-deriva).
 
 **`autocann/control/sampling.py`** — las tres piezas, puras y sin I/O:
 `SampleAccumulator`, `Calibration` e `insert_gaps`.
@@ -395,7 +411,30 @@ marcadores de hueco en la API y 2 guards de frontend.
 
 ## Fase 3 — Calendario de riego
 
-### Esquema
+> [!IMPORTANT]
+> **Hecha, con otro diseño que el que plantea esta fase.** Lo que se construyó
+> es una **grilla de fertilización** más un registro de riegos, no un
+> programador de riego:
+>
+> | Lo que existe | Dónde |
+> |---|---|
+> | Tablas `feed_products`, `feed_plan`, `irrigations`, `irrigation_items` | `autocann/db.py` |
+> | `GET`/`POST /api/irrigations`, `DELETE /api/irrigations/<id>` | `autocann/web/app.py` |
+> | `GET`/`PUT /api/feed-plan`, `GET /api/feeding/today` | `autocann/web/app.py` |
+> | La aritmética de la grilla, pura | `autocann/control/feeding.py` |
+> | Vista *Riego*, `feeding.js`, `calendar.js`, parciales `feeding.html` y `today-feed.html` | `autocann/web/` |
+> | 54 tests | `tests/test_feeding.py`, `tests/test_feed_plan_api.py` |
+>
+> Lo que esta fase pedía con los nombres `irrigation_schedules`,
+> `control/irrigation.py`, `next_due()`, `/api/irrigation/calendar` y
+> `/api/irrigation/next` **no existe**. La diferencia es de fondo, no de
+> nombres: lo que se hizo contesta *"con qué riego hoy"* leyendo un feed chart,
+> mientras que el esquema de abajo contesta *"cuándo toca regar"* programando
+> recurrencias. Se eligió lo primero porque es lo que el cultivador mira cada
+> día; lo segundo sigue sin hacerse y el esquema queda acá por si algún día se
+> quiere.
+
+### Esquema propuesto (no implementado)
 
 ```sql
 CREATE TABLE irrigation_schedules (
@@ -661,12 +700,20 @@ que el problema dominante es otro, mejor saberlo antes de construir tres fases m
 La base de producción vive en la Raspberry (`/home/autocann/Autocann/data/autocann.db`)
 y nunca se miró con las herramientas nuevas.
 
-**Traerla:** ✅ listo, falta prender la Raspberry.
+**Traerla:** ✅ hecho. El snapshot que se leyó es
+`data/produccion-20261002-1642.db`, y los resultados están más abajo.
 
 ```bash
 make pull-data                              # snapshot consistente + descarga
 make inspect-data DB=data/produccion-....db # reporte sobre la copia
 ```
+
+> [!NOTE]
+> El default del Makefile es `RPI_HOST ?= autocann.local`, y ese nombre **no
+> resuelve desde la Mac**: sin override el comando se cuelga en el paso de ssh.
+> Lo que lo hace funcionar acá es `config.mk` (local y gitignoreado), que fija
+> la IP. En una máquina sin `config.mk` hay que pasarla a mano:
+> `make pull-data RPI_HOST=192.168.100.37`.
 
 `pull-data` usa la API de backup de SQLite **en la Raspberry** y no `scp` del
 archivo: la base está en WAL y el loop escribe cada 5 minutos, así que copiar el
@@ -819,11 +866,17 @@ Correrlo en la carpa y dejar que la realidad opine.
 
 **Lo primero, con la carpa parada:**
 
-- ⚠️ **Verificar el mapa de pines contra el cableado.** El README decía
-  humidificador=25 y ventilación=7, el código usa 7 y 25 al revés. Se corrigió la
-  documentación y no el código, pero nadie miró el cable todavía.
-- `make check` en la Raspberry: ahora chequea el hardware real y avisa si hay más
-  de un loop corriendo.
+- ~~⚠️ **Verificar el mapa de pines contra el cableado.**~~ **Quedó sin efecto.**
+  La advertencia era sobre los pines GPIO de la propia Raspberry (humidificador
+  vs. ventilación, 25 y 7 cruzados). Producción corre con
+  `AUTOCANN_RELAY_MODE=remote`, así que **los pines del circuito son los del
+  nodo** — 25/26/27 de `RelayNodePins`, verificados contra el firmware por
+  `make test`. El mapa viejo sólo volvería a importar si alguna vez se vuelve a
+  `gpio`, y ahí sí hay que mirar el cable.
+- `make check` en la Raspberry: chequea el hardware real y avisa si hay más
+  de un loop corriendo. Corrélo **a través de `start_services.sh`** o con
+  `AUTOCANN_RELAY_MODE=remote` en el entorno; suelto en la Pi cae en el default
+  y te informa la placa equivocada.
 
 **Después, dejarlo correr unos días y medir:**
 
@@ -840,9 +893,16 @@ menos poner los dos sensores juntos una hora y ver cuánto difieren entre sí �
 diferencia ya es información.
 
 **Ajustar los mínimos a cada equipo.** Los defaults (60 s encendido, 180 s apagado,
-120 s de cambio) son un punto de partida razonable, no una medición. Para un
-deshumidificador con compresor, `AUTOCANN_MIN_OFF_SECONDS=300` es más sano. Se
-cambia por variable de entorno, sin tocar código.
+120 s de cambio) son un punto de partida razonable, no una medición. Se cambian
+por variable de entorno, sin tocar código.
+
+Este documento recomendaba `AUTOCANN_MIN_OFF_SECONDS=300` para proteger el
+compresor de un deshumidificador. **En esta instalación no aplica**: lo que el
+código llama `humidity_down` es un ventilador de extracción, y un ventilador no
+tiene pico de arranque que justifique cinco minutos de espera. Hoy corre con el
+default de 180 s y `start_services.sh` no exporta la variable, que es lo
+correcto mientras el equipo sea un ventilador. Si algún día entra un
+deshumidificador por compresor, ahí sí hay que exportarla.
 
 **Recién después, decidir el hardware.** [HARDWARE.md](./HARDWARE.md) recomienda
 cambiar el DHT22 por un SHT41 y mover el control a un ESP32. Los dos son
@@ -889,17 +949,20 @@ exención en silencio.
 ## Orden recomendado
 
 ```
-Fase 0 (refactor del front)        ← habilita todo lo demás
-   └─> Fase 1 (días por etapa)
-          └─> Fase 2 (data confiable)
-                 └─> Fase 3 (calendario de riego)
-                        └─> Fase 4 (estadísticas)
-                               └─> Fase 5 (filtros y visualizaciones)
-                                      └─> Fase 6 (notificaciones)
+Fase 0 (refactor del front)        ✅ habilitó todo lo demás
+   └─> Fase 1 (días por etapa)     ✅
+          └─> Fase 2 (data confiable)          ✅
+                 └─> Fase 3 (riego/fertilización)  ✅ con otro diseño
+                        └─> Fase 4 (estadísticas)         ⬜ acá estamos
+                               └─> Fase 5 (filtros y visualizaciones)  ⬜
+                                      └─> Fase 6 (notificaciones)      ⬜
 
-Fase 7 (PIN) — en cualquier momento, antes de exponer el dashboard fuera de la LAN
+Backlog #7 (PIN) ✅ hecho, pero sin configurar en producción
 
-Validación con el cultivo real — intercalada acá, entre la fase 2 y la 3
+Validación con el cultivo real ✅ 2026-10-02
+
+Dogfooding del hardware ⬜ ← lo único que bloquea de verdad: humidistato
+                             mecánico, tercer DHT22 y calibración
 ```
 
 **Por qué este orden:**

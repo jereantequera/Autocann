@@ -33,6 +33,36 @@ Todo en `autocann/redis_pool.py`, un solo lugar con los números y el motivo de
 cada uno, usado por el backend y por el lazo. Los clientes cortos de
 `check_system` y `compact_db` quedan como estaban: viven lo que dura un comando
 y ya fallaban rápido al conectar.
+
+## Mirar la carpa sin manejarla
+
+Había dos estados y alcanzaban para uno de los dos motivos por los que una
+carpa está sin controlar. "No decidas" y "no guardes" eran el mismo camino de
+código: la rama de pausa corta antes de llegar al acumulador, así que pausar
+era también dejar de registrar.
+
+Para trabajo de banco está bien. Si alguien le sopla a un sensor y fuerza relés
+a mano, grabarlo mete basura en la historia que después se lee como
+comportamiento real de la carpa.
+
+Pero es exactamente lo contrario de lo que hace falta en la **puesta a punto**,
+que es el otro motivo. Antes de que germinen las semillas, lo que la pieza hace
+sola es el dato más útil que hay: cuánto se va de noche con nada prendido, si
+los dos sensores coinciden, en qué humedad se queda. Ese es el baseline que uno
+quiere **antes** de que haya plantas, y la carpa lo estaba tirando a la basura
+justo en los días en que es gratis medirlo.
+
+Así que ahora son tres: `active` decide y guarda, `monitor` no decide y guarda
+igual, `paused` no decide y no guarda. Los dos últimos son `UNCONTROLLED_MODES`
+y comparten todo lo demás — el estado deseado se sigue publicando cada ciclo,
+porque el nodo desenergiza a los 60 s de silencio.
+
+Un detalle de compatibilidad que importa: el registro en la base guarda
+`{"active", "since", "mode"}`, y uno escrito antes de que existiera el
+monitoreo no tiene `mode`. Se lee **como pausa**, que es lo que significaban
+todos. Adivinar al revés habría devuelto al controlador una carpa que alguien
+detuvo a propósito, en el mismo deploy que agregó el tercer estado.
+
 ## La plántula es una etapa, no el día 1 de vegetativo
 
 El modelo arrancaba en `early_veg` y no tenía nada antes. Un cultivo cargado el
@@ -951,7 +981,11 @@ comportamiento de los relés. No existían tests. Además configuración de `ruf
 ### Pendiente
 
 - `ventilation` tiene pin y endpoint, pero ninguna lógica automática: hoy sólo
-  responde a overrides manuales.
-- `uv.lock` está en `.gitignore`. Para un deploy reproducible conviene commitearlo.
-- La API no tiene autenticación. En una LAN de confianza puede estar bien, pero
-  `POST /api/output-control` conmuta hardware.
+  responde a overrides manuales. Es el backlog #11 del
+  [ROADMAP](./ROADMAP.md#backlog-sin-orden-fijo).
+- ~~`uv.lock` está en `.gitignore`.~~ Resuelto: está trackeado, y el
+  `.gitignore` explica por qué se lo dejó afuera de la lista a propósito.
+- ~~La API no tiene autenticación.~~ Resuelto con `AUTOCANN_PIN`. Queda un
+  matiz: **el PIN existe pero no está configurado en producción**, y sin la
+  variable nada pide autenticación — que es el comportamiento buscado, no un
+  bug. Tampoco hay HTTPS, así que cuando se configure viaja en claro por la LAN.

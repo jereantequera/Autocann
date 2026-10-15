@@ -5,22 +5,113 @@
 El sistema ahora utiliza una arquitectura híbrida para almacenamiento de datos:
 
 ### Redis (Datos en Tiempo Real)
-- **Propósito**: Datos actuales y estados de control
+- **Propósito**: Datos actuales y estados de control. Es el camino rápido, no la
+  verdad: lo que tiene que sobrevivir a un reinicio vive en SQLite.
 - **Claves almacenadas**:
   - `sensors`: Última lectura de sensores
   - `humidity_control_up`: Estado del humidificador
   - `humidity_control_down`: Estado del deshumidificador
   - `ventilation_control`: Estado de la ventilación
-  - `historical_data_*`: Ventanas de tiempo cortas (6h, 12h, 24h, 1w)
+  - `desired_outputs`: El estado que el nodo de relés consulta cada 2 s
+  - `test_mode_since` / `test_mode_outputs`: El espejo del modo y los relés
+    forzados a mano
+  - `indoor_drift_baseline`: El offset aprendido entre los dos sensores
+    interiores (hoy sin uso: ver [Sensores interiores y detección de
+    deriva](./README.md#sensores-interiores-y-detección-de-deriva))
+
+> [!NOTE]
+> Las claves `historical_data_*` **ya no existen**. Guardaban en Redis las
+> mismas series que están en SQLite, el dashboard nunca las leyó, y el bug que
+> las alimentaba hacía crecer el blob JSON sin límite: eran el 89 % de la
+> memoria de Redis. Ver [CHANGELOG.md](./CHANGELOG.md).
 
 ### SQLite (Datos Históricos)
 - **Propósito**: Persistencia a largo plazo de todas las lecturas
 - **Ubicación**: `/data/autocann.db`
 - **Tablas**:
-  - `sensor_data`: Todas las lecturas de sensores
-  - `control_events`: Historial de cambios de control
+  - `sensor_data`: Todas las lecturas de sensores (avg/min/max por intervalo)
+  - `control_events`: Historial de cambios de control (sólo transiciones)
+  - `grows` / `stage_events`: Cultivos y el historial de cambios de etapa
+  - `sensor_calibration`: Offsets por sensor, reversibles
+  - `settings`: Configuración que sobrevive reinicios (el modo, las franjas)
+  - `feed_products` / `feed_plan`: La grilla de fertilización
+  - `irrigations` / `irrigation_items`: El registro de riegos y qué llevó cada uno
 
 ## API Endpoints
+
+### Referencia completa
+
+Las 36 rutas. Las de historial y analítica están explicadas con ejemplos más
+abajo; el resto se documenta acá y en el README.
+
+**Estado y datos actuales**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /` | El dashboard |
+| `GET /api/config` | Etapas, rangos y salidas, para que el front no los duplique |
+| `GET /api/current-data` | Estado actual de sensores y control, desde Redis |
+| `GET /api/health` | **¿Anda?** El veredicto único, con el motivo y qué mirar |
+| `GET /api/sensor-status` | Conectividad de los sensores |
+| `GET /api/sensor/indoor` | La última lectura del primario |
+| `POST /api/sensor/indoor` | Entrada de datos del nodo ESP32 — **exenta del PIN** |
+| `GET /api/sensors/indoor` | Todos los interiores a la vez, con rol, antigüedad y veredicto de deriva |
+| `GET /api/calibration` · `POST /api/calibration` | Offsets por sensor |
+
+**Relés y modos**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/output-status` | Estado de los relés y overrides, con la placa y el pin que conmutan |
+| `POST /api/output-control` | Override manual de una salida |
+| `GET /api/outputs/desired` | El estado deseado que consulta el nodo — **exenta del PIN** |
+| `GET /api/test-mode` · `POST /api/test-mode` | El modo: `active`, `monitor` o `paused` |
+| `POST /api/test-mode/outputs` | Accionar un relé a mano mientras no hay control |
+| `GET /api/quiet-hours` · `PUT /api/quiet-hours` | Las franjas de silencio por salida |
+
+**Historial y analítica**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/sensor-history` | Historial con filtros |
+| `GET /api/history/aggregated` | Datos agregados para gráficos |
+| `GET /api/period-summary` | Resumen de un período para las tarjetas |
+| `GET /api/database-stats` | Estadísticas de la base |
+| `GET /api/vpd-score` | El score de VPD |
+| `GET /api/weekly-report` | El reporte semanal |
+| `GET /api/anomalies` | Detección de anomalías |
+
+**Cultivos**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/grows` · `POST /api/grows` | Listar y crear cultivos |
+| `GET /api/grows/active` | El cultivo activo |
+| `POST /api/grows/<id>/activate` · `POST /api/grows/<id>/end` | Activar y cerrar |
+| `GET /api/grows/<id>/timeline` | La línea de tiempo de etapas |
+| `PUT /api/grows/<id>/stage` | Cambiar de etapa |
+
+**Riego y fertilización**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/feed-plan` · `PUT /api/feed-plan` | La grilla de fertilización |
+| `GET /api/feeding/today` | La dosis que toca hoy, escalada a los litros que se mezclan |
+| `GET /api/irrigations` · `POST /api/irrigations` | Listar y registrar riegos |
+| `DELETE /api/irrigations/<id>` | Borrar un riego |
+
+**Nodos y sesión**
+
+| Método y ruta | Qué hace |
+|---|---|
+| `POST /api/node/log` | El reporte propio de un nodo — **exenta del PIN** |
+| `GET /api/node/log` · `GET /api/nodes` | Ese log y ese diagnóstico, para el dashboard |
+| `GET /api/auth` · `POST /api/login` · `POST /api/logout` | El PIN, cuando está configurado |
+
+> [!NOTE]
+> Las tres rutas marcadas como exentas lo están **a propósito y para siempre**.
+> Un 401 en `GET /api/outputs/desired` desenergiza la carpa a los 60 s. Ver
+> [Un PIN delante del panel](./README.md#un-pin-delante-del-panel).
 
 ### 1. Datos Actuales (Redis)
 

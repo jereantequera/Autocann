@@ -163,7 +163,22 @@ http://<ip-de-tu-raspberry>:5000
   placa y el pin que efectivamente conmutan cada salida
 - `POST /api/output-control` - Override manual de una salida (ver abajo)
 - `POST /api/sensor/indoor` - Entrada de datos del ESP32
+- `GET /api/sensor/indoor` - La última lectura del primario
+- `GET /api/outputs/desired` - El estado deseado que consulta el nodo de relés
+  (ver [Relés en un nodo remoto](#relés-en-un-nodo-remoto))
 - `GET /api/vpd-score`, `GET /api/weekly-report`, `GET /api/anomalies` - Analítica
+- `GET /api/period-summary` - Resumen de un período para las tarjetas
+- `GET /api/config` - Etapas, rangos y salidas, para que el front no los duplique
+- `GET`/`POST /api/calibration` - Offsets por sensor, reversibles
+- `GET`/`PUT /api/quiet-hours` - Las franjas de silencio por salida
+- `GET`/`POST /api/grows`, `GET /api/grows/active`,
+  `POST /api/grows/<id>/activate`, `POST /api/grows/<id>/end`,
+  `GET /api/grows/<id>/timeline`, `PUT /api/grows/<id>/stage` - Cultivos y etapas
+- `GET`/`PUT /api/feed-plan`, `GET /api/feeding/today` - La grilla de
+  fertilización y la dosis que toca hoy
+- `GET`/`POST /api/irrigations`, `DELETE /api/irrigations/<id>` - El registro de riegos
+- `GET /api/auth`, `POST /api/login`, `POST /api/logout` - El PIN, cuando está
+  configurado (ver [Un PIN delante del panel](#un-pin-delante-del-panel))
 
 > `GET /api/historical-data` fue eliminado. Guardaba las mismas series en Redis
 > que ya están en SQLite, el dashboard nunca lo usó, y el bug que lo alimentaba
@@ -234,14 +249,42 @@ AUTOCANN_PIN_HUMIDITY_DOWN=7 uv run python -m autocann.cli.vpd early_veg
 Una instalación con un solo sensor no necesita configurar nada: el ESP32 postea
 a `/api/sensor/indoor` sin `sensor_id` y el lazo lee la clave de siempre.
 
-Con **dos sensores** se puede detectar la falla que ni el filtro de mediana ni
-el failsafe por dato viejo ven: un sensor degradado que sigue informando un
-número plausible, estable y en rango, que el control obedece.
+Con **dos sensores en el mismo aire** se puede detectar la falla que ni el
+filtro de mediana ni el failsafe por dato viejo ven: un sensor degradado que
+sigue informando un número plausible, estable y en rango, que el control
+obedece.
+
+Un sensor interior puede tener uno de **tres roles**:
 
 ```bash
-AUTOCANN_INDOOR_PRIMARY=a    # decide: es el que controla la carpa
-AUTOCANN_INDOOR_WITNESS=b    # testigo: no controla nada, solo vigila al primario
+AUTOCANN_INDOOR_PRIMARY=a      # decide: es el que controla la carpa
+AUTOCANN_INDOOR_WITNESS=b      # testigo: no controla, vigila al primario por deriva
+AUTOCANN_INDOOR_OBSERVERS=c,d  # observación: se leen y se muestran, nada más
 ```
+
+El **testigo** tiene que estar en el mismo aire que el primario, porque de eso
+depende que el offset entre los dos sea estable. Un **observador** no controla
+ni se cruza con nadie: existe porque un sensor puede valer la pena de leer
+siendo inútil como testigo. Darle un rol en vez de borrarlo es lo que lo
+mantiene en el panel.
+
+> [!IMPORTANT]
+> **Esta carpa hoy NO tiene detección de deriva.** Producción corre con
+> `AUTOCANN_INDOOR_WITNESS` vacío y `AUTOCANN_INDOOR_OBSERVERS=b`, así que
+> `/api/health` informa `has_witness: false` y `drift: null`.
+>
+> El motivo es físico y deliberado: `b` está **encima de la lámpara**, porque
+> interesa saber la temperatura ahí arriba, y no se va a mover. Eso lo
+> descalifica como testigo — el offset contra `a` se abre y se cierra con el
+> fotoperíodo, así que el detector mediría la luz y no la salud del sensor. Con
+> una sola mediana no se describen dos regímenes: el base queda en el medio,
+> alarma en cada transición y tapa la deriva real el resto del tiempo. Medido el
+> 2026-10-12: base +2,40 °C, diferencia instantánea +0,9 °C, o sea 1,5 °C de
+> separación, que es justo el umbral.
+>
+> Lo que devuelve la detección es un **tercer DHT22 al lado de `a`**, a la
+> sombra y al nivel del canopy. Hasta entonces la degradación silenciosa por UV
+> —la falla que se llevó el juego de sensores anterior— no tiene vigilancia.
 
 Cada ESP32 postea con su `sensor_id` y cada lectura va a su propia clave
 (`esp32_indoor:a`, `esp32_indoor:b`).
@@ -264,6 +307,10 @@ sensor hay que borrarlo:
 redis-cli DEL indoor_drift_baseline
 ```
 
+A mano, y no hay otra forma: `drift.reset_baseline()` existe en el código pero
+**no está cableada a ningún endpoint, CLI ni botón**. Si algún día el cambio de
+sensor se vuelve rutina, ahí está la función esperando.
+
 El veredicto sale en `sensor_status` bajo la clave `drift`. **Ninguna de las
 tres condiciones apaga nada**: un sensor que deriva no es motivo para
 desenergizar la carpa — para eso está el failsafe — es motivo para avisarte cuál
@@ -271,16 +318,18 @@ sensor desconfiar.
 
 **En el dashboard**, la sección *Sensores Interiores* muestra una tarjeta por
 sensor con su lectura cruda — lo que posteó el nodo, antes del filtro de mediana
-y de la calibración — más una tarjeta de diferencia (testigo − primario) contra
-el offset base aprendido. Las tarjetas grandes de arriba siguen mostrando el
+y de la calibración — y, **cuando hay testigo configurado**, una tarjeta de
+diferencia (testigo − primario) contra el offset base aprendido. Con un
+observador en vez de un testigo esa tarjeta no aparece, porque no habría nada
+contra qué comparar. Las tarjetas grandes de arriba siguen mostrando el
 primario ya filtrado, que es el número sobre el que decide el control, así que
 pueden diferir unas décimas y ambas estar bien.
 
-La lista sale de `GET /api/sensors/indoor`, que lee `AUTOCANN_INDOOR_PRIMARY` /
-`AUTOCANN_INDOOR_WITNESS`: **el backend también necesita esas variables**, no
-sólo el lazo. Sin ellas responde como instalación de un solo sensor y el testigo
-no aparece en pantalla. `scripts/start_services.sh` las exporta antes de arrancar
-los dos procesos.
+La lista sale de `GET /api/sensors/indoor`, que lee `AUTOCANN_INDOOR_PRIMARY`,
+`AUTOCANN_INDOOR_WITNESS` y `AUTOCANN_INDOOR_OBSERVERS`: **el backend también
+necesita esas variables**, no sólo el lazo. Sin ellas responde como instalación
+de un solo sensor y los demás sensores no aparecen en pantalla.
+`scripts/start_services.sh` las exporta antes de arrancar los dos procesos.
 
 El firmware del nodo está en `firmware/sensor_node/sensor_node.ino`.
 
@@ -341,9 +390,41 @@ es un problema físico.
 > toques — es lo único que permite saber, mirando la web, si el nodo tiene
 > grabado lo último.
 
-## Pausa
+## Modos: activo, monitoreo y pausa
 
-Para trabajo de banco: **el lazo deja de decidir y no se guarda nada**. Los
+El lazo tiene tres estados, y la diferencia entre los dos que no controlan está
+en si se guarda historia o no:
+
+| Modo | ¿Decide? | ¿Guarda histórico? | Para qué |
+|---|---|---|---|
+| `active` | sí | sí | lo normal |
+| `monitor` | no | **sí** | puesta a punto: ver qué hace la pieza sola |
+| `paused` | no | no | meter mano en la instalación |
+
+Los tres se validan contra `CONTROL_MODES` cuando llegan por `/api/test-mode`, y
+los dos últimos son `UNCONTROLLED_MODES`: el lazo publica el estado deseado
+igual, pero no elige nada.
+
+### Monitoreo — mirar sin manejar
+
+**El lazo no decide y la historia se escribe igual.** Antes había dos estados
+nada más, y "no decidas" y "no guardes" eran el mismo camino de código, porque
+la rama de pausa corta antes de llegar al acumulador.
+
+Para trabajo de banco eso está bien: si alguien le sopla a un sensor y fuerza
+relés a mano, grabarlo mete basura en la historia que después se lee como
+comportamiento real de la carpa. Pero es exactamente lo contrario de lo que hace
+falta en la **puesta a punto**, que es la otra razón por la que una carpa está
+sin controlar. Antes de que germinen las semillas, lo que la pieza hace sola es
+el dato más útil que hay: cuánto se va de noche con nada prendido, si los dos
+sensores coinciden, en qué humedad se queda. Ese es justamente el baseline que
+uno quiere **antes** de que haya plantas, y la carpa lo estaba tirando.
+
+Así que en monitoreo: nada decide, nada conmuta, todo se registra.
+
+### Pausa — para meter mano
+
+**El lazo deja de decidir y no se guarda nada.** Los
 relés quedan donde se los ponga desde el dashboard, y ni las muestras ni los
 eventos de control llegan a SQLite — una sesión moviendo relés a mano no es
 historia del cultivo.
@@ -371,6 +452,12 @@ Redis **inalcanzable** sí vuelve a automático, que es distinto — sin Redis
 tampoco se pueden mover los relés a mano, así que quedarse en pausa sin que
 nadie pueda intervenir no le sirve a nadie.
 
+El registro guarda `{"active", "since", "mode"}`. Uno escrito antes de que
+existiera el monitoreo no tiene `mode`, y **se lee como pausa**: es lo que
+significaban todos, y adivinar al revés habría devuelto al controlador una
+carpa que alguien detuvo a propósito, justo en el deploy que agregó el tercer
+estado.
+
 Lo que **sigue valiendo** durante la pausa:
 
 - Los **mínimos de encendido/apagado**. Protegen el equipo, y al equipo no le
@@ -382,6 +469,74 @@ Lo que **sigue valiendo** durante la pausa:
 > [!NOTE]
 > Con la pausa puesta no se guarda histórico, y el hueco crece mientras dure.
 > `/api/anomalies` lo sabe y no lo reporta como sensor desconectado.
+
+## Franjas de silencio
+
+Una ventana por salida en la que el controlador **no puede elegir arrancarla**.
+Lo que el código llama "deshumidificador" en esta instalación es un ventilador
+de extracción exterior, y es ruidoso: hacerlo andar a las cuatro de la mañana es
+un costo sin contrapartida.
+
+Se configuran en *Sistema → Franjas de silencio*, o por `GET`/`PUT
+/api/quiet-hours`. Cada ventana tiene `enabled`, `start`, `end` y un
+`max_humidity` opcional. Las ventanas que cruzan la medianoche funcionan
+(00:00–09:00 es la que está puesta hoy).
+
+**Restringe la decisión, no el relé.** Forzar un contacto abierto por detrás del
+controlador dejaría su contabilidad de tiempos mínimos describiendo un equipo
+que no está andando: creería que el ventilador estuvo toda la noche en marcha, y
+el primer comando después de la ventana podría cortarle el ciclo al de verdad.
+Acá el controlador simplemente nunca elige esa acción, así que todos sus timers
+siguen siendo ciertos.
+
+Tres cosas quedan **afuera** del alcance de la ventana, a propósito:
+
+- **Un comando manual.** Alguien que prende un ventilador a las 4 AM decidió
+  algo que esto no puede saber.
+- **Apagar.** La ventana bloquea arrancar, nunca detener, y nunca le corta un
+  tiempo mínimo de encendido. Un equipo que ya venía andando cuando se abre la
+  ventana termina el mínimo que lo protege y después se queda apagado.
+- **El escape por humedad.** `max_humidity` es la humedad a partir de la cual la
+  ventana se ignora, porque el silencio no vale un cultivo: una noche al 85 % es
+  hongo. Dejalo sin definir para un bloqueo duro.
+
+Una ventana con la configuración corrupta **no aplica**: se parsea sin tirar
+excepción, porque una fila ilegible no puede impedirle al lazo seguir
+controlando.
+
+## Un PIN delante del panel
+
+La API conmuta hardware. Cualquiera en la LAN podría cerrar un relé, pausar el
+controlador o borrar la grilla de fertilización. El PIN es la respuesta mínima a
+eso, y es **opcional**:
+
+```bash
+AUTOCANN_PIN=1234    # en el entorno de los servicios
+```
+
+**Sin la variable, el comportamiento es exactamente el de antes**: nada pide
+nada. Un deploy que se olvida de la variable no puede dejar al cultivador
+afuera de su propio panel — no poder ver la carpa es peor que que la vea
+alguien más. Hoy producción corre **sin PIN configurado**.
+
+Con PIN: la sesión dura 30 días, y una dirección que falla 10 veces espera 5
+minutos antes de poder seguir probando.
+
+**Tres endpoints están exentos a propósito y para siempre:**
+
+| Endpoint | Por qué |
+|---|---|
+| `GET /api/outputs/desired` | un 401 acá **desenergiza la carpa** a los 60 s, cuando al nodo se le vence el watchdog |
+| `POST /api/sensor/indoor` | dos números dentro de rangos físicos y un id contra un patrón estricto |
+| `POST /api/node/log` | líneas de log a un buffer circular acotado |
+
+El primero es de sólo lectura y los otros dos están validados antes de tocar
+nada. Lo que vale la pena proteger es la mitad de la API que mueve relés, y esa
+mitad queda cubierta. Hay tests que fallan si alguien les saca la exención.
+
+> [!WARNING]
+> No hay HTTPS, así que el PIN viaja en claro por la LAN. Esto es una barrera
+> contra el accidente y el curioso de la misma red, no contra un atacante.
 
 ## Relés en un nodo remoto
 

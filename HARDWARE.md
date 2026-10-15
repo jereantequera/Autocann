@@ -82,12 +82,16 @@ efectivamente montado y verificado de punta a punta.
 │ GPIO 32 → DHT22 "a"  │   │ GPIO 25 → IN1 hum+   │   │ decide · dashboard  │
 │          primario    │   │ GPIO 26 → IN2 hum−   │   │ SQLite · Redis      │
 │ GPIO 33 → DHT22 "b"  │   │ GPIO 27 → IN3 vent   │   │ DHT22 exterior      │
-│          testigo     │   │                      │   │                     │
-│ postea cada 10 s     │   │ consulta cada 2 s    │   │ publica cada ciclo  │
+│          observador  │   │                      │   │                     │
+│ postea cada ~12 s    │   │ consulta cada 2 s    │   │ publica cada ciclo  │
 └──────────────────────┘   └──────────────────────┘   └─────────────────────┘
 ```
 
 Las dos placas son **NodeMCU ESP-32S V1.1** (38 pines, CP2102).
+
+Los ~12 s del nodo de sensores son 10 s de intervalo más 2,2 s de asentamiento
+entre los dos DHT22. Entra holgado en los 60 s que el lazo tolera antes de
+declarar el dato viejo.
 
 ### La placa de relés, y por qué importa el detalle
 
@@ -113,6 +117,11 @@ los pines IN reposarían en 5 V y los GPIO del ESP32 no son tolerantes. En esta
 placa se midió que 3,3 V alcanzan para manejar los EL817, cosa que no está
 garantizada en general.
 
+`JD-VCC` va a una **fuente aparte**, una Pronext FU2-5V2000 (5 V 2 A
+conmutada, ficha IRAM, sello S). Es lo que mantiene la corriente de bobina
+fuera del rail de lógica, que es la parte que sí se puede conseguir en esta
+placa.
+
 ### Failsafes verificados contra fallas reales
 
 | Falla | Qué la cubre | Probado |
@@ -125,13 +134,32 @@ garantizada en general.
 
 ### Lo que falta
 
-1. **El 220 V no está cableado.** El deshumidificador va por contactor, no
-   directo al contacto del relé: los 10 A del SRD-05VDC son resistivos y un
-   compresor suelda el contacto. Snubber RC más MOV en cada carga inductiva.
-2. **Borrar la base de deriva** ahora que los sensores están en posición
-   definitiva, y dejar que la reaprenda:
-   `docker exec redis-stack-server redis-cli DEL indoor_drift_baseline`
-3. **El humidistato mecánico**, que es el único que sobrevive a todo lo demás.
+1. **El humidistato mecánico**, que es el único que sobrevive a todo lo demás.
+   Es la única fila con ❌ en la tabla de arriba.
+2. **Snubber RC más MOV en cada carga inductiva**, montados en la carga. El
+   ventilador de extracción sigue siendo carga inductiva aunque no sea un
+   compresor.
+3. **Un tercer DHT22 al lado del primario**, a la sombra y al nivel del canopy,
+   que es lo único que devuelve la detección de deriva. Ver abajo.
+
+### Lo que ya se hizo y este documento decía mal
+
+- **El 220 V está cableado** (2026-10-12). Las cargas van en `COM` + `NO`,
+  nunca en `NC`.
+- **El contactor no hace falta en esta instalación.** Este documento pedía uno
+  porque el pico de arranque de un compresor suelda el contacto del
+  SRD-05VDC, cuyos 10 A son resistivos. Pero lo que el código llama
+  `humidity_down` / "deshumidificador" **no es un deshumidificador por
+  compresor: es un ventilador de extracción exterior.** Ese riesgo no aplica
+  acá. El snubber sí, por inductiva.
+- **Borrar la base de deriva** ya pasó, y no se va a reaprender.
+  `indoor_drift_baseline` no está más en Redis (verificado 2026-10-13), y
+  producción corre con `AUTOCANN_INDOOR_WITNESS` vacío: el sensor `b` quedó
+  **encima de la lámpara** a propósito, porque interesa saber la temperatura
+  ahí, así que su offset contra `a` se mueve con el fotoperíodo y no sirve de
+  testigo. Hoy **no hay detección de deriva**, y la degradación silenciosa por
+  UV — la falla que se llevó el juego de sensores anterior — no tiene
+  vigilancia. Lo que la devuelve es el tercer DHT22, no borrar una clave.
 
 ## El diagnóstico
 
@@ -247,12 +275,17 @@ orden de preferencia:
 
 - **Booteá desde SSD por USB, no desde microSD.** Las SD se corrompen con
   escrituras constantes; es la falla más común en estos proyectos.
-- **Activá el watchdog de hardware**: `dtparam=watchdog=on` en
-  `/boot/firmware/config.txt` y `RuntimeWatchdogSec=15` en
-  `/etc/systemd/system.conf`.
-- **Corré los servicios con systemd**, no con `start_services.sh` + `pkill`.
-  `Restart=always` hace bien y sin bugs lo que el script intenta hacer. Ver la
-  sección siguiente.
+- ~~**Activá el watchdog de hardware.**~~ **Hecho (2026-10-12):**
+  `/etc/systemd/system.conf.d/watchdog.conf` con `RuntimeWatchdogSec=14s`, y
+  systemd alimenta `/dev/watchdog0`. **14 s y no 15**: el BCM2835 topea en 15
+  por hardware, y pedir más hace que el kernel lo recorte mientras systemd
+  sigue alimentando cada (lo pedido)/2 — así se consiguen reseteos espurios.
+  Cubre **kernel colgado** y nada más; que se caiga el lazo ya lo cubre
+  `Restart=always`.
+- ~~**Corré los servicios con systemd.**~~ **Hecho:** `fix-vpd.service` está
+  instalado y habilitado, así que los servicios vuelven al bootear y
+  `make deploy` reinicia por systemd. Ver
+  [INSTALL.md](./INSTALL.md#los-servicios-corren-bajo-systemd-fix-vpdservice).
 - **Módulo RTC DS3231.** Sin él, la Pi arranca con la hora mal hasta que agarra
   NTP, y los timestamps del histórico salen torcidos.
 - UPS o PoE HAT, o al menos asumir cortes sucios.
@@ -333,17 +366,23 @@ los relés golpearan.
 
 Ordenado por relación beneficio/esfuerzo:
 
-1. **Cambiá los DHT22 por SHT41 por I2C**, con el sensor cerca de la placa. Una
-   tarde de trabajo, y se va la mayor parte del ruido de lecturas.
-2. **Sacá el jumper JD-VCC** de la placa de relés y alimentá las bobinas con una
-   fuente aparte. Veinte minutos.
-3. **Poné snubbers RC** en el deshumidificador y los ventiladores. Una hora.
-4. **Pasá a systemd.** Media hora, y elimina la clase de bugs de procesos
-   duplicados.
-5. **Booteá desde SSD** y agregá el watchdog. Una tarde.
+Ordenado por relación beneficio/esfuerzo, con lo que ya se hizo tachado:
 
-Con esos cinco puntos, sobre el código ya corregido, deberías tener un sistema
-que no te moleste. El rediseño con el control en el ESP32 vale la pena cuando
+1. **Un humidistato mecánico** en serie con el humidificador. Es lo único que
+   sobrevive a un kernel panic, y es lo más barato de la lista.
+2. **Poné snubbers RC** en el ventilador de extracción y los demás. Una hora.
+3. **Un tercer DHT22** al lado del primario, que devuelve la detección de
+   deriva. Minutos de trabajo.
+4. **Cambiá los DHT22 por SHT41 por I2C**, con el sensor cerca de la placa. Una
+   tarde de trabajo, y se va la mayor parte del ruido de lecturas. Ojo con el
+   orden: los datos reales dicen que **sellar el ambiente va antes que esto**
+   (ver la revisión al principio de este documento).
+5. ~~**Sacá el jumper JD-VCC**~~ — hecho; las bobinas ya se alimentan de una
+   fuente aparte por `JD-VCC`.
+6. ~~**Pasá a systemd.**~~ — hecho, `fix-vpd.service`.
+7. **Booteá desde SSD.** Una tarde. El watchdog ya está activo.
+
+El rediseño con el control en el ESP32 vale la pena cuando
 quieras ampliar (más carpas, CO₂, riego), no necesariamente ahora.
 
 ---

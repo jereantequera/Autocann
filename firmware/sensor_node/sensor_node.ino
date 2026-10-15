@@ -54,8 +54,14 @@
 // un sensor_id: minusculas, digitos, '_' y '-', hasta 16 caracteres.
 #define NODE_NAME "sensores"
 
-// Los ids tienen que coincidir con AUTOCANN_INDOOR_PRIMARY y
-// AUTOCANN_INDOOR_WITNESS del lado de la Raspberry.
+// Los ids tienen que coincidir con AUTOCANN_INDOOR_PRIMARY,
+// AUTOCANN_INDOOR_WITNESS y AUTOCANN_INDOOR_OBSERVERS del lado de la Raspberry.
+//
+// En esta carpa 'b' esta ENCIMA de la lampara a proposito, para saber la
+// temperatura ahi arriba, asi que va como OBSERVADOR y no como testigo: su
+// offset contra 'a' se mueve con el fotoperiodo, de modo que el detector de
+// deriva mediria la luz y no la salud del sensor. La instalacion queda SIN
+// deteccion de deriva hasta que haya un tercer DHT22 al lado de 'a'.
 struct SensorSpec {
   const char *id;
   uint8_t pin;
@@ -63,7 +69,7 @@ struct SensorSpec {
 
 static SensorSpec SENSORS[] = {
   { "a", 32 },   // primario: el que decide
-  { "b", 33 },   // testigo: solo vigila al primario
+  { "b", 33 },   // observador: se lee y se muestra, no cruza con nadie
 };
 static const size_t SENSOR_COUNT = sizeof(SENSORS) / sizeof(SENSORS[0]);
 

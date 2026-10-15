@@ -30,11 +30,11 @@ from flask import jsonify, request
 
 from autocann.config import (
     INDOOR_SENSOR_MAX_AGE_SECONDS,
-    OBSERVER,
-    PRIMARY,
     MODE_ACTIVE,
     MODE_MONITOR,
     MODE_PAUSED,
+    OBSERVER,
+    PRIMARY,
     TEST_MODE_KEY,
     TEST_MODE_SETTING,
     UNCONTROLLED_MODES,

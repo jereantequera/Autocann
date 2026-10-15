@@ -29,6 +29,14 @@ LIST_SERVICES = ps -eo pid,command | grep -E '[a]utocann\.cli\.(vpd|backend)'
 # Si el unit no existe (instalación sin systemd), cae al pkill de antes.
 SYSTEMD_UNIT = fix-vpd.service
 
+# El modo de relés que corre esta instalación. `scripts/start_services.sh` lo
+# exporta antes de arrancar los servicios, pero los targets de acá corren los
+# módulos a mano y por lo tanto caían en el default `gpio`: `make check`
+# informaba los pines de la Raspberry cuando los que conmutan son los del nodo
+# ESP32, y decía que faltaban los de la Pi. Es la misma verdad en los dos
+# lugares o no sirve de nada.
+AUTOCANN_RELAY_MODE ?= remote
+
 STOP_SERVICES = if systemctl list-unit-files $(SYSTEMD_UNIT) > /dev/null 2>&1; then \
 	  sudo systemctl stop $(SYSTEMD_UNIT); \
 	else \
@@ -116,11 +124,15 @@ update:
 
 check:
 	@echo "Verificando sistema..."
-	uv run python -m autocann.cli.check_system
+	AUTOCANN_RELAY_MODE=$(AUTOCANN_RELAY_MODE) uv run python -m autocann.cli.check_system
 
+# Sin argumento de etapa a propósito: el parámetro de `vpd` es un *override* de
+# la etapa del cultivo activo, así que pasarle uno fijo le miente al lazo sobre
+# en qué etapa está la carpa. Antes decía `early_veg`, que además dejó de ser la
+# primera etapa cuando entró `seedling`.
 run-vpd:
 	@echo "Iniciando control de VPD..."
-	uv run python -m autocann.cli.vpd early_veg
+	AUTOCANN_RELAY_MODE=$(AUTOCANN_RELAY_MODE) uv run python -m autocann.cli.vpd
 
 run-backend:
 	@echo "Iniciando servidor web..."
