@@ -3,6 +3,7 @@ import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
 import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
 import { formatShortDate } from './grow-model.js';
+import { currentColumnIndex, stageGroups, stageLabel } from './feed-grid.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -23,19 +24,10 @@ let formTouched = false;
 
 const UNITS = ['ml/L', 'g/L'];
 
-/**
- * La letra que va arriba de cada columna de la grilla.
- *
- * Una tabla y no una cadena de ternarios con un `else` final: ese `else` daba
- * 'S' a cualquier etapa nueva, y plántula y secado habrían compartido letra.
- */
-const STAGE_INITIALS = {
-    seedling: 'P',
-    early_veg: 'V',
-    late_veg: 'L',
-    flowering: 'F',
-    dry: 'S',
-};
+const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+    + 'stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ADD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+    + 'stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
 function el(id) {
     return document.getElementById(id);
@@ -272,53 +264,112 @@ function renderPlanEditor() {
     if (!planDraft) planDraft = cloneplan();
 
     const columns = plan.columns;
-    const header = columns.map((column, index) => {
-        const first = index === 0 || columns[index - 1].stage !== column.stage;
-        const initial = STAGE_INITIALS[column.stage]
-            || (column.stage || '?').charAt(0).toUpperCase();
-        return `<th class="feed-col ${escapeHtml(column.stage)}${first ? ' stage-start' : ''}"
-                    title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
-                >${initial}${column.week}</th>`;
+    const groups = stageGroups(columns);
+    // A stage starts a new group: that is where the hairline goes.
+    const starts = new Set(groups.map(group => group.start));
+
+    // The header and the body must have the same cells in the same order, or
+    // the weeks drift off their columns. So the product block is one cell in
+    // each header row, and <col> fixes every week to the same width.
+    const cols = `<colgroup><col class="feed-col-product">${columns.map(() => '<col class="feed-col-week">').join('')}</colgroup>`;
+    const stageRow = groups.map(group => {
+        const full = stageName(group.stage);
+        return `<th scope="colgroup" colspan="${group.span}" class="feed-stage${starts.has(group.start) ? ' stage-start' : ''}"
+            title="${escapeHtml(full)}">${escapeHtml(stageLabel(group.stage, group.span, full))}</th>`;
     }).join('');
+    const weekRow = columns.map((column, position) => `
+        <th scope="col" class="feed-week${starts.has(position) ? ' stage-start' : ''}"
+            data-col="${position}" title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
+            >${column.week}</th>`).join('');
 
     const rows = planDraft.map((product, index) => {
+        const name = escapeHtml(product.name);
         const cells = columns.map((column, position) => {
             const value = product.doses?.[column.stage]?.[column.week] ?? '';
-            const first = position === 0 || columns[position - 1].stage !== column.stage;
             return `
-            <td class="feed-cell${value ? ' has' : ''}${first ? ' stage-start' : ''}">
-                <input type="number" min="0" step="0.5" inputmode="decimal"
+            <td class="feed-cell${value ? ' has' : ''}${starts.has(position) ? ' stage-start' : ''}"
+                data-col="${position}">
+                <input type="number" min="0" step="0.5" inputmode="decimal" placeholder="—"
                        value="${value === '' ? '' : Number(value)}"
                        data-row="${index}" data-stage="${escapeHtml(column.stage)}"
                        data-week="${column.week}"
-                       aria-label="${escapeHtml(product.name)} — ${escapeHtml(stageName(column.stage))} semana ${column.week}">
+                       aria-label="${name} — ${escapeHtml(stageName(column.stage))} semana ${column.week}">
             </td>`;
         }).join('');
 
         return `
         <tr>
-            <th class="feed-rowh">
-                <input type="text" class="feed-plan-name" data-row="${index}"
-                       value="${escapeHtml(product.name)}" aria-label="Nombre del producto">
-                <select class="feed-plan-unit" data-row="${index}"
-                        aria-label="Unidad de ${escapeHtml(product.name)}">
-                    ${UNITS.map(unit => `<option value="${unit}"
-                        ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
-                </select>
-                <button class="feed-plan-del" data-row="${index}" type="button"
-                        aria-label="Quitar ${escapeHtml(product.name)}">×</button>
+            <th scope="row" class="feed-rowh">
+                <div class="feed-plan-line">
+                    <input type="text" class="feed-plan-name" data-row="${index}"
+                           value="${name}" aria-label="Nombre del producto">
+                    <select class="feed-plan-unit" data-row="${index}"
+                            aria-label="Unidad de ${name}">
+                        ${UNITS.map(unit => `<option value="${unit}"
+                            ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
+                    </select>
+                    <button class="ac-btn ac-btn--ghost ac-btn--icon feed-plan-del" data-row="${index}"
+                            type="button" aria-label="Quitar ${name}" title="Quitar producto">${REMOVE_ICON}</button>
+                </div>
             </th>
             ${cells}
         </tr>`;
     }).join('');
 
     table.innerHTML = `
-        <thead><tr><th class="feed-rowh">Producto</th>${header}</tr></thead>
+        ${cols}
+        <thead>
+            <tr><th class="feed-rowh feed-rowh-head"></th>${stageRow}</tr>
+            <tr><th scope="col" class="feed-rowh feed-rowh-head">Producto</th>${weekRow}</tr>
+        </thead>
         <tbody>${rows}</tbody>`;
 
     if (!planDraft.length) {
         table.innerHTML += '<caption class="feed-plan-empty">No hay productos. Tocá «Agregar producto».</caption>';
     }
+    markCurrentWeek();
+}
+
+/**
+ * Mark the column the grow is in now, and say so in the caption above the grid.
+ *
+ * Separate from renderPlanEditor on purpose: the today poll runs while the
+ * grid may hold unsaved edits, and re-rendering would throw them away. This
+ * only moves two classes and a line of text.
+ */
+function markCurrentWeek() {
+    const table = el('feed-plan-table');
+    const caption = el('feed-plan-current');
+    if (!table || !plan) return;
+
+    const current = currentColumnIndex(plan.columns, today?.stage, today?.week);
+    table.querySelectorAll('.is-current').forEach(node => node.classList.remove('is-current'));
+    if (current >= 0) {
+        table.querySelectorAll(`[data-col="${current}"]`)
+            .forEach(node => node.classList.add('is-current'));
+    }
+
+    if (caption) {
+        caption.hidden = current < 0;
+        caption.textContent = current >= 0
+            ? `Semana actual: ${stageName(plan.columns[current].stage)} · semana ${plan.columns[current].week}`
+            : '';
+    }
+}
+
+/**
+ * Bring the current week into view. The product column is sticky and covers
+ * the left edge, so the week lands just past it rather than under it.
+ */
+function scrollToCurrentWeek() {
+    const scroller = document.querySelector('#feed-plan-editor .feed-plan-scroll');
+    const marked = document.querySelector('#feed-plan-table .feed-week.is-current');
+    const name = document.querySelector('#feed-plan-table .feed-rowh');
+    if (!scroller || !marked || !name) return;
+
+    const offset = marked.getBoundingClientRect().left
+        - scroller.getBoundingClientRect().left;
+    scroller.scrollLeft += offset - name.getBoundingClientRect().width - 8;
 }
 
 /** One delegated listener for the whole grid, re-rendered on every change. */
@@ -381,12 +432,16 @@ function togglePlanEditor(trigger) {
 
     editor.hidden = !showPlan;
     form.hidden = showPlan;
+    // The plan needs the whole width of the view, so the CSS drops the calendar
+    // column while it is on screen; the class is the switch.
+    document.querySelector('.view[data-view="riego"]')?.classList.toggle('is-plan-mode', showPlan);
     el('feed-mode-today').setAttribute('aria-selected', String(!showPlan));
     el('feed-mode-plan').setAttribute('aria-selected', String(showPlan));
     if (showPlan) {
         planDraft = cloneplan();
         el('feed-plan-state').textContent = '';
         renderPlanEditor();
+        scrollToCurrentWeek();
     }
 }
 
@@ -441,6 +496,7 @@ function fetchFeedingToday() {
     apiGet(url, { key: 'feeding-today' }).then(data => {
         if (!data || data.error) return;
         today = data;
+        markCurrentWeek();
 
         // Only adopt the server's volume while the grower has not typed one.
         const field = el('feed-litres');

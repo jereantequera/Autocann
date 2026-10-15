@@ -174,10 +174,296 @@
     font-size: 15px;
 }
 
-/* The weekly plan editor keeps its own grid (app.css); this only lines it up
-   with the form above it. */
+/* ---------- Plan por semana ----------
+   The grid is a table, so the legacy rules in app.css (a card, a green tint on
+   filled cells, spinners, a 2px stage divider) are neutralised here rather
+   than deleted: other views may still use them. Colour is state, not
+   decoration, so the only accents are the focus ring and the current-week bar. */
+
 .view[data-view="riego"] .feed-plan-editor {
-    padding-top: var(--space-4);
+    margin: 0;
+    padding: var(--space-4) 0 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+}
+
+.view[data-view="riego"] .feed-plan-intro {
+    max-width: 70ch;
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+}
+
+.view[data-view="riego"] .feed-plan-current {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg);
+}
+
+/* Overflow: the weeks scroll, the product column does not. The scrollbar is
+   there on hover and quiet the rest of the time. */
+.view[data-view="riego"] .feed-plan-scroll {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.view[data-view="riego"] .feed-plan-scroll:hover {
+    scrollbar-color: var(--border-control) transparent;
+}
+
+.view[data-view="riego"] .feed-plan-table {
+    /* Fixed layout: the <col> widths are the grid, so header and body cannot
+       disagree about where a week starts. */
+    table-layout: fixed;
+    width: max-content;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.view[data-view="riego"] .feed-plan-table col.feed-col-product {
+    width: 320px;
+}
+
+.view[data-view="riego"] .feed-plan-table col.feed-col-week {
+    width: 56px;
+}
+
+/* Borders are drawn as inset shadows, not borders, so they never change a
+   cell's width: every week stays exactly 56px. */
+.view[data-view="riego"] .feed-plan-table th,
+.view[data-view="riego"] .feed-plan-table td {
+    box-sizing: border-box;
+    padding: 0;
+    border: 0;
+    vertical-align: middle;
+}
+
+/* Header: the stage row (names, with the hairline that starts each group),
+   then the week row. The product header spans both rows. */
+.view[data-view="riego"] .feed-plan-table thead th {
+    position: static;
+    background: none;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.view[data-view="riego"] .feed-plan-table .feed-stage {
+    padding: 0 0 6px 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+    text-align: left;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+.view[data-view="riego"] .feed-plan-table .feed-week {
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+    padding: 0 0 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--fg-subtle);
+}
+
+.view[data-view="riego"] .feed-plan-table .feed-week.is-current {
+    color: var(--fg);
+    font-weight: 600;
+    box-shadow: inset 0 2px 0 0 var(--fill-inverse);
+}
+
+/* The group hairline and the current-week bar on the same header cell. */
+.view[data-view="riego"] .feed-plan-table .feed-week.stage-start.is-current {
+    box-shadow: inset 1px 0 0 var(--hairline), inset 0 2px 0 0 var(--fill-inverse);
+}
+
+/* The product column: sticky on the left, with a hairline on its right edge. */
+.view[data-view="riego"] .feed-plan-table .feed-rowh {
+    /* The legacy rule in app.css makes this cell display:flex, which takes it
+       out of the table's layout, so the cell is put back to a table cell. */
+    display: table-cell;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    /* Arithmetic: 320px cell, 12px right padding, so 308px of content:
+       name = 308 - 84 (unit) - 32 (remove) - 2 gaps of 8 = 176px. */
+    width: 320px;
+    min-width: 320px;
+    max-width: 320px;
+    padding: 2px 12px 2px 0;
+    background: var(--surface-0);
+    border-right: 1px solid var(--hairline);
+    text-align: left;
+}
+
+.view[data-view="riego"] .feed-plan-table .feed-rowh-head {
+    padding: 0 12px 4px 0;
+    vertical-align: bottom;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.view[data-view="riego"] .feed-plan-table .feed-plan-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* Never wider than the cell: whatever does not fit is clipped, not drawn
+       over the week columns. */
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Name: looks like text until it is hovered or focused, then shows where to type. */
+.view[data-view="riego"] .feed-plan-name {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    text-overflow: ellipsis;
+    height: 36px;
+    padding: 0 2px;
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid transparent !important;
+    border-radius: 0;
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+.view[data-view="riego"] .feed-plan-name:hover,
+.view[data-view="riego"] .feed-plan-name:focus {
+    background: transparent !important;
+    border-bottom-color: var(--border-control) !important;
+}
+
+.view[data-view="riego"] .feed-plan-name:focus {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.view[data-view="riego"] .feed-plan-unit {
+    flex: 0 0 84px;
+    box-sizing: border-box;
+    width: 84px;
+    height: 36px;
+    padding: 0 var(--space-2);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-md);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+}
+
+.view[data-view="riego"] .feed-plan-unit:focus {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+}
+
+/* The remove control is the shared ghost icon button; these only undo the
+   legacy look (a red hover) so it matches every other ghost button. */
+.view[data-view="riego"] .feed-plan-del {
+    flex: 0 0 32px;
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 0;
+    line-height: 1;
+    color: var(--fg-muted);
+}
+
+.view[data-view="riego"] .feed-plan-del:hover {
+    color: var(--fg);
+    background: var(--surface-active);
+}
+
+/* Cells: 56 wide and 40 tall, mono and centred. Empty means transparent with
+   a dash; filled means --fg on a raised surface. No green. */
+.view[data-view="riego"] .feed-cell {
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+    padding: 2px 0;
+}
+
+.view[data-view="riego"] .feed-cell.stage-start,
+.view[data-view="riego"] .feed-week.stage-start {
+    box-shadow: inset 1px 0 0 var(--hairline);
+}
+
+.view[data-view="riego"] .feed-cell.is-current {
+    background: var(--surface-active);
+}
+
+.view[data-view="riego"] .feed-cell input {
+    display: block;
+    box-sizing: border-box;
+    width: 56px;
+    height: 40px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+/* The browser's number spinners are white boxes on this theme. The cells are
+   typed into, so they go. inputmode="decimal" stays for the phone keypad. */
+.view[data-view="riego"] .feed-cell input::-webkit-inner-spin-button,
+.view[data-view="riego"] .feed-cell input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.view[data-view="riego"] .feed-cell input::placeholder {
+    color: var(--fg-subtle);
+    opacity: 1;
+}
+
+.view[data-view="riego"] .feed-cell input:hover {
+    border-color: var(--border-control);
+}
+
+.view[data-view="riego"] .feed-cell input:focus {
+    outline: 2px solid var(--focus);
+    outline-offset: 0;
+    border-color: transparent;
+    background: transparent;
+}
+
+/* Declared after :focus so a filled cell keeps its surface while focused. */
+.view[data-view="riego"] .feed-cell.has input,
+.view[data-view="riego"] .feed-cell.has input:focus {
+    background: var(--surface-raised);
+    font-weight: 400;
 }
 
 .view[data-view="riego"] .feed-plan-actions {
@@ -185,6 +471,64 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
+    margin-top: var(--space-4);
+}
+
+.view[data-view="riego"] .feed-plan-actions .ac-btn svg {
+    width: 16px;
+    height: 16px;
+    margin-right: -2px;
+}
+
+/* ---------- Plan mode: the plan takes the whole view ----------
+   The calendar and the log are not needed while the grid is open, so the
+   plan gets the full width instead of the 550px left column. */
+.view[data-view="riego"].is-plan-mode .riego-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.view[data-view="riego"].is-plan-mode .riego-side {
+    display: none;
+}
+
+/* ---------- Phones: the product column is 132px, and three weeks stay in view
+   at 390px. The unit and the remove button drop to a second line under the
+   name, so every control is still there. */
+@media (max-width: 768px) {
+    .view[data-view="riego"] .feed-plan-table col.feed-col-product,
+    .view[data-view="riego"] .feed-plan-table .feed-rowh {
+        width: 132px;
+        min-width: 132px;
+        max-width: 132px;
+    }
+
+    .view[data-view="riego"] .feed-plan-table .feed-rowh {
+        padding: 2px 8px 2px 0;
+    }
+
+    .view[data-view="riego"] .feed-plan-line {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .view[data-view="riego"] .feed-plan-name {
+        flex: 1 1 100%;
+        width: 100%;
+        font-size: 14px;
+        text-overflow: ellipsis;
+    }
+
+    .view[data-view="riego"] .feed-plan-unit {
+        width: 72px;
+        height: 28px;
+        padding: 0 4px;
+        font-size: 12px;
+    }
+
+    .view[data-view="riego"] .feed-plan-del {
+        width: 28px;
+        height: 28px;
+    }
 }
 
 /* ---------- Calendar ---------- */

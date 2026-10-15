@@ -113,14 +113,14 @@ def test_stage_ranges_are_not_hardcoded_in_the_frontend():
 
 def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
     """
-    The stage list lives once in vpd_math.py, but the browser needs five things
+    The stage list lives once in vpd_math.py, but the browser needs four things
     per stage that no kPa band implies: a fallback display name, a short name
-    for the chart markers, an option in each of the two stage selects, a letter
-    over the feed grid's week columns and a badge colour.
+    for the chart markers, an option in each of the two stage selects and a
+    badge colour.
 
     Every one of them is forgotten silently. A stage with no name renders as
-    `seedling` in the badge; with no letter it used to fall through to 'S',
-    which already means Secado.
+    `seedling` in the badge. The feed grid's header is the stage's display name
+    now, so it needs no letter of its own.
     """
     from autocann.control.vpd_math import STAGES
 
@@ -138,8 +138,6 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
         "state.js (vpdRanges)": block(state_js, "vpdRanges: {", "state.js"),
         "charts.js (STAGE_SHORT_NAMES)": block(
             (JS_DIR / "charts.js").read_text(), "const STAGE_SHORT_NAMES = {", "charts.js"),
-        "feeding.js (STAGE_INITIALS)": block(
-            (JS_DIR / "feeding.js").read_text(), "const STAGE_INITIALS = {", "feeding.js"),
     }
 
     missing = []
@@ -151,13 +149,13 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
             missing.append(f"{stage} no está en los dos selects de etapa")
         if f".grow-stage.{stage}" not in css:
             missing.append(f"{stage} no tiene color de chapita en app.css")
-        if f".feed-col.{stage}" not in css:
-            missing.append(f"{stage} no tiene color de columna en app.css")
     assert missing == [], missing
 
-    # Two stages sharing a letter is the same bug as a missing one.
-    letters = re.findall(r"\w+: '(\w)'", blocks["feeding.js (STAGE_INITIALS)"])
-    assert len(set(letters)) == len(STAGES), f"letras repetidas en la grilla: {letters}"
+    # The grid's stage row is named from the same table as the badge, not
+    # from a private copy.
+    feeding = (JS_DIR / "feeding.js").read_text()
+    assert "stageName(group.stage)" in feeding
+    assert "STAGE_INITIALS" not in feeding
 
 
 def test_chart_options_are_never_self_assigned():

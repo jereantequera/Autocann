@@ -65,17 +65,18 @@
 
         <!-- Plan semanal, oculto hasta que se pide -->
         <div class="feed-plan-editor" id="feed-plan-editor" hidden>
-            <div class="feed-plan-intro">
+            <p class="feed-plan-intro">
                 Cada celda es la dosis de ese producto en esa semana de la etapa.
                 Vacío significa que no se aplica. Las columnas salen de la duración
                 típica de cada etapa.
-            </div>
+            </p>
+            <p class="feed-plan-current" id="feed-plan-current" hidden></p>
             <div class="feed-plan-scroll">
                 <table class="feed-plan-table" id="feed-plan-table"></table>
             </div>
             <div class="feed-plan-actions">
                 <button class="ac-btn ac-btn--primary" data-action="feed-plan-save">Guardar plan</button>
-                <button class="ac-btn ac-btn--secondary" data-action="feed-plan-add">Agregar producto</button>
+                <button class="ac-btn ac-btn--secondary" data-action="feed-plan-add"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Agregar producto</button>
                 <span class="ac-field__hint feed-plan-state" id="feed-plan-state"></span>
             </div>
         </div>
