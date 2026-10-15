@@ -267,8 +267,8 @@ def test_the_indoor_sensors_section_is_reachable_from_the_page():
 
 def test_every_nav_tab_points_at_a_view_that_exists():
     """A tab for a view that is not in the page just shows an empty screen."""
-    nav = (TEMPLATES_DIR / "partials" / "nav.html").read_text()
-    tabs = set(re.findall(r'class="nav-tab"[^>]*data-view="(\w+)"', nav))
+    nav = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    tabs = set(re.findall(r'class="nav-tab[^"]*"[^>]*data-view="(\w+)"', nav))
     views = set(re.findall(r'class="view [^"]*"\s+data-view="(\w+)"', _page_html()))
     assert tabs, "la barra de vistas quedó sin pestañas"
     assert tabs == views, f"pestañas sin vista o vistas sin pestaña: {tabs ^ views}"
@@ -611,15 +611,15 @@ def test_the_pause_is_announced_on_screen_while_it_lasts():
     amber banner under the header *and* an amber chip inside it, three
     sentences apart, saying the same three things - and two elements saying one
     thing is how a reader learns to skip both. The chip is the announcement
-    now: it is in the header, so it is on every view, it goes amber and keeps
+    now: it is in the sidebar, so it is on every view, it goes amber and keeps
     its dot pulsing, it says how long it has been, and the verb that ends it is
     on it.
     """
-    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
-    assert 'id="system-state"' in header
-    assert 'data-action="toggle-pause"' in header
+    sidebar = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    assert 'id="system-state"' in sidebar
+    assert 'data-action="toggle-pause"' in sidebar
     # How long it has been - the one thing the banner carried that a chip did not.
-    assert 'id="pause-elapsed"' in header
+    assert 'id="pause-elapsed"' in sidebar
 
     dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
     assert "renderSystemState" in dashboard
@@ -738,11 +738,11 @@ def test_the_pause_is_reachable_from_every_view():
     """
     index = (TEMPLATES_DIR / "index.html").read_text()
     # Included outside <main class="views">, so it is not inside any one view.
-    assert index.index('partials/header.html') < index.index('<main class="views">')
+    assert index.index('partials/sidebar.html') < index.index('<main class="views">')
 
-    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
-    assert 'data-action="toggle-pause"' in header
-    assert 'href="#/riego"' in header, "el CTA de riego también vive arriba"
+    sidebar = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    assert 'data-action="toggle-pause"' in sidebar
+    assert 'href="#/riego"' in sidebar, "el CTA de riego también vive en la barra"
 
 
 def test_the_pause_does_not_expire_on_its_own():
@@ -1030,6 +1030,56 @@ def test_fonts_are_served_from_here_not_from_google():
     for font in re.findall(r"url\('\.\./(vendor/fonts/[^']+)'\)", css):
         assert (STATIC_DIR / font).exists(), font
     assert "vendor/fonts/" in css
+
+
+#: Every colour token of the design system. The values live in tokens.css and
+#: come from the designer's tokens.json; this is the list the stylesheet must
+#: define in both themes, so a token added to the design and forgotten here fails.
+COLOR_TOKENS = (
+    "surface-0", "surface-sunken", "surface-raised", "surface-active", "surface-overlay",
+    "fg", "fg-secondary", "fg-muted", "fg-subtle", "fg-inverse",
+    "fill-inverse", "hairline", "hairline-faint", "border-control", "focus",
+    "state-ok", "state-warn", "state-alert", "state-idle",
+    "data-water", "data-temp", "data-outside",
+)
+
+
+def _theme_block(css: str, selector: str) -> str:
+    match = re.search(re.escape(selector) + r"\s*\{(.*?)\n\}", css, re.S)
+    assert match, f"{selector} desapareció de tokens.css"
+    return match.group(1)
+
+
+def test_the_tokens_define_every_colour_in_both_themes():
+    """Grafito is the default and Noche is the wall tablet's; a token missing from one is a blank colour there."""
+    css = (STATIC_DIR / "css" / "tokens.css").read_text()
+    themes = {
+        "Grafito (:root)": _theme_block(css, ":root"),
+        "Noche (data-theme=night)": _theme_block(css, ':root[data-theme="night"]'),
+    }
+    missing = [
+        f"--{name} en {theme}"
+        for theme, block in themes.items()
+        for name in COLOR_TOKENS
+        if not re.search(rf"--{re.escape(name)}:\s*#[0-9A-Fa-f]{{6}};", block)
+    ]
+    assert missing == []
+    assert "--font-sans:" in themes["Grafito (:root)"]
+    assert "--font-mono:" in themes["Grafito (:root)"]
+
+
+def test_the_page_links_the_tokens_and_components_before_the_app_stylesheet():
+    """
+    The tokens and the component classes come first so app.css, which maps its
+    old variables onto them, has the last word. components.css must not import
+    anything: the page cannot depend on the internet.
+    """
+    assert "@import" not in (STATIC_DIR / "css" / "components.css").read_text()
+    for entry in ("index.html", "login.html"):
+        html = (TEMPLATES_DIR / entry).read_text()
+        positions = [html.find(f"css/{name}") for name in ("tokens.css", "components.css", "app.css")]
+        assert all(position >= 0 for position in positions), entry
+        assert positions == sorted(positions), entry
 
 
 def test_the_page_loads_behind_one_skeleton_and_always_comes_out_of_it():

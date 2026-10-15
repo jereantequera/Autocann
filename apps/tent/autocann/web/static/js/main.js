@@ -19,6 +19,7 @@ import {
 import { closeModal, initModals } from './modals.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
+import { wireSidebar } from './sidebar.js';
 import { applyConfig, state } from './state.js';
 import { fetchNodeLog, fetchNodes, wireNodes } from './nodes.js';
 import { wireSystem } from './system.js';
@@ -241,6 +242,8 @@ function wireActions() {
 // ---------------------------------------------------------------------------
 
 async function start() {
+    // First, so the bar is in its starting state before the skeleton comes off.
+    wireSidebar();
     showInitialView();
     // Stage ranges and names come from the server so they are not a second copy
     // of what lives in vpd_math.py.

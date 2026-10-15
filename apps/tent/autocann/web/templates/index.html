@@ -8,32 +8,38 @@
          network with no internet, and a failed CDN load is silent. -->
     <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}?v={{ asset_version }}"></script>
     <script src="{{ url_for('static', filename='vendor/chartjs-plugin-annotation.min.js') }}?v={{ asset_version }}"></script>
+    <!-- Tokens first, then the component classes, then app.css, which maps its
+         old variables onto the tokens. Order is the cascade. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
 </head>
 <!-- is-booting: the skeletons, until main.js has the first answers in. -->
 <body class="is-booting">
 {% include "partials/icons.html" %}
-    <div class="container">
-{% include "partials/header.html" %}
-{% include "partials/nav.html" %}
+    <div class="app-shell">
+{% include "partials/sidebar.html" %}
 
-        <!--
-             Alerts sit outside the views on purpose: a tent in trouble is worth
-             knowing about while you are editing the feed chart. The grow
-             context used to be here too, for the same reason, and for that
-             reason it is in the header now - which is already on every view and
-             already carries the other thing that is true everywhere.
-        -->
+        <div class="app-main">
+            <div class="container">
+                <!--
+                     Alerts sit outside the views on purpose: a tent in trouble is worth
+                     knowing about while you are editing the feed chart. The sidebar
+                     carries the grow context and the pause for the same reason: they
+                     are on every view, not just this one.
+                -->
 {% include "partials/alerts.html" %}
 
-        <main class="views">
+                <main class="views">
 {% include "views/panel.html" %}
 {% include "views/riego.html" %}
 {% include "views/stats.html" %}
 {% include "views/report.html" %}
 {% include "views/grow.html" %}
 {% include "views/system.html" %}
-        </main>
+                </main>
+            </div>
+        </div>
     </div>
 
 {% include "partials/modals.html" %}
