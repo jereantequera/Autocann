@@ -345,8 +345,12 @@ Todo lo que no cuelgue de `system.slice/fix-vpd.service` es huérfano. Matalo co
 
 ### Arrancar con systemd en lugar de start_services.sh
 
-Recomendado: systemd garantiza una sola instancia y reinicia solo, lo que elimina
-la clase de problemas de procesos duplicados. Los units están en
+**En esta Raspberry ya está así**: `fix-vpd.service` está instalado y
+habilitado, como dice la sección de arriba. Lo que sigue vale para una
+instalación nueva.
+
+systemd garantiza una sola instancia y reinicia solo, lo que elimina
+la clase de problemas de procesos duplicados. Los units de ejemplo están en
 [HARDWARE.md](./HARDWARE.md#systemd-en-lugar-de-start_servicessh).
 
 ---
