@@ -35,7 +35,43 @@ const REQUEST_TIMEOUT_MS = 8000;
 
 const inFlight = new Map();
 
-async function apiGet(url, { key = url } = {}) {
+/**
+ * Every GET not yet answered, as promises, for whenSettled().
+ *
+ * Separate from inFlight, which holds the abort controllers and is keyed for
+ * de-duplication: this one only has to know when the page has gone quiet.
+ */
+const pending = new Set();
+
+function apiGet(url, options) {
+    const request = doGet(url, options);
+    pending.add(request);
+    request.finally(() => pending.delete(request));
+    return request;
+}
+
+/**
+ * Resolves once every request has been answered, including the ones those
+ * answers started (the active grow asks for its timeline), or after
+ * `timeoutMs`, whichever is first.
+ *
+ * What the loading state waits on: the page is revealed once, with everything
+ * it is going to say, rather than piece by piece as each poller lands - which
+ * is what made the alerts arrive last and shove the whole panel down.
+ */
+async function whenSettled(timeoutMs = 4000) {
+    const deadline = new Promise(resolve => setTimeout(resolve, timeoutMs));
+    const quiet = (async () => {
+        while (pending.size) {
+            await Promise.allSettled([...pending]);
+            // The handlers of what just landed run first and may fire more.
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    })();
+    await Promise.race([quiet, deadline]);
+}
+
+async function doGet(url, { key = url } = {}) {
     if (inFlight.has(key)) return null;
 
     const controller = new AbortController();
@@ -100,4 +136,4 @@ async function apiPost(url, body) {
     }
 }
 
-export { connection, renderConnectionState, apiGet, apiPost };
+export { connection, renderConnectionState, apiGet, apiPost, whenSettled };

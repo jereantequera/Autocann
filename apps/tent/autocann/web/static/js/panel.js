@@ -8,7 +8,7 @@
  */
 
 import { apiGet } from './api.js';
-import { updatePanelChart } from './charts.js';
+import { setChartEmpty, updatePanelChart } from './charts.js';
 import { config } from './state.js';
 import { doseAmount, escapeHtml, fmtDose, iconText, lastWateringLabel, waterOnlyNote } from './util.js';
 
@@ -20,6 +20,8 @@ function fetchPanelHistory() {
         .then(data => {
             if (!data || !data.data) return;
             updatePanelChart(data.data);
+            setChartEmpty('panelChart', data.data.length
+                ? null : 'Todavía no hay muestras de las últimas 24 horas');
             const note = document.getElementById('panel-chart-note');
             if (note) {
                 note.textContent = data.data.length

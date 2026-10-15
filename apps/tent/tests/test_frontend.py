@@ -1030,3 +1030,30 @@ def test_fonts_are_served_from_here_not_from_google():
     for font in re.findall(r"url\('\.\./(vendor/fonts/[^']+)'\)", css):
         assert (STATIC_DIR / font).exists(), font
     assert "vendor/fonts/" in css
+
+
+def test_the_page_loads_behind_one_skeleton_and_always_comes_out_of_it():
+    """
+    The page starts as skeletons and is revealed once, when the first answers
+    are in - not piece by piece, with the alerts landing last and shoving the
+    panel down. And a startup that throws must still take the skeleton off,
+    or the page looks like it is loading forever.
+    """
+    index = (TEMPLATES_DIR / "index.html").read_text()
+    assert '<body class="is-booting">' in index
+
+    main = _strip_js_comments((JS_DIR / "main.js").read_text())
+    assert "whenSettled" in main
+    assert re.search(r"\.catch\(\s*\w+\s*=>\s*\{[^}]*classList\.remove\('is-booting'\)", main)
+
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert)" in css
+
+
+def test_a_chart_with_nothing_to_plot_says_so():
+    """An empty grid with axes from 0 to 1 reads as a broken chart, not as no data."""
+    charts = _strip_js_comments((JS_DIR / "charts.js").read_text())
+    panel = _strip_js_comments((JS_DIR / "panel.js").read_text())
+    assert "setChartEmpty" in charts and "setChartEmpty('panelChart'" in panel
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".chart-wrapper.is-empty::after" in css

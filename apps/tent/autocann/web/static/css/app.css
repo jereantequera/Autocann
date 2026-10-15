@@ -38,7 +38,11 @@
     
     --text-primary: #e8f0eb;
     --text-secondary: #8fa396;
-    --text-muted: #5a6b5f;
+    /* #5a6b5f measured 3.0:1 on a card, under the 4.5:1 that small text
+       needs (WCAG AA) - and the muted text here is all small: timestamps,
+       units, footnotes. This is the darkest grey that clears it on every
+       background in this file. */
+    --text-muted: #7a8d80;
     
     --accent-green: #22c55e;
     --accent-green-dim: #166534;
@@ -61,6 +65,8 @@
     --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
     --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
     --shadow-glow: 0 0 30px rgba(34, 197, 94, 0.15);
+
+    --skeleton: #1e2a24;
 }
 
 * {
@@ -1661,20 +1667,21 @@ body {
 }
 
 /* Loading State */
+/* A list still on its way: three grey lines, not the words "Cargando...".
+   The words stay in the markup, transparent, for a screen reader. */
 .loading {
-    text-align: center;
-    padding: 40px;
-    color: var(--text-muted);
-}
-
-.loading::after {
-    content: '...';
-    animation: loading 1.5s infinite;
-}
-
-@keyframes loading {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
+    position: relative;
+    min-height: 96px;
+    margin: 4px 0;
+    color: transparent;
+    user-select: none;
+    background:
+        linear-gradient(var(--skeleton) 0 0) 0 8px / 70% 14px,
+        linear-gradient(var(--skeleton) 0 0) 0 40px / 90% 14px,
+        linear-gradient(var(--skeleton) 0 0) 0 72px / 55% 14px;
+    background-repeat: no-repeat;
+    border-radius: 6px;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
 /* Scrollbar */
@@ -3488,8 +3495,9 @@ body {
         min-width: 0;
     }
 
-    .nav-tab-icon {
-        font-size: 1.2em;
+    .nav-tab-icon .icon {
+        width: 22px;
+        height: 22px;
     }
 
     /* "Estadísticas" does not fit a sixth of a phone; the short form rides
@@ -3500,7 +3508,7 @@ body {
 
     .nav-tab-label::after {
         content: attr(data-short);
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 500;
     }
 
@@ -4075,7 +4083,171 @@ body {
         padding: 10px 12px;
     }
 
-    .system-state-action {
+    /* The chip keeps what it does and drops what it says: the dot's colour
+       already tells the state, and "Detener"/"Reanudar" is the part that
+       tells you it is a button. */
+    .system-state-text,
+    .system-state-since {
         display: none;
+    }
+
+    .system-state-action {
+        padding-left: 0;
+        margin-left: 0;
+        border-left: 0;
+    }
+}
+
+/* ===============================
+   LOADING
+   ===============================
+   One loading state for the whole app. Until main.js has the first answers in
+   (body.is-booting), or the first time a view is opened (.view.is-loading),
+   every place a number or a status will land is a grey block that pulses.
+   Then it is revealed in one go. The blocks keep the size of what they stand
+   in for, so nothing moves when the real values arrive.
+
+   The alerts are held back too: they are the last thing to answer, and when
+   they appeared on their own they pushed the whole panel down. */
+.is-booting :is(.hero-value, .hero-subtitle, .metric-value, .summary-avg,
+        .summary-stat-value, .sensor-badge, .health-row-state, .health-row-detail,
+        .output-state, .output-name, .panel-feed-value, .panel-feed-label,
+        .grow-name, .grow-stage, .grow-day, .last-update, .system-state-text,
+        .section-subtitle, .vpd-score-value, .insight-value, .report-stat-value,
+        .feed-week, .humidity-target, .panel-feed-litres),
+.view.is-loading :is(.hero-value, .metric-value, .summary-avg,
+        .summary-stat-value, .sensor-badge, .health-row-state, .output-state,
+        .output-name, .vpd-score-value, .vpd-score-range, .insight-value,
+        .insight-score, .report-stat-value, .report-trend, .feed-week,
+        .cal-month, .sys-state) {
+    color: transparent !important;
+    background: var(--skeleton) !important;
+    border-color: transparent !important;
+    border-radius: 6px;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+    user-select: none;
+}
+
+.is-booting :is(.hero-value, .hero-subtitle, .metric-value, .summary-avg,
+        .output-state, .sensor-badge, .health-row-state, .output-name,
+        .grow-name, .panel-feed-litres) *,
+.view.is-loading :is(.hero-value, .metric-value, .summary-avg, .output-state,
+        .sensor-badge, .health-row-state, .output-name, .sys-state) * {
+    visibility: hidden;
+}
+
+/* Badges and small labels have no width of their own while empty. */
+.is-booting :is(.sensor-badge, .health-row-state, .grow-stage),
+.view.is-loading :is(.sensor-badge, .health-row-state) {
+    min-width: 72px;
+    min-height: 1.4em;
+}
+
+.is-booting .hero-value,
+.view.is-loading .hero-value {
+    width: 60%;
+}
+
+/* A chart that has not been drawn yet is one block, not an empty grid with
+   axes running 0 to 1. */
+.is-booting .chart-wrapper,
+.view.is-loading .chart-wrapper {
+    background: var(--skeleton);
+    border-radius: 8px;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.is-booting .chart-wrapper canvas,
+.view.is-loading .chart-wrapper canvas,
+.is-booting :is(.vpd-gauge, .humidity-bar-container),
+.view.is-loading :is(.vpd-gauge, .humidity-bar-container) {
+    visibility: hidden;
+}
+
+.is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert) {
+    display: none !important;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* The reveal: values fade in where the blocks were, rather than snapping. */
+body:not(.is-booting) .view.is-active:not(.is-loading) {
+    animation: reveal 0.25s ease-out;
+}
+
+.anomalies-alert.show {
+    animation: reveal 0.25s ease-out;
+}
+
+@keyframes reveal {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-booting *,
+    .view.is-loading *,
+    .loading,
+    body:not(.is-booting) .view.is-active,
+    .anomalies-alert.show {
+        animation: none !important;
+    }
+}
+
+/* ===============================
+   EMPTY STATES
+   ===============================
+   No reading is not a reading. Two dashes in the big orange numerals read as
+   a value at a glance, so a card with nothing to show says so in grey. */
+.hero-grid.no-reading :is(.hero-value, .hero-value .hero-unit) {
+    color: var(--text-muted);
+    -webkit-text-fill-color: var(--text-muted);
+}
+
+/* A chart with nothing to plot shows why, instead of an empty grid. */
+.chart-wrapper.is-empty canvas {
+    visibility: hidden;
+}
+
+.chart-wrapper.is-empty::after {
+    content: attr(data-empty);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.95em;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+}
+
+/* ===============================
+   INTERACTION
+   =============================== */
+
+/* One focus ring for everything you can reach with Tab. Only modals and the
+   stop dialog had one; everywhere else a keyboard user could not see where
+   they were. :focus-visible, so a mouse click does not draw it. */
+:is(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent-green);
+    outline-offset: 2px;
+}
+
+/* A finger is not a cursor: 44 px is the smallest target that is hit reliably
+   on a phone or on the tablet on the wall. The mini buttons stay mini to the
+   eye and get the height where it is touched. */
+@media (pointer: coarse) {
+    :is(.btn, .btn-mini, .btn-output, .time-btn, .system-state, .nav-tab) {
+        min-height: 44px;
+    }
+
+    .btn-mini {
+        padding-inline: 14px;
     }
 }

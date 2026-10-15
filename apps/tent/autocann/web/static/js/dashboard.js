@@ -67,6 +67,10 @@ function updateHumidityBar(humidity, targetHumidity) {
 }
 
 function updateCurrentData(data) {
+    // No reading is shown as no reading: grey dashes, not orange ones that pass
+    // for a temperature at a glance. A 404 lands here too, as `{error}`.
+    document.querySelector('.hero-grid')
+        ?.classList.toggle('no-reading', !Number.isFinite(data.temperature));
     document.getElementById('current-temp').innerHTML =
         fmtNum(data.temperature, 1) + '<span class="hero-unit">°C</span>';
     document.getElementById('current-humidity').innerHTML =

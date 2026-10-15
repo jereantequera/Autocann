@@ -10,7 +10,8 @@
     <script src="{{ url_for('static', filename='vendor/chartjs-plugin-annotation.min.js') }}?v={{ asset_version }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
 </head>
-<body>
+<!-- is-booting: the skeletons, until main.js has the first answers in. -->
+<body class="is-booting">
 {% include "partials/icons.html" %}
     <div class="container">
 {% include "partials/header.html" %}

@@ -441,8 +441,28 @@ function resizeCharts() {
 // "YYYY-MM-DD HH:MM:SS" is not a format the Date constructor has to
 // accept; Safari returns Invalid Date for it. Parse it as local ISO.
 
+/**
+ * Say why a chart is blank instead of drawing an empty grid, or clear it.
+ *
+ * @param {?string} message  null once there is something to plot
+ */
+function setChartEmpty(canvasId, message) {
+    const wrapper = document.getElementById(canvasId)?.closest('.chart-wrapper');
+    if (!wrapper) return;
+    wrapper.classList.toggle('is-empty', !!message);
+    if (message) wrapper.dataset.empty = message;
+    else delete wrapper.dataset.empty;
+}
+
+const HISTORY_CANVASES = ['tempHumidityChart', 'vpdChart', 'comparisonChart'];
+
 function updateHistoricalCharts(data) {
-    if (!data || !data.data || data.data.length === 0) return;
+    const empty = !data || !data.data || data.data.length === 0;
+    // It used to return here and leave the previous range plotted: picking a
+    // week with no samples kept showing the day before, under the new title.
+    HISTORY_CANVASES.forEach(id => setChartEmpty(id,
+        empty ? 'Sin muestras en este período' : null));
+    if (empty) return;
 
     const sortedData = [...data.data].sort(
         (a, b) => parseLocalDatetime(a.datetime) - parseLocalDatetime(b.datetime));
@@ -572,5 +592,5 @@ function renderStageMarkers(timeline, labels = lastPlotted.labels,
 
 export {
     initCharts, updateHistoricalCharts, updatePanelChart, resizeCharts, getVpdChart,
-    renderStageMarkers,
+    renderStageMarkers, setChartEmpty,
 };
