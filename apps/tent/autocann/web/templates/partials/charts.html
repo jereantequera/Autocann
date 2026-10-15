@@ -1,34 +1,48 @@
-        <!-- The three history charts -->
+        <!-- The history charts -->
         <!--
              The range selector lives in the view header above, not here: it
-             changes these charts and the summary cards together, and two copies
-             of it is what made the old page confusing.
+             changes these charts and the readouts together. The legends are
+             HTML, not Chart.js legends, so they can be styled with the rest of
+             the page and a series that is not drawn is not listed.
         -->
-        <div class="charts-section">
-            <div class="chart-container">
-                <div class="chart-header">
-                    <div class="chart-title">{{ icon("thermometer") }} Temperatura y Humedad Interior</div>
+        <section class="stats-charts">
+            <figure class="stats-block">
+                <header class="stats-block__head">
+                    <h2 class="stats-block__title">Temperatura y humedad</h2>
+                    <ul class="ac-legend stats-legend">
+                        <li class="ac-legend__item"><span class="ac-legend__swatch stats-swatch--temp" aria-hidden="true"></span>Temperatura</li>
+                        <li class="ac-legend__item"><span class="ac-legend__swatch stats-swatch--water" aria-hidden="true"></span>Humedad</li>
+                        <li class="ac-legend__item" data-series="target" hidden><span class="ac-legend__swatch stats-swatch--target" aria-hidden="true"></span>Humedad objetivo</li>
+                        <li class="ac-legend__item" data-series="band" hidden><span class="ac-legend__swatch ac-legend__swatch--band stats-swatch--band" aria-hidden="true"></span>Rango de temperatura</li>
+                    </ul>
+                </header>
+                <div class="ac-chart stats-chart stats-chart--main">
+                    <canvas id="tempHumidityChart" role="img" aria-label="Temperatura y humedad interior en el período elegido"></canvas>
                 </div>
-                <div class="chart-wrapper">
-                    <canvas id="tempHumidityChart"></canvas>
-                </div>
-            </div>
+            </figure>
 
-            <div class="chart-container">
-                <div class="chart-header">
-                    <div class="chart-title">{{ icon("gauge") }} VPD (Vapor Pressure Deficit)</div>
-                </div>
-                <div class="chart-wrapper">
-                    <canvas id="vpdChart"></canvas>
-                </div>
-            </div>
+            <div class="stats-pair">
+                <figure class="stats-block">
+                    <header class="stats-block__head">
+                        <h2 class="stats-block__title">VPD de hoja</h2>
+                        <span class="stats-block__hint">franja: objetivo de la etapa</span>
+                    </header>
+                    <div class="ac-chart stats-chart">
+                        <canvas id="vpdChart" role="img" aria-label="VPD de hoja en el período elegido, contra la franja objetivo de la etapa"></canvas>
+                    </div>
+                </figure>
 
-            <div class="chart-container">
-                <div class="chart-header">
-                    <div class="chart-title">{{ icon("arrow-left-right") }} Interior vs Exterior</div>
-                </div>
-                <div class="chart-wrapper">
-                    <canvas id="comparisonChart"></canvas>
-                </div>
+                <figure class="stats-block">
+                    <header class="stats-block__head">
+                        <h2 class="stats-block__title">Adentro y afuera</h2>
+                        <ul class="ac-legend stats-legend">
+                            <li class="ac-legend__item"><span class="ac-legend__swatch stats-swatch--temp" aria-hidden="true"></span>Adentro</li>
+                            <li class="ac-legend__item"><span class="ac-legend__swatch stats-swatch--outside" aria-hidden="true"></span>Afuera</li>
+                        </ul>
+                    </header>
+                    <div class="ac-chart stats-chart">
+                        <canvas id="comparisonChart" role="img" aria-label="Temperatura de adentro y de afuera en el período elegido"></canvas>
+                    </div>
+                </figure>
             </div>
-        </div>
+        </section>

@@ -265,8 +265,26 @@ function getScoreLabel(score) {
     return { icon: 'circle-x', text: 'Necesita mejorar' };
 }
 
+/**
+ * Writes the time of the last answer into the sidebar's #last-update.
+ *
+ * Shared by every poller that shows the stamp: the current-data poller runs on
+ * the panel only, and the sidebar is on every view. Each successful answer
+ * stamps it, so the sidebar never sits at "Cargando..." on a view where the
+ * current-data poller is not running.
+ */
+function stampLastUpdate(now = new Date()) {
+    if (typeof document === 'undefined') return;
+    const stamp = document.getElementById('last-update');
+    if (!stamp) return;
+    stamp.textContent = now.toLocaleTimeString('es-AR', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    stamp.title = `Última actualización: ${now.toLocaleString('es-AR', { hour12: false })}`;
+}
+
 export {
-    icon, iconText,
+    icon, iconText, stampLastUpdate,
     escapeHtml, fmtNum, fmtComma, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
     formatDate, growParam, getScoreClass, getScoreLabel, withGrow,
     relaySourceLabel,

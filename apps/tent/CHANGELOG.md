@@ -1,5 +1,27 @@
 # Changelog
 
+## Un sistema de diseño en lugar de un kit
+
+El dashboard tenía el aspecto de cualquier panel oscuro hecho con plantilla:
+verde neón, brillos, degradés y una tarjeta alrededor de cada cosa, con el
+mismo peso visual para el VPD que para el nombre de un relé. Ahora sale de un
+design system propio, **Grafito**: tokens en dos temas (Grafito, y Noche para
+la tablet de la pared con las luces apagadas), IBM Plex, y una regla que
+ordena todo lo demás: el color es estado, no decoración.
+
+- **Barra lateral** colapsable a íconos, con la carpa y su cultivo arriba y el
+  estado del lazo abajo. Si el lazo está caído lo dice ahí, en todas las vistas.
+- **Panel**: una frase contesta si la carpa está bien. Debajo, una carta de
+  temperatura contra humedad con la franja que el lazo está sosteniendo
+  (`/api/vpd-band`, calculada con las mismas funciones que el control) y la
+  lectura como un punto; el VPD de hoja aparece al tocarlo, marcado como
+  estimado. Pestañas Ahora y Bitácora (`/api/logbook`).
+- **Una sola alerta**: con el lazo caído había tres cajas rojas diciendo lo
+  mismo. Ahora es un cartel, con las advertencias plegadas adentro.
+- Riego, Estadísticas, Reportes, Cultivo y Sistema rehechos con los mismos
+  componentes. Reportes dice "tiempo con el VPD en rango" en lugar de un
+  puntaje abstracto.
+
 ## La carga tenía un diseño, y era el de nadie
 
 Abrir el panel pasaba por cuatro estados que nadie eligió: "Cargando...",

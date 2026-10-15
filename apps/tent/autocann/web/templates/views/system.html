@@ -4,34 +4,38 @@
              backend audit and no way to reach it from the browser: the offsets
              that correct every reading on every other view were editable only
              with curl. That is what this view is for.
+
+             The page answers "¿anda?" first, in one sentence and four checks,
+             and everything below is the evidence for whichever check is not ok.
+             The index on the left is for going straight to the part you came for;
+             its links scroll in place rather than touching the hash, which the
+             router reads as a view name.
         -->
         <section class="view view-system" data-view="sistema" aria-label="Sistema">
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("sliders-horizontal") }}</span>
-                    Calibración de sensores
-                </h2>
-                <span class="sensor-badge" id="calibration-badge">{{ icon("hourglass") }}</span>
-            </div>
-            <div class="sys-note">
-                El offset se suma a lo que postea el sensor antes de que el lazo lo
-                use. Se aplica recién cuando reinicia el lazo de control
-                (<code>make restart</code>), no al guardar.
-            </div>
-            <div class="calib-grid" id="calibration-grid">
-                <div class="loading">Cargando calibración</div>
-            </div>
+            <div class="sys-layout">
+                <nav class="sys-index" aria-label="Secciones de sistema">
+                    <a class="sys-index-link is-current" href="#sys-estado" data-sys-jump="sys-estado">Estado</a>
+                    <a class="sys-index-link" href="#sys-sensores" data-sys-jump="sys-sensores">Sensores</a>
+                    <a class="sys-index-link" href="#sys-nodos" data-sys-jump="sys-nodos">Nodos ESP32</a>
+                    <a class="sys-index-link" href="#sys-silencio" data-sys-jump="sys-silencio">Horarios de silencio</a>
+                    <a class="sys-index-link" href="#sys-datos" data-sys-jump="sys-datos">Base de datos</a>
+                    <a class="sys-index-link" href="#sys-acceso" data-sys-jump="sys-acceso">Acceso</a>
+                </nav>
 
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("radio-tower") }}</span>
-                    Conectividad
-                </h2>
-                <button class="btn btn-ghost btn-mini" data-sys="refresh">{{ icon("refresh-cw") }} Revisar</button>
-            </div>
-            <div class="sys-grid" id="connectivity-grid">
-                <div class="loading">Consultando estado</div>
-            </div>
+                <div class="sys-content">
+                    <!-- Estado: one verdict, then the four checks it is made of -->
+                    <section id="sys-estado" class="sys-section sys-verdict" aria-labelledby="health-verdict">
+                        <div class="sys-section-head">
+                            <div class="sys-verdict-text">
+                                <h1 class="ac-status__title" id="health-verdict">Consultando el estado</h1>
+                                <p class="sys-age" id="health-age"></p>
+                            </div>
+                            <button type="button" class="ac-btn ac-btn--ghost" data-sys="refresh">{{ icon("refresh-cw") }}Revisar</button>
+                        </div>
+                        <div class="ac-readout-row health-checks" id="health-checks">
+                            <div class="loading">Consultando estado</div>
+                        </div>
+                    </section>
 
 {% include "partials/sensors.html" %}
 
@@ -39,52 +43,52 @@
 
 {% include "partials/quiet.html" %}
 
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("database") }}</span>
-                    Base de datos
-                </h2>
-            </div>
-            <div class="sys-grid">
-                <div class="sys-card">
-                    <div class="metric-label">Tamaño</div>
-                    <div class="metric-value" id="stat-db-size">--</div>
-                </div>
-                <div class="sys-card">
-                    <div class="metric-label">Cultivos</div>
-                    <div class="metric-value" id="stat-grows">--</div>
-                </div>
-                <div class="sys-card">
-                    <div class="metric-label">Muestras</div>
-                    <div class="metric-value" id="stat-readings">--</div>
-                </div>
-                <div class="sys-card">
-                    <div class="metric-label">Eventos de control</div>
-                    <div class="metric-value" id="stat-events">--</div>
-                </div>
-                <div class="sys-card sys-card-wide">
-                    <div class="metric-label">Histórico guardado</div>
-                    <div class="metric-value metric-value-sm" id="stat-span">--</div>
-                </div>
-            </div>
+                    <div class="sys-pair">
+                        <section id="sys-datos" class="sys-section" aria-labelledby="sys-datos-title">
+                            <h2 class="sys-h2" id="sys-datos-title">Base de datos</h2>
+                            <dl class="sys-facts">
+                                <dt>Tamaño</dt><dd id="stat-db-size">--</dd>
+                                <dt>Cultivos</dt><dd id="stat-grows">--</dd>
+                                <dt>Muestras</dt><dd id="stat-readings">--</dd>
+                                <dt>Eventos de control</dt><dd id="stat-events">--</dd>
+                                <dt>Histórico guardado</dt><dd id="stat-span">--</dd>
+                            </dl>
+                            <p class="sys-note">Guarda una muestra cada 5 min. Se mira acá, no se consulta sola: el archivo crece de a kilobytes por hora.</p>
+                        </section>
 
-            <!--
-                 Sólo aparece cuando hay PIN configurado. Sin PIN no hay sesión
-                 que cerrar, y un botón que no hace nada en la mayoría de las
-                 instalaciones es peor que no tenerlo.
-            -->
-            <div id="session-section" hidden>
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <span class="section-title-icon">{{ icon("lock") }}</span>
-                        Sesión
-                    </h2>
+                        <section id="sys-acceso" class="sys-section" aria-labelledby="sys-acceso-title">
+                            <h2 class="sys-h2" id="sys-acceso-title">Acceso</h2>
+                            <p class="sys-note">Se configura con <code>AUTOCANN_PIN</code> en la Raspberry. Sin PIN, cualquiera en esta red puede entrar y mover relés.</p>
+                            <!--
+                                 Sólo aparece cuando hay PIN configurado. Sin PIN no hay sesión
+                                 que cerrar, y un botón que no hace nada en la mayoría de las
+                                 instalaciones es peor que no tenerlo.
+                            -->
+                            <div id="session-section" hidden>
+                                <p class="sys-note">
+                                    Este navegador entró con el PIN. Cerrar la sesión lo deja
+                                    afuera hasta que lo vuelvas a poner — útil si el tablero
+                                    quedó abierto en un teléfono prestado.
+                                </p>
+                                <button type="button" class="ac-btn ac-btn--secondary" data-sys="logout">{{ icon("log-out") }}Cerrar sesión</button>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!--
+                         The theme is per browser, not per installation: the wall tablet
+                         wants Noche with the lights off and the laptop does not. So it
+                         lives here, where the other per-screen settings are, and nowhere
+                         that a reading would have to share the page with it.
+                    -->
+                    <section id="sys-tema" class="sys-section" aria-labelledby="sys-tema-title">
+                        <h2 class="sys-h2" id="sys-tema-title">Tema</h2>
+                        <div class="ac-segmented sys-theme" role="group" aria-labelledby="sys-tema-title">
+                            <button type="button" class="ac-segmented__item" data-theme-choice="graphite" aria-pressed="true">Grafito</button>
+                            <button type="button" class="ac-segmented__item" data-theme-choice="night" aria-pressed="false">Noche</button>
+                        </div>
+                        <p class="sys-note">Noche es negro y ámbar, sin azul: para el tablero de la pared con las luces de la carpa apagadas.</p>
+                    </section>
                 </div>
-                <div class="sys-note">
-                    Este navegador entró con el PIN. Cerrar la sesión lo deja
-                    afuera hasta que lo vuelvas a poner — útil si el tablero
-                    quedó abierto en un teléfono prestado.
-                </div>
-                <button class="btn btn-ghost" data-sys="logout">{{ icon("log-out") }} Cerrar sesión</button>
             </div>
         </section>

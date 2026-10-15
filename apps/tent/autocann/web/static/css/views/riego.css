@@ -1,0 +1,451 @@
+/*
+ * Vista riego. Everything is scoped under .view[data-view="riego"] so it wins
+ * over the legacy rules in app.css without editing them. Colours and spacing
+ * come from tokens.css; the components come from components.css. What is left
+ * here is layout, and the calendar, which has no component of its own.
+ */
+
+/* Two columns: the form on the left, the month and the log on the right. */
+.view[data-view="riego"] .riego-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: var(--space-12);
+    align-items: start;
+    padding: var(--space-8) var(--space-10);
+    min-width: 0;
+}
+
+.view[data-view="riego"] .riego-main,
+.view[data-view="riego"] .riego-side {
+    min-width: 0;
+}
+
+.view[data-view="riego"] .riego-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+}
+
+/* ---------- Heading and mode switch ---------- */
+
+.view[data-view="riego"] .riego-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4);
+}
+
+.view[data-view="riego"] .riego-title {
+    flex: 1;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--fg);
+}
+
+.view[data-view="riego"] .riego-sub {
+    margin: 6px 0 var(--space-6);
+    font-size: 14px;
+}
+
+/* ---------- Litres ---------- */
+
+.view[data-view="riego"] .riego-litres {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-6);
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--hairline);
+}
+
+.view[data-view="riego"] .riego-litres .ac-field {
+    width: 160px;
+}
+
+.view[data-view="riego"] .riego-litres .ac-field__input--xl {
+    width: 100%;
+}
+
+.view[data-view="riego"] .riego-litres .ac-field__hint {
+    padding-bottom: 6px;
+}
+
+.view[data-view="riego"] .feed-notice {
+    margin-top: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    text-align: left;
+}
+
+/* ---------- Product rows ----------
+   The head and the rows share one grid so the column titles line up with the
+   numbers under them. */
+
+.view[data-view="riego"] .feed-products-head,
+.view[data-view="riego"] .ac-product {
+    grid-template-columns: 28px minmax(0, 1fr) 96px 80px;
+}
+
+.view[data-view="riego"] .feed-products-head {
+    display: grid;
+    gap: 12px;
+    align-items: center;
+    padding: var(--space-3) 0 6px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-subtle);
+}
+
+.view[data-view="riego"] .feed-right {
+    text-align: right;
+}
+
+.view[data-view="riego"] .ac-product {
+    cursor: pointer;
+}
+
+.view[data-view="riego"] .ac-product__note {
+    font-size: 12px;
+}
+
+.view[data-view="riego"] .ac-product__dose {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.view[data-view="riego"] .ac-product__dose .feed-product-dose {
+    width: 64px;
+    height: 32px;
+    padding: 0 8px;
+    font-size: 13px;
+    text-align: right;
+}
+
+.view[data-view="riego"] .ac-product__dose small {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* ---------- pH, EC, Nota ---------- */
+
+.view[data-view="riego"] .riego-measures {
+    display: grid;
+    grid-template-columns: 120px 120px minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-top: var(--space-6);
+}
+
+.view[data-view="riego"] .riego-measures .ac-field__input {
+    height: 44px;
+    font-size: 16px;
+}
+
+.view[data-view="riego"] .riego-note {
+    min-width: 0;
+}
+
+.view[data-view="riego"] .riego-note .ac-field__input {
+    font-family: var(--font-sans);
+    font-size: 15px;
+}
+
+.view[data-view="riego"] .riego-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.view[data-view="riego"] .riego-actions .ac-btn--primary {
+    height: 48px;
+    font-size: 15px;
+}
+
+.view[data-view="riego"] .riego-actions .ac-btn--secondary {
+    height: 48px;
+    font-size: 15px;
+}
+
+/* The weekly plan editor keeps its own grid (app.css); this only lines it up
+   with the form above it. */
+.view[data-view="riego"] .feed-plan-editor {
+    padding-top: var(--space-4);
+}
+
+.view[data-view="riego"] .feed-plan-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+/* ---------- Calendar ---------- */
+
+.view[data-view="riego"] .cal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: 14px;
+}
+
+.view[data-view="riego"] .cal-month {
+    flex: 1;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--fg);
+}
+
+.view[data-view="riego"] .cal-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.view[data-view="riego"] .cal-nav .ac-btn--icon {
+    width: 36px;
+    height: 36px;
+}
+
+.view[data-view="riego"] .cal-nav svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+}
+
+.view[data-view="riego"] .cal-weekdays,
+.view[data-view="riego"] .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.view[data-view="riego"] .cal-weekdays {
+    margin-bottom: 6px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-subtle);
+    text-align: center;
+}
+
+/* One cell is 44px tall. Days that have nothing logged are plain numbers; a
+   day with a watering is a button, so the grid can be read by keyboard too. */
+.view[data-view="riego"] .cal-day {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-subtle);
+    cursor: default;
+}
+
+.view[data-view="riego"] .cal-day:not(.is-future):not(.is-blank):not(.is-today) {
+    background: var(--surface-sunken);
+    color: var(--fg-muted);
+}
+
+.view[data-view="riego"] .cal-day.is-blank {
+    background: transparent;
+    border-color: transparent;
+}
+
+.view[data-view="riego"] .cal-day.has-feed {
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.view[data-view="riego"] .cal-day.is-today {
+    border-color: var(--fg);
+    color: var(--fg);
+    font-weight: 500;
+}
+
+.view[data-view="riego"] .cal-day.is-open {
+    box-shadow: inset 0 0 0 1px var(--fg-muted);
+}
+
+.view[data-view="riego"] .cal-day:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* The litres are in the tooltip; the grid only needs to say "watered here". */
+.view[data-view="riego"] .cal-day-litres {
+    display: none;
+}
+
+.view[data-view="riego"] .cal-dot {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    width: var(--dot);
+    height: var(--dot);
+    transform: translateX(-50%);
+    border-radius: var(--radius-full);
+    background: var(--data-water);
+}
+
+.view[data-view="riego"] .cal-day.is-off-plan .cal-dot {
+    background: var(--state-warn);
+}
+
+.view[data-view="riego"] .cal-day.is-flush .cal-dot {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--data-water);
+}
+
+.view[data-view="riego"] .cal-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.view[data-view="riego"] .cal-streak {
+    margin: 0;
+}
+
+.view[data-view="riego"] .cal-detail {
+    padding: 12px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+}
+
+.view[data-view="riego"] .cal-detail[hidden] {
+    display: none;
+}
+
+.view[data-view="riego"] .cal-detail-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    color: var(--fg);
+}
+
+.view[data-view="riego"] .cal-detail .ac-log__item {
+    grid-template-columns: 14px minmax(0, 1fr);
+    padding: 4px 0 0;
+    border-bottom: 0;
+}
+
+/* ---------- Log ---------- */
+
+.view[data-view="riego"] .riego-log-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.view[data-view="riego"] .riego-log-title {
+    flex: 1;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--fg);
+}
+
+.view[data-view="riego"] .ac-log__text {
+    display: block;
+    font-size: 14px;
+}
+
+.view[data-view="riego"] .ac-log__text.is-off {
+    color: var(--fg-subtle);
+}
+
+.view[data-view="riego"] .ac-log__detail {
+    margin-top: 2px;
+}
+
+.view[data-view="riego"] .ac-log__item > div > .ac-btn {
+    height: 32px;
+    margin-top: 8px;
+    padding: 0 10px;
+    font-size: 13px;
+}
+
+/* ---------- Loading ----------
+   The view's own value elements are not in app.css's list, so they get the
+   same grey pulse here. */
+.view[data-view="riego"].is-loading :is(.riego-sub, .cal-streak, #feed-last-badge) {
+    color: transparent !important;
+    background: var(--skeleton);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+    user-select: none;
+}
+
+.view[data-view="riego"].is-loading .riego-sub {
+    width: 60%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .view[data-view="riego"].is-loading :is(.riego-sub, .cal-streak, #feed-last-badge) {
+        animation: none;
+    }
+}
+
+/* ---------- Narrow screens: one column, 16px gutter ---------- */
+
+@media (max-width: 1024px) {
+    .view[data-view="riego"] .riego-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-8);
+        padding: var(--space-4);
+    }
+}
+
+@media (max-width: 640px) {
+    .view[data-view="riego"] .riego-title {
+        font-size: 24px;
+    }
+
+    .view[data-view="riego"] .feed-products-head,
+    .view[data-view="riego"] .ac-product {
+        grid-template-columns: 22px minmax(0, 1fr) 84px 72px;
+        gap: 12px;
+    }
+
+    .view[data-view="riego"] .ac-product {
+        padding: 12px 0;
+    }
+
+    .view[data-view="riego"] .riego-measures {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .view[data-view="riego"] .riego-note {
+        grid-column: 1 / -1;
+    }
+
+    .view[data-view="riego"] .ac-product__dose .feed-product-dose {
+        width: 56px;
+    }
+}

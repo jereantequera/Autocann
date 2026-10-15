@@ -1,69 +1,65 @@
-        <!-- Feeding - what the chart says to pour today, and what was poured -->
+        <!-- Riego - the watering form for today, and the weekly plan it can switch to -->
         <!--
              The stage and the day inside it come from the active grow, so this
              never asks for dates the backend already knows. The chart itself
              lives in the database: the grid below is an editor for it, not a
-             copy of a printed table.
+             copy of a printed table. The two modes share one column because
+             they answer one question each: what goes in the jug now, and what
+             the chart says for the whole cycle.
         -->
-        <div class="section-header">
-            <h2 class="section-title">
-                <span class="section-title-icon">{{ icon("flask-conical") }}</span>
-                Riego y Fertilización
-            </h2>
-            <div class="feed-header-actions">
-                <span class="sensor-badge" id="feed-last-badge">{{ icon("hourglass") }}</span>
-                <button class="btn btn-ghost" data-action="toggle-feed-plan"
-                        id="feed-plan-toggle">Plan</button>
+        <div class="riego-head">
+            <h1 class="riego-title">Registrar riego</h1>
+            <div class="ac-segmented" role="tablist" aria-label="Riego">
+                <button type="button" class="ac-segmented__item" role="tab" aria-selected="true"
+                        id="feed-mode-today" data-action="toggle-feed-plan" data-mode="today">Hoy</button>
+                <button type="button" class="ac-segmented__item" role="tab" aria-selected="false"
+                        id="feed-mode-plan" data-action="toggle-feed-plan" data-mode="plan">Plan por semana</button>
             </div>
         </div>
+        <p class="ac-status__text riego-sub" id="feed-week">--</p>
 
-        <div class="feed-grid">
-            <!-- Hoy -->
-            <div class="feed-card feed-today">
-                <div class="feed-card-header">
-                    <div class="feed-card-title">Hoy</div>
-                    <div class="feed-week" id="feed-week">--</div>
+        <div class="feed-form" id="feed-form">
+            <div class="riego-litres">
+                <div class="ac-field">
+                    <label class="ac-field__label" for="feed-litres">Litros de solución</label>
+                    <input type="number" id="feed-litres" class="ac-field__input ac-field__input--xl ac-field__input--num"
+                           min="0.1" step="0.5" inputmode="decimal" value="10">
                 </div>
-                <div class="feed-volume">
-                    <label for="feed-litres">Litros de solución</label>
-                    <input type="number" id="feed-litres" min="0.1" step="0.5"
-                           inputmode="decimal" value="10">
+                <p class="ac-field__hint">Las cantidades se recalculan<br>con los litros.</p>
+            </div>
+
+            <!-- Only filled when there is no nutrient to pour this week; the product rows say the rest. -->
+            <div class="ac-empty feed-notice" id="feed-doses" hidden></div>
+
+            <div class="feed-products-head" aria-hidden="true">
+                <span></span><span>Producto</span><span class="feed-right">Dosis</span><span class="feed-right">Total</span>
+            </div>
+            <div class="feed-products" id="feed-products">
+                <div class="loading">Cargando productos</div>
+            </div>
+
+            <div class="riego-measures">
+                <div class="ac-field">
+                    <label class="ac-field__label" for="feed-ph">pH</label>
+                    <input type="number" id="feed-ph" class="ac-field__input ac-field__input--num"
+                           step="0.1" min="3" max="9" inputmode="decimal" placeholder="6,0">
                 </div>
-                <div class="feed-doses" id="feed-doses">
-                    <div class="loading">Cargando plan</div>
+                <div class="ac-field">
+                    <label class="ac-field__label" for="feed-ec">EC</label>
+                    <input type="number" id="feed-ec" class="ac-field__input ac-field__input--num"
+                           step="0.1" min="0" max="5" inputmode="decimal" placeholder="1,8">
+                </div>
+                <div class="ac-field riego-note">
+                    <label class="ac-field__label" for="feed-notes">Nota</label>
+                    <input type="text" id="feed-notes" class="ac-field__input"
+                           placeholder="Puntas quemadas en la de la izquierda…">
                 </div>
             </div>
 
-            <!-- Registrar -->
-            <div class="feed-card">
-                <div class="feed-card-header">
-                    <div class="feed-card-title">Registrar riego</div>
-                    <button class="btn btn-ghost btn-mini" data-action="feed-reset"
-                            title="Volver a lo que dice el plan">Plan</button>
-                </div>
-                <div class="feed-products" id="feed-products">
-                    <div class="loading">Cargando productos</div>
-                </div>
-                <div class="feed-measures">
-                    <div class="feed-field">
-                        <label for="feed-ph">pH</label>
-                        <input type="number" id="feed-ph" step="0.1" min="3" max="9"
-                               inputmode="decimal" placeholder="6.0">
-                    </div>
-                    <div class="feed-field">
-                        <label for="feed-ec">EC</label>
-                        <input type="number" id="feed-ec" step="0.1" min="0" max="5"
-                               inputmode="decimal" placeholder="1.8">
-                    </div>
-                </div>
-                <div class="feed-field">
-                    <label for="feed-notes">Nota</label>
-                    <textarea id="feed-notes" rows="2"
-                              placeholder="Puntas quemadas en la de la izquierda, bajé 25%"></textarea>
-                </div>
-                <button class="btn btn-primary feed-save" data-action="feed-save">
-                    Registrar riego
-                </button>
+            <div class="riego-actions">
+                <button class="ac-btn ac-btn--primary" data-action="feed-save">Guardar riego</button>
+                <button class="ac-btn ac-btn--secondary" data-action="feed-reset"
+                        title="Volver a lo que dice el plan">Volver al plan</button>
             </div>
         </div>
 
@@ -78,11 +74,8 @@
                 <table class="feed-plan-table" id="feed-plan-table"></table>
             </div>
             <div class="feed-plan-actions">
-                <button class="btn btn-primary" data-action="feed-plan-save">Guardar plan</button>
-                <button class="btn btn-ghost" data-action="feed-plan-add">Agregar producto</button>
-                <span class="feed-plan-state" id="feed-plan-state"></span>
+                <button class="ac-btn ac-btn--primary" data-action="feed-plan-save">Guardar plan</button>
+                <button class="ac-btn ac-btn--secondary" data-action="feed-plan-add">Agregar producto</button>
+                <span class="ac-field__hint feed-plan-state" id="feed-plan-state"></span>
             </div>
         </div>
-
-        <!-- Historial -->
-        <div class="feed-history" id="feed-history"></div>

@@ -1,4 +1,6 @@
 import { config, state } from './state.js';
+import { formatDate, parseLocalDatetime } from './util.js';
+import { withAlpha } from './stats-math.js';
 
 /** A marker further than this from any plotted point is not drawn. */
 const STAGE_MARKER_TOLERANCE_SECONDS = 12 * 3600;
@@ -10,302 +12,243 @@ const STAGE_SHORT_NAMES = {
     flowering: 'Floración',
     dry: 'Secado',
 };
-import { formatDate, parseLocalDatetime } from './util.js';
 
 /**
- * The three history charts.
+ * The history charts.
  *
  * Chart instances stay module-private; other modules reach them through the
  * accessors at the bottom instead of sharing globals.
+ *
+ * Colours come from the design tokens, not from literals here, and they are
+ * read again whenever data-theme changes. Chart.js bakes the colour into the
+ * canvas, so a theme switch that only restyled the page would leave the charts
+ * in the day palette on the night tablet, which is the one screen that must
+ * not light the tent.
  */
-
-const chartColors = {
-    temp: { border: '#f97316', bg: 'rgba(249, 115, 22, 0.1)' },
-    humidity: { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' },
-    targetHumidity: { border: '#22c55e', bg: 'transparent' },
-    vpd: { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.1)' },
-    outsideTemp: { border: '#fbbf24', bg: 'transparent' },
-    outsideHumidity: { border: '#14b8a6', bg: 'transparent' }
-};
-
-const chartDefaults = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-        legend: {
-            display: true,
-            position: 'top',
-            labels: {
-                // The envelope's lower bound exists only to fill against; it is
-                // not a series anyone wants to toggle.
-                filter: item => item.text !== 'Mín. temperatura',
-                color: '#8fa396',
-                padding: 16,
-                font: { size: 12, family: 'Outfit' },
-                usePointStyle: true,
-                pointStyle: 'circle'
-            }
-        },
-        tooltip: {
-            backgroundColor: '#151d19',
-            borderColor: '#243028',
-            borderWidth: 1,
-            titleColor: '#e8f0eb',
-            bodyColor: '#8fa396',
-            padding: 12,
-            titleFont: { size: 13, weight: 'bold', family: 'Outfit' },
-            bodyFont: { size: 12, family: 'JetBrains Mono' }
-        }
-    },
-    scales: {
-        x: {
-            grid: { color: 'rgba(36, 48, 40, 0.5)' },
-            ticks: { color: '#5a6b5f', font: { size: 11 }, maxRotation: 45 }
-        },
-        y: {
-            grid: { color: 'rgba(36, 48, 40, 0.5)' },
-            ticks: { color: '#5a6b5f', font: { size: 11, family: 'JetBrains Mono' } }
-        }
-    }
-};
 
 let tempHumidityChart, vpdChart, comparisonChart;
 
 /** What is currently plotted, so markers can be placed on the same axis. */
 let lastPlotted = { labels: [], timestamps: [] };
 
-// VPD ranges per stage
+/** Colours as the current theme spells them; null until first read. */
+let palette = null;
+
+/** Canvases in the order the history view lists them. */
+const HISTORY_CANVASES = ['tempHumidityChart', 'vpdChart', 'comparisonChart'];
+
+function readPalette() {
+    const style = getComputedStyle(document.documentElement);
+    const token = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+    return {
+        temp: token('--data-temp', '#E8B07A'),
+        water: token('--data-water', '#7FA7D9'),
+        outside: token('--data-outside', '#9C9B94'),
+        ok: token('--state-ok', '#8FC79A'),
+        warn: token('--state-warn', '#E3A24F'),
+        grid: token('--hairline-faint', '#232623'),
+        tick: token('--fg-subtle', '#878A82'),
+        hairline: token('--hairline', '#2B2E2B'),
+        fg: token('--fg', '#ECEBE6'),
+        fgSecondary: token('--fg-secondary', '#C9C8C1'),
+        fgMuted: token('--fg-muted', '#9C9B94'),
+        overlay: token('--surface-overlay', '#1C1F1C'),
+        mono: token('--font-mono', 'monospace'),
+        sans: token('--font-sans', 'sans-serif'),
+    };
+}
+
+function currentPalette() {
+    if (!palette) palette = readPalette();
+    return palette;
+}
+
+/**
+ * Tooltip and axis styling shared by all three charts.
+ *
+ * Legends are not Chart.js legends: they are HTML in the page, so they can be
+ * styled as the rest of the legend and so a hidden series is simply not listed.
+ */
+function baseOptions(p) {
+    const axis = {
+        grid: { color: p.grid },
+        ticks: { color: p.tick, font: { size: 12, family: p.mono } },
+    };
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: p.overlay,
+                borderColor: p.hairline,
+                borderWidth: 1,
+                cornerRadius: 4,
+                titleColor: p.fg,
+                bodyColor: p.fgMuted,
+                padding: 12,
+                titleFont: { size: 13, weight: '500', family: p.sans },
+                bodyFont: { size: 13, family: p.mono },
+            },
+        },
+        scales: {
+            x: { ...axis, ticks: { ...axis.ticks, maxRotation: 0, autoSkipPadding: 16 } },
+            y: axis,
+        },
+    };
+}
+
+/** A line series in a token colour: no fill, no smoothing, no glow. */
+function line(label, color, yAxisID, extra = {}) {
+    return {
+        label,
+        data: [],
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        tension: 0,
+        fill: false,
+        yAxisID,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        ...extra,
+    };
+}
 
 function initCharts() {
-    // Temperature & Humidity Chart
-    const ctx1 = document.getElementById('tempHumidityChart').getContext('2d');
-    tempHumidityChart = new Chart(ctx1, {
+    const p = currentPalette();
+
+    tempHumidityChart = new Chart(document.getElementById('tempHumidityChart').getContext('2d'), {
         type: 'line',
         data: {
             labels: [],
             datasets: [
-                {
-                    label: 'Temperatura (°C)',
-                    data: [],
-                    borderColor: chartColors.temp.border,
-                    backgroundColor: chartColors.temp.bg,
-                    borderWidth: 2,
-                    tension: 0.4,
-                    fill: true,
-                    yAxisID: 'y',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Humedad (%)',
-                    data: [],
-                    borderColor: chartColors.humidity.border,
-                    backgroundColor: chartColors.humidity.bg,
-                    borderWidth: 2,
-                    tension: 0.4,
-                    fill: true,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Humedad Objetivo (%)',
-                    data: [],
-                    borderColor: chartColors.targetHumidity.border,
-                    backgroundColor: chartColors.targetHumidity.bg,
-                    borderWidth: 2,
-                    borderDash: [5, 5],
-                    tension: 0.4,
-                    fill: false,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
+                line('Temperatura (°C)', p.temp, 'y'),
+                line('Humedad (%)', p.water, 'y1'),
+                line('Humedad objetivo (%)', p.ok, 'y1', { borderDash: [4, 4] }),
                 // Min/max envelope. Each stored row summarises ~100 readings, so
-                // the average alone hides the swing — and the swing is what
-                // stresses the plants. The lower bound is drawn invisibly and
-                // the upper one fills down to it to shade the band.
-                {
-                    label: 'Mín. temperatura',
-                    data: [],
-                    borderColor: 'transparent',
-                    backgroundColor: 'transparent',
-                    borderWidth: 0,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    fill: false,
-                    yAxisID: 'y',
-                    order: 10,
-                },
-                {
-                    label: 'Rango de temperatura',
-                    data: [],
-                    borderColor: 'transparent',
-                    backgroundColor: 'rgba(249, 115, 22, 0.13)',
-                    borderWidth: 0,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    fill: '-1',
-                    yAxisID: 'y',
-                    order: 10,
-                }
-            ]
+                // the average alone hides the swing, and the swing is what stresses
+                // the plants. The lower bound is drawn invisibly and the upper one
+                // fills down to it, which is the only fill on this chart.
+                line('Mín. temperatura', 'transparent', 'y', { borderWidth: 0, order: 10 }),
+                line('Rango de temperatura', 'transparent', 'y', {
+                    borderWidth: 0, order: 10, fill: '-1',
+                    backgroundColor: withAlpha(p.temp, 0.12),
+                }),
+            ],
         },
         options: {
-            ...chartDefaults,
+            ...baseOptions(p),
             scales: {
-                ...chartDefaults.scales,
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    grid: { color: 'rgba(36, 48, 40, 0.5)' },
-                    ticks: { color: chartColors.temp.border, font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '°C', color: chartColors.temp.border }
-                },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    grid: { drawOnChartArea: false },
-                    ticks: { color: chartColors.humidity.border, font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '%', color: chartColors.humidity.border }
-                }
-            }
-        }
+                ...baseOptions(p).scales,
+                y: { ...baseOptions(p).scales.y, position: 'left',
+                     ticks: { ...baseOptions(p).scales.y.ticks, callback: v => `${v}°` } },
+                y1: { ...baseOptions(p).scales.y, position: 'right', grid: { drawOnChartArea: false },
+                      ticks: { ...baseOptions(p).scales.y.ticks, callback: v => `${v}%` } },
+            },
+        },
     });
 
-    // VPD Chart with optimal range band
-    const ctx2 = document.getElementById('vpdChart').getContext('2d');
-    vpdChart = new Chart(ctx2, {
+    vpdChart = new Chart(document.getElementById('vpdChart').getContext('2d'), {
         type: 'line',
         data: {
             labels: [],
-            datasets: [{
-                label: 'VPD (kPa)',
-                data: [],
-                borderColor: chartColors.vpd.border,
-                backgroundColor: chartColors.vpd.bg,
-                borderWidth: 2,
-                tension: 0.4,
-                fill: true,
-                pointRadius: 0,
-                pointHoverRadius: 4
-            }]
+            datasets: [line('VPD de hoja (kPa)', p.warn, 'y')],
         },
         options: {
-            ...chartDefaults,
+            ...baseOptions(p),
             plugins: {
-                ...chartDefaults.plugins,
+                ...baseOptions(p).plugins,
                 annotation: {
                     annotations: {
+                        // grows.js moves this box when the stage changes, so its
+                        // key is part of the contract, not a detail of this file.
                         optimalZone: {
                             type: 'box',
                             yMin: config.vpdRanges[state.stage].min,
                             yMax: config.vpdRanges[state.stage].max,
-                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                            borderColor: 'rgba(34, 197, 94, 0.3)',
-                            borderWidth: 1,
-                            label: {
-                                display: true,
-                                content: 'Rango Óptimo',
-                                position: 'start',
-                                color: '#22c55e',
-                                font: { size: 10 }
-                            }
-                        }
-                    }
-                }
+                            backgroundColor: withAlpha(p.ok, 0.13),
+                            borderWidth: 0,
+                        },
+                    },
+                },
             },
             scales: {
-                ...chartDefaults.scales,
-                y: {
-                    ...chartDefaults.scales.y,
-                    min: 0,
-                    max: 2.0,
-                    title: { display: true, text: 'kPa', color: chartColors.vpd.border }
-                }
-            }
-        }
+                ...baseOptions(p).scales,
+                y: { ...baseOptions(p).scales.y, min: 0, max: 2.0,
+                     ticks: { ...baseOptions(p).scales.y.ticks, callback: v => `${v}` } },
+            },
+        },
     });
 
-    // Comparison Chart
-    const ctx3 = document.getElementById('comparisonChart').getContext('2d');
-    comparisonChart = new Chart(ctx3, {
+    // Indoor against outdoor temperature. Humidity is not drawn here: it is on
+    // the chart above, and the outdoor humidity is in the readout.
+    comparisonChart = new Chart(document.getElementById('comparisonChart').getContext('2d'), {
         type: 'line',
         data: {
             labels: [],
             datasets: [
-                {
-                    label: 'Temp. Interior (°C)',
-                    data: [],
-                    borderColor: chartColors.temp.border,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    tension: 0.4,
-                    yAxisID: 'y',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Temp. Exterior (°C)',
-                    data: [],
-                    borderColor: chartColors.outsideTemp.border,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    tension: 0.4,
-                    yAxisID: 'y',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Hum. Interior (%)',
-                    data: [],
-                    borderColor: chartColors.humidity.border,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    tension: 0.4,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                },
-                {
-                    label: 'Hum. Exterior (%)',
-                    data: [],
-                    borderColor: chartColors.outsideHumidity.border,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    tension: 0.4,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4
-                }
-            ]
+                line('Adentro (°C)', p.temp, 'y'),
+                line('Afuera (°C)', p.outside, 'y', { borderDash: [4, 4] }),
+            ],
         },
         options: {
-            ...chartDefaults,
+            ...baseOptions(p),
             scales: {
-                ...chartDefaults.scales,
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    grid: { color: 'rgba(36, 48, 40, 0.5)' },
-                    ticks: { color: '#5a6b5f', font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '°C', color: '#5a6b5f' }
-                },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    grid: { drawOnChartArea: false },
-                    ticks: { color: '#5a6b5f', font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '%', color: '#5a6b5f' }
-                }
-            }
-        }
+                ...baseOptions(p).scales,
+                y: { ...baseOptions(p).scales.y, ticks: { ...baseOptions(p).scales.y.ticks, callback: v => `${v}°` } },
+            },
+        },
     });
+
+    // The palette is read once per theme, not once per chart, and it changes
+    // only when the attribute does.
+    new MutationObserver(() => {
+        palette = readPalette();
+        paintCharts();
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+
+/**
+ * Put the current palette into every chart that exists.
+ *
+ * Only the colours are written. Writing the whole options object would drop
+ * the stage markers and the optimal zone, which live in it.
+ */
+function paintCharts() {
+    const p = currentPalette();
+    const paintAxis = (axis, color) => {
+        if (!axis) return;
+        axis.grid.color = p.grid;
+        axis.ticks.color = p.tick;
+    };
+
+    if (tempHumidityChart) {
+        const o = tempHumidityChart.options;
+        paintAxis(o.scales.x); paintAxis(o.scales.y); paintAxis(o.scales.y1);
+        const ds = tempHumidityChart.data.datasets;
+        ds[0].borderColor = p.temp;
+        ds[1].borderColor = p.water;
+        ds[2].borderColor = p.ok;
+        ds[4].backgroundColor = withAlpha(p.temp, 0.12);
+    }
+    if (vpdChart) {
+        paintAxis(vpdChart.options.scales.x); paintAxis(vpdChart.options.scales.y);
+        vpdChart.data.datasets[0].borderColor = p.warn;
+        const zone = vpdChart.options.plugins.annotation?.annotations?.optimalZone;
+        if (zone) zone.backgroundColor = withAlpha(p.ok, 0.13);
+    }
+    if (comparisonChart) {
+        const ds = comparisonChart.data.datasets;
+        ds[0].borderColor = p.temp;
+        ds[1].borderColor = p.outside;
+        paintAxis(comparisonChart.options.scales.x); paintAxis(comparisonChart.options.scales.y);
+    }
+    [tempHumidityChart, vpdChart, comparisonChart]
+        .filter(Boolean)
+        .forEach(chart => chart.update('none'));
 }
 
 /**
@@ -320,23 +263,31 @@ function resizeCharts() {
         .forEach(chart => chart.resize());
 }
 
-// "YYYY-MM-DD HH:MM:SS" is not a format the Date constructor has to
-// accept; Safari returns Invalid Date for it. Parse it as local ISO.
-
 /**
  * Say why a chart is blank instead of drawing an empty grid, or clear it.
  *
  * @param {?string} message  null once there is something to plot
  */
 function setChartEmpty(canvasId, message) {
-    const wrapper = document.getElementById(canvasId)?.closest('.chart-wrapper');
+    const wrapper = document.getElementById(canvasId)?.closest('.ac-chart');
     if (!wrapper) return;
     wrapper.classList.toggle('is-empty', !!message);
     if (message) wrapper.dataset.empty = message;
     else delete wrapper.dataset.empty;
 }
 
-const HISTORY_CANVASES = ['tempHumidityChart', 'vpdChart', 'comparisonChart'];
+/**
+ * Show or hide a legend entry along with the series it names.
+ *
+ * A series with no values (the envelope on rows written before it existed, the
+ * target on aggregated rows) is not in the legend either, so the legend never
+ * names a line that is not on the chart.
+ */
+function setLegendItem(key, present) {
+    document.querySelectorAll(`[data-series="${key}"]`).forEach(item => {
+        item.hidden = !present;
+    });
+}
 
 function updateHistoricalCharts(data) {
     const empty = !data || !data.data || data.data.length === 0;
@@ -344,22 +295,24 @@ function updateHistoricalCharts(data) {
     // week with no samples kept showing the day before, under the new title.
     HISTORY_CANVASES.forEach(id => setChartEmpty(id,
         empty ? 'Sin muestras en este período' : null));
-    if (empty) return;
+    if (empty) {
+        ['band', 'target'].forEach(key => setLegendItem(key, false));
+        return;
+    }
 
     const sortedData = [...data.data].sort(
         (a, b) => parseLocalDatetime(a.datetime) - parseLocalDatetime(b.datetime));
-    
+
     const labels = sortedData.map(d => formatDate(d.datetime,
         { hours: state.hours, interval: state.interval }));
     const temperatures = sortedData.map(d => d.temperature);
     const humidities = sortedData.map(d => d.humidity);
-    const targetHumidities = sortedData.map(d => d.target_humidity || null);
-    const vpds = sortedData.map(d => d.vpd);
+    const targetHumidities = sortedData.map(d => d.target_humidity ?? null);
+    // The band is about the leaf, so the curve is too; the air value stands in
+    // only for rows that have no leaf sensor, as the VPD score does.
+    const vpds = sortedData.map(d => d.leaf_vpd ?? d.vpd);
     const outsideTemps = sortedData.map(d => d.outside_temperature);
-    const outsideHumidities = sortedData.map(d => d.outside_humidity);
 
-    // Update charts
-    // Kept so stage markers can be positioned against the same x-axis.
     lastPlotted = {
         labels,
         timestamps: sortedData.map(d => Math.floor(parseLocalDatetime(d.datetime).getTime() / 1000)),
@@ -370,16 +323,21 @@ function updateHistoricalCharts(data) {
     const tempMins = sortedData.map(d => d.temperature_min ?? null);
     const tempMaxs = sortedData.map(d => d.temperature_max ?? null);
     const hasBand = tempMins.some(v => v !== null);
+    const hasTarget = targetHumidities.some(v => v !== null);
 
-    tempHumidityChart.data.labels = labels;
-    tempHumidityChart.data.datasets[0].data = temperatures;
-    tempHumidityChart.data.datasets[1].data = humidities;
-    tempHumidityChart.data.datasets[2].data = targetHumidities;
-    tempHumidityChart.data.datasets[3].data = hasBand ? tempMins : [];
-    tempHumidityChart.data.datasets[4].data = hasBand ? tempMaxs : [];
-    tempHumidityChart.data.datasets[3].hidden = !hasBand;
-    tempHumidityChart.data.datasets[4].hidden = !hasBand;
+    const top = tempHumidityChart.data;
+    top.labels = labels;
+    top.datasets[0].data = temperatures;
+    top.datasets[1].data = humidities;
+    top.datasets[2].data = hasTarget ? targetHumidities : [];
+    top.datasets[3].data = hasBand ? tempMins : [];
+    top.datasets[4].data = hasBand ? tempMaxs : [];
+    top.datasets[2].hidden = !hasTarget;
+    top.datasets[3].hidden = !hasBand;
+    top.datasets[4].hidden = !hasBand;
     tempHumidityChart.update();
+    setLegendItem('band', hasBand);
+    setLegendItem('target', hasTarget);
 
     vpdChart.data.labels = labels;
     vpdChart.data.datasets[0].data = vpds;
@@ -388,8 +346,6 @@ function updateHistoricalCharts(data) {
     comparisonChart.data.labels = labels;
     comparisonChart.data.datasets[0].data = temperatures;
     comparisonChart.data.datasets[1].data = outsideTemps;
-    comparisonChart.data.datasets[2].data = humidities;
-    comparisonChart.data.datasets[3].data = outsideHumidities;
     comparisonChart.update();
 }
 
@@ -416,6 +372,7 @@ function renderStageMarkers(timeline, labels = lastPlotted.labels,
                             timestamps = lastPlotted.timestamps) {
     const charts = [tempHumidityChart, vpdChart, comparisonChart].filter(Boolean);
     if (!charts.length || !labels || !labels.length) return;
+    const p = currentPalette();
 
     const markers = {};
     (timeline || []).forEach((period, index) => {
@@ -436,16 +393,16 @@ function renderStageMarkers(timeline, labels = lastPlotted.labels,
             type: 'line',
             xMin: nearest,
             xMax: nearest,
-            borderColor: 'rgba(192, 132, 252, 0.7)',
-            borderWidth: 2,
-            borderDash: [5, 4],
+            borderColor: withAlpha(p.fgSecondary, 0.5),
+            borderWidth: 1,
+            borderDash: [4, 4],
             label: {
                 display: true,
                 content: STAGE_SHORT_NAMES[period.stage] || period.stage,
                 position: 'start',
-                backgroundColor: 'rgba(168, 85, 247, 0.85)',
-                color: '#fff',
-                font: { size: 10, family: 'Outfit' },
+                backgroundColor: p.overlay,
+                color: p.fgSecondary,
+                font: { size: 11, family: p.sans },
                 padding: { x: 6, y: 3 },
             },
         };

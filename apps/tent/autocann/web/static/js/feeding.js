@@ -2,6 +2,7 @@ import { apiGet } from './api.js';
 import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
 import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
+import { formatShortDate } from './grow-model.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -60,44 +61,43 @@ function stageName(stage) {
 // Today
 // ---------------------------------------------------------------------------
 
+/**
+ * The subtitle under the heading, and a notice only when there is nothing to
+ * pour. The doses themselves are the product rows: the form already multiplies
+ * them by the litres, so a second list here would just say it twice.
+ */
 function renderToday() {
-    const doses = el('feed-doses');
+    const notice = el('feed-doses');
     const week = el('feed-week');
-    if (!doses) return;
+    if (!notice || !week) return;
 
     if (!today) {
-        doses.innerHTML = '<div class="loading">Cargando plan</div>';
+        notice.hidden = true;
         return;
     }
 
+    const count = today.items.length;
     week.textContent = today.week
         ? `${stageName(today.stage)} · semana ${today.week} de ${today.weeks_in_stage}`
         : stageName(today.stage);
+    if (count) {
+        week.textContent += ` · el plan lleva ${count} ${count === 1 ? 'producto' : 'productos'}`;
+    }
 
     const waterOnly = waterOnlyNote(today.water_only);
     if (waterOnly) {
-        doses.innerHTML = `
-            <div class="feed-flush">${escapeHtml(waterOnly.text)}</div>`;
+        notice.hidden = false;
+        notice.textContent = waterOnly.text;
         return;
     }
-    if (!today.items.length) {
-        doses.innerHTML = `
-            <div class="feed-flush">
-                No hay nada cargado en el plan para esta semana.
-                Abrí «Plan» y completá la grilla.
-            </div>`;
+    if (!count) {
+        notice.hidden = false;
+        notice.textContent = 'No hay nada cargado en el plan para esta semana. '
+            + 'Abrí «Plan por semana» y completá la grilla.';
         return;
     }
-
-    const litres = Number(el('feed-litres').value) || today.litres;
-    doses.innerHTML = today.items.map(item => `
-        <div class="feed-dose-row">
-            <span class="feed-dose-name">${escapeHtml(item.name)}</span>
-            <span class="feed-dose-amount">
-                ${escapeHtml(doseAmount(item, litres))}
-                <small>${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}</small>
-            </span>
-        </div>`).join('');
+    notice.hidden = true;
+    notice.textContent = '';
 }
 
 // ---------------------------------------------------------------------------
@@ -123,22 +123,28 @@ function renderForm() {
         return;
     }
 
+    // A product outside this week's plan stays usable, but its row is dimmed:
+    // an unplanned addition should look like one at a glance.
     box.innerHTML = ordered.map(product => {
         const planned = due.get(product.id);
         const id = Number(product.id);
+        const name = escapeHtml(product.name);
         return `
-        <label class="feed-product${planned ? ' on' : ''}" data-product-id="${id}">
-            <input type="checkbox" ${planned ? 'checked' : ''}
-                   aria-label="${escapeHtml(product.name)}">
-            <span class="feed-product-name">
-                ${escapeHtml(product.name)}
-                <small>${planned ? `plan ${escapeHtml(fmtDose(planned))} ${escapeHtml(product.unit)}`
-                                 : escapeHtml(product.unit)}</small>
+        <label class="ac-product${planned ? '' : ' is-off'}" data-product-id="${id}">
+            <input class="ac-check" type="checkbox" ${planned ? 'checked' : ''}
+                   aria-label="${name}">
+            <span class="ac-product__name">
+                ${name}
+                <span class="ac-product__note">${planned ? 'en el plan' : 'no está en el plan esta semana'}</span>
             </span>
-            <input type="number" class="feed-product-dose" min="0" step="0.5"
-                   inputmode="decimal" value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
-                   aria-label="Dosis de ${escapeHtml(product.name)}">
-            <span class="feed-product-total"></span>
+            <span class="ac-product__dose">
+                <input type="number" class="ac-field__input ac-field__input--num feed-product-dose"
+                       min="0" step="0.5" inputmode="decimal"
+                       value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
+                       aria-label="Dosis de ${name}">
+                <small>${escapeHtml(product.unit)}</small>
+            </span>
+            <span class="ac-product__total"></span>
         </label>`;
     }).join('');
 
@@ -147,15 +153,14 @@ function renderForm() {
 
 function refreshTotals() {
     const litres = Number(el('feed-litres').value) || 0;
-    document.querySelectorAll('#feed-products .feed-product').forEach(row => {
+    document.querySelectorAll('#feed-products .ac-product').forEach(row => {
         const checkbox = row.querySelector('input[type=checkbox]');
         const input = row.querySelector('.feed-product-dose');
-        const total = row.querySelector('.feed-product-total');
+        const total = row.querySelector('.ac-product__total');
         const value = Number(input.value) || 0;
         const active = checkbox.checked && value > 0;
         const product = plan.products.find(p => p.id === Number(row.dataset.productId));
 
-        row.classList.toggle('on', active);
         total.textContent = active && product
             ? doseAmount({ dose: value, unit: product.unit }, litres)
             : '--';
@@ -165,7 +170,7 @@ function refreshTotals() {
 function readForm() {
     const planned = new Set((today?.items || []).map(item => item.product_id));
     const items = [];
-    document.querySelectorAll('#feed-products .feed-product').forEach(row => {
+    document.querySelectorAll('#feed-products .ac-product').forEach(row => {
         const checkbox = row.querySelector('input[type=checkbox]');
         const value = Number(row.querySelector('.feed-product-dose').value) || 0;
         if (!checkbox.checked || value <= 0) return;
@@ -187,6 +192,10 @@ function readForm() {
 // History
 // ---------------------------------------------------------------------------
 
+/**
+ * The irrigation log as a day-by-day list: what was poured, the measures taken
+ * with it, and the note, with the delete control at the foot of each entry.
+ */
 function renderHistory() {
     const box = el('feed-history');
     const badge = el('feed-last-badge');
@@ -194,8 +203,9 @@ function renderHistory() {
 
     if (!history.length) {
         box.innerHTML = `
-            <div class="feed-empty">
-                Todavía no hay riegos registrados para este cultivo.
+            <div class="ac-empty">
+                Todavía no hay riegos en este cultivo. El primero que guardes
+                aparece acá y en el calendario.
             </div>`;
         if (badge) badge.textContent = 'sin riegos';
         return;
@@ -214,29 +224,27 @@ function renderHistory() {
     box.innerHTML = history.map(entry => {
         const id = Number(entry.id);
         const items = (entry.items || []).map(item => `
-            <span class="feed-pill${item.on_plan ? '' : ' off'}">
-                ${escapeHtml(item.name)}
-                ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
-                · ${escapeHtml(doseAmount(item, entry.litres))}
-            </span>`).join('') || '<span class="feed-pill">Solo agua</span>';
+            <span class="ac-log__text${item.on_plan ? '' : ' is-off'}">
+                ${escapeHtml(item.name)} ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
+                · ${escapeHtml(doseAmount(item, entry.litres))}${item.on_plan ? '' : ' · fuera del plan'}
+            </span>`).join('') || '<span class="ac-log__text">Solo agua</span>';
 
         const measures = [
             entry.stage ? `${escapeHtml(stageName(entry.stage))} S${Number(entry.week) || '?'}` : '',
             Number.isFinite(entry.ph) ? `pH ${escapeHtml(fmtDose(entry.ph))}` : '',
             Number.isFinite(entry.ec) ? `EC ${escapeHtml(fmtDose(entry.ec))}` : '',
-        ].filter(Boolean).map(text => `<span class="feed-tag">${text}</span>`).join('');
+        ].filter(Boolean).join(' · ');
 
         return `
-        <div class="feed-entry">
-            <div class="feed-entry-head">
-                <span class="feed-entry-date">${escapeHtml(entry.date)}</span>
-                <span class="feed-entry-litres">${escapeHtml(fmtDose(entry.litres))} L</span>
-            </div>
-            <div class="feed-entry-tags">${measures}</div>
-            <div class="feed-entry-items">${items}</div>
-            ${entry.notes ? `<div class="feed-entry-note">${escapeHtml(entry.notes)}</div>` : ''}
-            <div class="feed-entry-foot">
-                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}"
+        <div class="ac-log__day">${escapeHtml(formatShortDate(entry.date))}</div>
+        <div class="ac-log__item">
+            <span class="ac-log__time">${escapeHtml(fmtDose(entry.litres))} L</span>
+            <span class="ac-dot ac-dot--info" aria-hidden="true"></span>
+            <div>
+                ${items}
+                ${measures ? `<div class="ac-log__detail">${measures}</div>` : ''}
+                ${entry.notes ? `<div class="ac-log__detail">${escapeHtml(entry.notes)}</div>` : ''}
+                <button class="ac-btn ac-btn--ghost feed-delete" data-irrigation-id="${id}"
                         data-irrigation-date="${escapeHtml(entry.date)}">
                     Borrar
                 </button>
@@ -357,14 +365,25 @@ function wirePlanEditor() {
     });
 }
 
-function togglePlanEditor() {
+/**
+ * Switch between today's form and the weekly plan. The button that was pressed
+ * says which one (`data-mode`); without one, it flips.
+ */
+function togglePlanEditor(trigger) {
     const editor = el('feed-plan-editor');
-    const toggle = el('feed-plan-toggle');
-    if (!editor) return;
+    const form = el('feed-form');
+    if (!editor || !form) return;
 
-    editor.hidden = !editor.hidden;
-    toggle.textContent = editor.hidden ? 'Plan' : 'Cerrar';
-    if (!editor.hidden) {
+    const mode = trigger?.dataset?.mode;
+    const showPlan = mode ? mode === 'plan' : editor.hidden;
+    // Re-pressing "Plan por semana" must not throw away unsaved grid edits.
+    if (showPlan && !editor.hidden) return;
+
+    editor.hidden = !showPlan;
+    form.hidden = showPlan;
+    el('feed-mode-today').setAttribute('aria-selected', String(!showPlan));
+    el('feed-mode-plan').setAttribute('aria-selected', String(showPlan));
+    if (showPlan) {
         planDraft = cloneplan();
         el('feed-plan-state').textContent = '';
         renderPlanEditor();

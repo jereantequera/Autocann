@@ -73,6 +73,12 @@ function nodeSensorHtml(sensor) {
         </div>`;
 }
 
+function factsHtml(rows) {
+    return `<dl class="node-facts">${rows.map(([name, value]) => `
+        <dt>${escapeHtml(name)}</dt>
+        <dd>${escapeHtml(String(value))}</dd>`).join('')}</dl>`;
+}
+
 function nodeCardHtml(node) {
     const levelIcon = icon(LEVEL_ICONS[node.level] || 'hourglass');
     const sensors = (node.sensors || []).map(nodeSensorHtml).join('');
@@ -92,24 +98,25 @@ function nodeCardHtml(node) {
         ['Memoria libre', Number.isFinite(node.free_heap)
             ? `${Math.round(node.free_heap / 1024)} kB` : '--'],
     ];
+    // Two columns of facts, so a node reads as one block instead of a list
+    // that runs the length of the screen.
+    const half = Math.ceil(rows.length / 2);
 
     return `
-        <div class="sys-card node-card is-${escapeHtml(node.level || 'warn')}">
+        <article class="node-card is-${escapeHtml(node.level || 'warn')}">
             <div class="node-card-head">
+                <span class="ac-dot ${node.level === 'ok' ? 'ac-dot--ok' : 'ac-dot--alert'}" aria-hidden="true"></span>
                 <span class="node-card-name">${escapeHtml(node.node)}</span>
-                <span class="sys-state ${node.level === 'ok' ? 'ok' : 'error'}">${levelIcon}${escapeHtml(node.label || '')}</span>
+                <span class="node-card-state">${levelIcon}${escapeHtml(node.label || '')}</span>
             </div>
             <div class="sys-detail">${escapeHtml(node.detail || '')}</div>
             <div class="node-card-rows">
-                ${rows.map(([name, value]) => `
-                    <div class="node-row">
-                        <span class="node-row-name">${escapeHtml(name)}</span>
-                        <span class="node-row-value">${escapeHtml(String(value))}</span>
-                    </div>`).join('')}
+                ${factsHtml(rows.slice(0, half))}
+                ${factsHtml(rows.slice(half))}
             </div>
             ${sensors ? `<div class="node-sensors">${sensors}</div>` : ''}
             <div class="node-card-foot">Último reporte ${escapeHtml(formatAge(node.age_seconds))}</div>
-        </div>`;
+        </article>`;
 }
 
 function renderNodes(payload) {
@@ -122,7 +129,7 @@ function renderNodes(payload) {
         // Un nodo con firmware viejo no reporta nada, y eso se ve igual que un
         // nodo muerto. Vale la pena decir cuál de las dos cosas es.
         grid.innerHTML = `
-            <div class="sys-note sys-card-wide">
+            <div class="sys-note">
                 Ningún nodo reportó su estado todavía. El firmware anterior no lo
                 hacía: regrabá <code>firmware/sensor_node</code> para ver acá su
                 log y sus contadores.

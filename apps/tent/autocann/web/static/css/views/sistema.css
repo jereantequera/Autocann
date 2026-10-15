@@ -1,0 +1,764 @@
+/*
+ * Vista sistema (A2). Solo tokens de tokens.css y clases de components.css.
+ *
+ * Estado, sensores, nodos, silencio, datos y acceso son una sola página con
+ * un índice a la izquierda: se lee de arriba abajo cuando algo anda mal, y se
+ * salta a una sección cuando se sabe cuál.
+ */
+
+.view-system {
+    font-family: var(--font-sans);
+    color: var(--fg);
+}
+
+/* ---------- Layout: index + content ---------- */
+
+.sys-layout {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+}
+
+/* Sticky so it stays in reach while the page is long; hidden where the
+   content needs the whole width. */
+.sys-index {
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sys-index-link {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding-left: 12px;
+    border-left: 2px solid var(--hairline);
+    font-size: 14px;
+    color: var(--fg-muted);
+    text-decoration: none;
+}
+
+.sys-index-link:hover {
+    color: var(--fg);
+}
+
+.sys-index-link.is-current {
+    color: var(--fg);
+    border-left-color: var(--fg);
+    font-weight: 500;
+}
+
+.sys-content {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    min-width: 0;
+}
+
+.sys-section {
+    scroll-margin-top: 24px;
+    min-width: 0;
+}
+
+.sys-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 48px;
+}
+
+/* ---------- Type ---------- */
+
+.sys-h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sys-h3 {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sys-lede {
+    margin: 0 0 14px;
+    max-width: 62ch;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+}
+
+.sys-note,
+.sensors-note {
+    margin: 12px 0 0;
+    max-width: 62ch;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+}
+
+.sys-note code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+
+.sys-note-inline {
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.sys-note-inline.is-ok {
+    color: var(--state-ok);
+}
+
+.sys-note-inline.is-error {
+    color: var(--state-alert);
+}
+
+.sys-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.sys-section-head .ac-btn {
+    margin-left: auto;
+}
+
+.view-system .loading {
+    font-size: 14px;
+    color: var(--fg-subtle);
+}
+
+/* Badges the section heads share: a count, not a verdict, so they stay small. */
+.view-system .sensor-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+}
+
+.view-system .sensor-badge svg {
+    width: 14px;
+    height: 14px;
+}
+
+.view-system .sensor-badge.ok {
+    border-color: var(--state-ok);
+    color: var(--state-ok);
+}
+
+.view-system .sensor-badge.stale {
+    border-color: var(--state-warn);
+    color: var(--state-warn);
+}
+
+.view-system .sensor-badge.error {
+    border-color: var(--state-alert);
+    color: var(--state-alert);
+}
+
+/* ---------- Estado ---------- */
+
+.sys-verdict-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.sys-age {
+    margin: 0;
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.sys-verdict .sys-section-head {
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.health-checks {
+    margin: 0;
+}
+
+.health-check-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+}
+
+.health-check-detail {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.health-check.is-idle .health-check-name {
+    color: var(--fg-secondary);
+}
+
+/* ---------- Sensores ---------- */
+
+.sys-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.sensors-table {
+    min-width: 760px;
+}
+
+.sensors-table td {
+    padding: 12px 8px 12px 0;
+    font-size: 14px;
+    color: var(--fg-secondary);
+}
+
+.sensors-table th {
+    padding-right: 8px;
+}
+
+.sensors-table td.ac-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+}
+
+.sensors-table td.ac-num:empty::after {
+    content: '—';
+}
+
+.sensor-name-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+}
+
+/* The diagnostic sits in its own row under the sensor, so the reading columns
+   keep their width. Caption size, muted; only the action after the arrow is
+   louder, because that is the part that says what to do. */
+.sensors-table .sensor-why-row td {
+    padding-top: 0;
+    border-top: none;
+}
+
+.sensors-table .sensor-why-row .sensor-why {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.sensors-table .sensor-why-row .sensor-why-action {
+    color: var(--fg-secondary);
+}
+
+/* "Última" is a time, and a wrapped "hace 2 min" reads as two unrelated things. */
+.sensors-table td[data-f="age"],
+.sensors-table th:nth-child(5) {
+    white-space: nowrap;
+}
+
+.sensors-table tr[data-sensor-row="outdoor"] td {
+    color: var(--fg-muted);
+}
+
+.sensors-table tr[data-orphan] td {
+    color: var(--fg-muted);
+}
+
+.sensors-table .sensors-empty td {
+    padding: 16px 0;
+    color: var(--fg-muted);
+}
+
+/* The cells are inputs in a row of text: narrow, mono, and the same height. */
+.sensors-table .ac-field__input {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 14px;
+}
+
+.sensors-table .ac-field__input--num {
+    width: 92px;
+}
+
+.sensors-table .calib-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 200px;
+}
+
+.sensors-table .calib-note .ac-field__input {
+    flex: 1;
+    min-width: 0;
+}
+
+.sensors-table .calib-note .ac-btn {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.sensors-table tr.is-dirty .ac-field__input {
+    border-color: var(--state-warn);
+}
+
+.sensors-drift {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.sensors-drift[hidden] {
+    display: none;
+}
+
+.sensors-drift-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-secondary);
+}
+
+.sensors-drift-verdict svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sensors-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+/* ---------- Nodos ESP32 ---------- */
+
+.sys-nodes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 32px;
+}
+
+.node-card {
+    min-width: 0;
+}
+
+.node-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.node-card-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+}
+
+.node-card-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.node-card-state svg {
+    width: 14px;
+    height: 14px;
+}
+
+.node-card .sys-detail {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+/* Two columns of facts: each dl is a dt/dd grid, and the card holds two. */
+.node-card-rows {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 24px;
+    margin-top: 12px;
+}
+
+.node-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 13px;
+}
+
+.node-facts dt {
+    color: var(--fg-muted);
+}
+
+.node-facts dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-secondary);
+    overflow-wrap: anywhere;
+}
+
+.node-sensors {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.node-sensor {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 13px;
+    color: var(--fg-secondary);
+}
+
+.node-sensor.is-bad {
+    color: var(--state-warn);
+}
+
+.node-sensor-id {
+    font-weight: 600;
+}
+
+.node-sensor-pin,
+.node-sensor-rate,
+.node-sensor-posts {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.node-sensor-posts {
+    color: var(--state-alert);
+}
+
+.node-card-foot {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--fg-subtle);
+}
+
+.node-log-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    margin-top: 32px;
+    margin-bottom: 10px;
+}
+
+.node-log-picker {
+    width: auto;
+    min-width: 160px;
+    height: 36px;
+}
+
+.node-log-follow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    cursor: pointer;
+}
+
+/* The console: the one place the screen is mono, and the sunken surface says
+   it is a readout of the device rather than a card about it. */
+.node-log {
+    height: 180px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    padding: 12px 14px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--hairline-faint);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--fg-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.node-log:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.node-log-line {
+    display: grid;
+    grid-template-columns: 64px 12px minmax(0, 1fr);
+    gap: 8px;
+}
+
+.node-log-time {
+    color: var(--fg-subtle);
+}
+
+.node-log-mark {
+    color: var(--fg-muted);
+}
+
+.node-log-line.is-warn .node-log-mark,
+.node-log-line.is-warn .node-log-text {
+    color: var(--state-warn);
+}
+
+.node-log-line.is-error .node-log-mark,
+.node-log-line.is-error .node-log-text {
+    color: var(--state-alert);
+}
+
+.node-log-text {
+    overflow-wrap: anywhere;
+}
+
+.node-log-empty {
+    color: var(--fg-subtle);
+}
+
+/* ---------- Horarios de silencio ---------- */
+
+.quiet-grid {
+    display: flex;
+    flex-direction: column;
+}
+
+/* One grid row per output: toggle, window, humidity exception, and the sentence. */
+.quiet-card {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.1fr) 132px 132px 168px minmax(0, 1.6fr);
+    gap: 16px;
+    align-items: center;
+    padding: 12px 0;
+    border-top: 1px solid var(--hairline-faint);
+}
+
+.quiet-card:last-child {
+    border-bottom: 1px solid var(--hairline-faint);
+}
+
+.quiet-card.is-inert {
+    grid-template-columns: minmax(180px, 1.1fr) minmax(0, 3fr);
+    color: var(--fg-muted);
+}
+
+.quiet-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.quiet-card.is-inert .quiet-toggle {
+    cursor: default;
+    color: var(--fg-secondary);
+}
+
+.quiet-name {
+    min-width: 0;
+}
+
+.quiet-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.quiet-field .ac-field__label {
+    font-size: 12px;
+}
+
+.quiet-field .ac-field__input {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 14px;
+}
+
+.quiet-field .ac-field__input--num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.quiet-sentence {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+}
+
+.quiet-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.quiet-hint svg {
+    width: 14px;
+    height: 14px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.quiet-silencing {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--state-ok);
+}
+
+.quiet-silencing svg {
+    width: 14px;
+    height: 14px;
+}
+
+.quiet-card.is-on .quiet-hint {
+    color: var(--fg-secondary);
+}
+
+.quiet-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.quiet-state {
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
+.quiet-state.is-ok {
+    color: var(--state-ok);
+}
+
+.quiet-state.is-error {
+    color: var(--state-alert);
+}
+
+/* ---------- Base de datos, acceso, tema ---------- */
+
+.sys-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 170px) minmax(0, 1fr);
+    gap: 8px 16px;
+    margin: 0;
+    font-size: 14px;
+}
+
+.sys-facts dt {
+    color: var(--fg-muted);
+}
+
+.sys-facts dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+}
+
+.sys-theme {
+    margin-top: 4px;
+}
+
+/* ---------- Narrow screens ---------- */
+
+@media (max-width: 1024px) {
+    .sys-layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 24px;
+    }
+
+    .sys-index {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .sys-pair {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 40px;
+    }
+
+    .sys-content {
+        gap: 32px;
+    }
+
+    .health-checks {
+        grid-auto-flow: row;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .health-checks > * {
+        padding: 12px 0 !important;
+        border-left: 0 !important;
+    }
+
+    .health-checks > *:nth-child(even) {
+        padding-left: 16px !important;
+    }
+
+    .node-card-rows {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .quiet-card,
+    .quiet-card.is-inert {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .quiet-card > .quiet-toggle,
+    .quiet-card > .quiet-sentence {
+        grid-column: 1 / -1;
+    }
+
+    .sys-nodes {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

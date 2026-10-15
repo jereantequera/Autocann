@@ -1,47 +1,43 @@
-            <!-- Nodos ESP32: su diagnóstico y su log -->
-            <!--
-                 El puerto serie del nodo dice exactamente qué está mal — una
-                 lectura fallida del DHT22, un POST que volvió 400, el WiFi que
-                 se cayó — y era invisible: leerlo significa entrar a la carpa
-                 con una notebook y desenchufar el nodo de su fuente para
-                 enchufarlo al USB, lo que lo reinicia y borra justo el estado
-                 que se quería mirar.
+                    <!-- Nodos ESP32: su diagnóstico y su log -->
+                    <!--
+                         El puerto serie del nodo dice exactamente qué está mal — una
+                         lectura fallida del DHT22, un POST que volvió 400, el WiFi que
+                         se cayó — y era invisible: leerlo significa entrar a la carpa
+                         con una notebook y desenchufar el nodo de su fuente para
+                         enchufarlo al USB, lo que lo reinicia y borra justo el estado
+                         que se quería mirar.
 
-                 Así que el nodo postea su propio log a /api/node/log y se lee
-                 acá. Lo que manda son eventos, no cada lectura: la lectura de
-                 cada ciclo sigue saliendo sólo por el serie, porque encolarla
-                 llenaría el log de números normales y tiraría afuera la línea
-                 que explica la falla.
-            -->
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("radio-tower") }}</span>
-                    Nodos ESP32
-                </h2>
-                <span class="sensor-badge" id="nodes-badge">{{ icon("hourglass") }}</span>
-                <button class="btn btn-ghost btn-mini" data-sys="refresh-nodes">{{ icon("refresh-cw") }} Actualizar</button>
-            </div>
-            <div class="sys-grid" id="nodes-grid">
-                <div class="loading">Consultando nodos</div>
-            </div>
+                         Así que el nodo postea su propio log a /api/node/log y se lee
+                         acá. Lo que manda son eventos, no cada lectura: la lectura de
+                         cada ciclo sigue saliendo sólo por el serie, porque encolarla
+                         llenaría el log de números normales y tiraría afuera la línea
+                         que explica la falla.
+                    -->
+                    <section id="sys-nodos" class="sys-section" aria-labelledby="sys-nodos-title">
+                        <div class="sys-section-head">
+                            <h2 class="sys-h2" id="sys-nodos-title">Nodos ESP32</h2>
+                            <span class="sensor-badge" id="nodes-badge">{{ icon("hourglass") }}</span>
+                            <button type="button" class="ac-btn ac-btn--ghost" data-sys="refresh-nodes">{{ icon("refresh-cw") }}Actualizar</button>
+                        </div>
+                        <div class="sys-nodes" id="nodes-grid">
+                            <div class="loading">Consultando nodos</div>
+                        </div>
 
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("scroll-text") }}</span>
-                    Log del nodo
-                </h2>
-                <select class="node-log-picker" id="node-log-picker" aria-label="Nodo"></select>
-                <label class="node-log-follow">
-                    <input type="checkbox" id="node-log-follow" checked>
-                    Seguir
-                </label>
-            </div>
-            <div class="node-log" id="node-log">
-                <div class="node-log-empty">Cargando el log…</div>
-            </div>
-            <div class="sys-note">
-                Lo guarda la Raspberry en memoria, no en la base: se pierde si
-                reiniciás Redis, y guarda las últimas 300 líneas. La hora es la
-                de la Raspberry, calculada desde el reloj interno del nodo — el
-                ESP32 no tiene uno propio.
-            </div>
+                        <div class="node-log-head">
+                            <h3 class="sys-h3" id="node-log-title">Log del nodo</h3>
+                            <select class="ac-field__input node-log-picker" id="node-log-picker" aria-label="Nodo"></select>
+                            <label class="node-log-follow">
+                                <input type="checkbox" class="ac-check" id="node-log-follow" checked>
+                                Seguir
+                            </label>
+                        </div>
+                        <div class="node-log" id="node-log" role="log" aria-labelledby="node-log-title" tabindex="0">
+                            <div class="node-log-empty">Cargando el log…</div>
+                        </div>
+                        <p class="sys-note">
+                            Lo guarda la Raspberry en memoria, no en la base: se pierde si
+                            reiniciás Redis, y guarda las últimas 300 líneas. La hora es la
+                            de la Raspberry, calculada desde el reloj interno del nodo — el
+                            ESP32 no tiene uno propio.
+                        </p>
+                    </section>

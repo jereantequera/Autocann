@@ -13,6 +13,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v={{ asset_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
+    <!-- One sheet per view, after app.css so a view's rules win over the legacy ones. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views/riego.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views/cultivo.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views/estadisticas.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views/reportes.css') }}?v={{ asset_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/views/sistema.css') }}?v={{ asset_version }}">
 </head>
 <!-- is-booting: the skeletons, until main.js has the first answers in. -->
 <body class="is-booting">

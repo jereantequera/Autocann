@@ -386,6 +386,10 @@ def create_app() -> Flask:
                     for band in [humidity_range_for_stage(stage)]
                 },
                 "stage_names": STAGE_NAMES,
+                # Grounds the stage proportions bar in Cultivo. The page used to
+                # read it from this payload and get nothing, so the bar had no
+                # expected lengths to draw against.
+                "stage_expected_days": STAGE_EXPECTED_DAYS,
             }
         )
 

@@ -7,12 +7,9 @@
              everything it changes.
         -->
         <section class="view view-stats" data-view="stats" aria-label="Estadísticas">
-            <div class="section-header section-header-sticky">
-                <h2 class="section-title">
-                    <span class="section-title-icon">{{ icon("chart-line") }}</span>
-                    Estadísticas
-                    <span class="section-subtitle" id="summary-period-label"></span>
-                </h2>
+            <div class="stats-toolbar">
+                <!-- The heading names the period on screen, so the period is never a guess. -->
+                <h1 class="stats-title" id="summary-period-label">Últimas 24 horas</h1>
                 <!--
                      Qué cultivo, antes de qué rango de tiempo: una ventana de
                      30 o 90 días cruzaba el final de un cultivo con el arranque
@@ -21,22 +18,24 @@
                      todo el resto del tablero; "todos" sigue estando, pero hay
                      que pedirlo.
                 -->
-                <div class="grow-selector">
-                    <label class="grow-selector-label" for="grow-filter">Cultivo</label>
-                    <select class="form-control" id="grow-filter">
+                <div class="ac-field stats-cultivo">
+                    <label class="ac-field__label" for="grow-filter">Cultivo</label>
+                    <select class="ac-field__input" id="grow-filter">
                         <option value="">Cultivo activo</option>
                     </select>
                 </div>
                 <div class="time-selector" id="time-selector">
-                    <button class="time-btn" data-hours="1" data-interval="raw">1h</button>
-                    <button class="time-btn" data-hours="2" data-interval="raw">2h</button>
-                    <button class="time-btn" data-hours="4" data-interval="raw">4h</button>
-                    <button class="time-btn" data-hours="8" data-interval="raw">8h</button>
-                    <button class="time-btn" data-hours="12" data-interval="raw">12h</button>
-                    <button class="time-btn active" data-period="1" data-interval="hourly">1d</button>
-                    <button class="time-btn" data-period="3" data-interval="hourly">3d</button>
-                    <button class="time-btn" data-period="7" data-interval="hourly">7d</button>
-                    <button class="time-btn" data-period="30" data-interval="6hourly">30d</button>
+                    <div class="ac-segmented" role="group" aria-label="Período">
+                    <button type="button" class="ac-segmented__item time-btn" data-hours="1" data-interval="raw" aria-pressed="false">1 h</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-hours="2" data-interval="raw" aria-pressed="false">2 h</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-hours="4" data-interval="raw" aria-pressed="false">4 h</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-hours="8" data-interval="raw" aria-pressed="false">8 h</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-hours="12" data-interval="raw" aria-pressed="false">12 h</button>
+                    <button type="button" class="ac-segmented__item time-btn active" data-period="1" data-interval="hourly" aria-pressed="true">24 h</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-period="3" data-interval="hourly" aria-pressed="false">3 d</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-period="7" data-interval="hourly" aria-pressed="false">7 d</button>
+                    <button type="button" class="ac-segmented__item time-btn" data-period="30" data-interval="6hourly" aria-pressed="false">30 d</button>
+                    </div>
                 </div>
             </div>
 
@@ -45,7 +44,7 @@
                  resuelve en el servidor, así que un gráfico que no pregunta no
                  tiene con qué etiquetarse.
             -->
-            <div class="grow-scope-note" id="grow-scope-note" hidden></div>
+            <p class="stats-note" id="grow-scope-note" hidden></p>
 
 {% include "partials/summary.html" %}
 {% include "partials/charts.html" %}

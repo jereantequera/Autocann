@@ -6,43 +6,59 @@
              chronological list hides by construction.
         -->
         <section class="view view-riego" data-view="riego" aria-label="Riego">
-            <div class="cal-panel" id="cal-panel">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <span class="section-title-icon">{{ icon("calendar") }}</span>
-                        Calendario de riego
-                    </h2>
-                    <div class="cal-nav">
-                        <button class="btn btn-ghost btn-mini" data-cal="prev"
-                                aria-label="Mes anterior">‹</button>
-                        <span class="cal-month" id="cal-month">--</span>
-                        <button class="btn btn-ghost btn-mini" data-cal="next"
-                                aria-label="Mes siguiente">›</button>
-                        <button class="btn btn-ghost btn-mini" data-cal="today">Hoy</button>
-                    </div>
+            <div class="riego-grid">
+                <div class="riego-main">
+                    {% include "partials/feeding.html" %}
                 </div>
 
-                <div class="calendar">
-                    <div class="cal-weekdays" aria-hidden="true">
-                        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span>
-                        <span>Vie</span><span>Sáb</span><span>Dom</span>
-                    </div>
-                    <div class="cal-grid" id="cal-grid"></div>
-                </div>
+                <aside class="riego-side">
+                    <div class="cal-panel" id="cal-panel">
+                        <div class="cal-head">
+                            <h2 class="cal-month" id="cal-month">--</h2>
+                            <div class="cal-nav">
+                                <button class="ac-btn ac-btn--secondary ac-btn--icon" data-cal="prev"
+                                        aria-label="Mes anterior">
+                                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke-width="2"
+                                         stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>
+                                </button>
+                                <button class="ac-btn ac-btn--secondary ac-btn--icon" data-cal="next"
+                                        aria-label="Mes siguiente">
+                                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke-width="2"
+                                         stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                                </button>
+                                <button class="ac-btn ac-btn--ghost" data-cal="today">Hoy</button>
+                            </div>
+                        </div>
 
-                <div class="cal-footer">
-                    <div class="cal-legend">
-                        <span class="cal-legend-item"><i class="cal-dot"></i> Riego registrado</span>
-                        <span class="cal-legend-item"><i class="cal-dot off"></i> Algo fuera del plan</span>
-                        <span class="cal-legend-item"><i class="cal-dot flush"></i> Solo agua</span>
-                    </div>
-                    <div class="cal-streak" id="cal-streak"></div>
-                </div>
+                        <div class="calendar">
+                            <div class="cal-weekdays" aria-hidden="true">
+                                <span>L</span><span>M</span><span>M</span><span>J</span>
+                                <span>V</span><span>S</span><span>D</span>
+                            </div>
+                            <div class="cal-grid" id="cal-grid"></div>
+                        </div>
 
-                <!-- A day only opens when it has something to show, so the
-                     panel is absent rather than empty the rest of the time. -->
-                <div class="cal-detail" id="cal-detail" hidden></div>
+                        <div class="cal-footer">
+                            <div class="ac-legend">
+                                <span class="ac-legend__item"><span class="ac-dot ac-dot--info"></span>Regado</span>
+                                <span class="ac-legend__item"><span class="ac-dot ac-dot--warn"></span>Fuera del plan</span>
+                                <span class="ac-legend__item"><span class="ac-dot ac-dot--idle"></span>Sólo agua</span>
+                            </div>
+                            <p class="ac-field__hint cal-streak" id="cal-streak"></p>
+                        </div>
+
+                        <!-- A day only opens when it has something to show, so the
+                             panel is absent rather than empty the rest of the time. -->
+                        <div class="cal-detail" id="cal-detail" hidden></div>
+                    </div>
+
+                    <div class="riego-log">
+                        <div class="riego-log-head">
+                            <h2 class="riego-log-title">Últimos riegos</h2>
+                            <span class="ac-field__hint" id="feed-last-badge">--</span>
+                        </div>
+                        <div class="ac-log" id="feed-history"></div>
+                    </div>
+                </aside>
             </div>
-
-{% include "partials/feeding.html" %}
         </section>

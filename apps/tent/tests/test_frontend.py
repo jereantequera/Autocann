@@ -23,10 +23,10 @@ JS_TEST_DIR = Path(__file__).parent / "js"
 #: The two modules the control-mode tests read as text.
 VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
 APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
-#: Partials kept on disk on purpose with no page including them yet. The
-#: Exterior card left the panel and comes back in Estadísticas; this list is
-#: what stops the exception from growing without anybody deciding it.
-PENDING_PARTIALS = {"partials/outdoor.html"}
+#: Partials kept on disk on purpose with no page including them yet. None now:
+#: the Exterior card moved into Estadísticas, and its partial went with it. The
+#: list stays so that the next exception has to be decided here, not slipped in.
+PENDING_PARTIALS: set[str] = set()
 
 
 def _strip_js_comments(source: str) -> str:
@@ -191,8 +191,16 @@ def test_the_temperature_chart_draws_the_min_max_envelope():
 
 
 def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
+    """
+    The lower bound of the envelope is drawn invisibly to fill against, so it
+    must not be a legend entry. The legends are HTML now: Chart.js draws none,
+    and the HTML names the band as one item, shown only when there is a band.
+    """
     charts_js = (JS_DIR / "charts.js").read_text()
-    assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
+    assert "legend: { display: false }" in charts_js
+    partial = (TEMPLATES_DIR / "partials" / "charts.html").read_text()
+    assert "Mín. temperatura" not in partial
+    assert 'data-series="band" hidden' in partial
 
 
 def _included(path: Path, seen: set[str] | None = None) -> set[str]:
@@ -412,9 +420,10 @@ def test_every_history_request_carries_the_grow_scope():
     others on the same screen.
     """
     for module, endpoints in (
+        # The time-in-range readout asks for its score from dashboard.js now,
+        # next to the readout it fills, so that is where its scope is checked.
         ("dashboard.js", ("/api/sensor-history", "/api/history/aggregated",
-                          "/api/period-summary")),
-        ("analytics.js", ("/api/vpd-score",)),
+                          "/api/period-summary", "/api/vpd-score")),
     ):
         code = _strip_js_comments((JS_DIR / module).read_text())
         assert "withGrow" in code, module
@@ -697,13 +706,13 @@ def test_the_sensor_diagnostics_are_not_on_the_panel():
     assert "sensorsBadge(health.sensors)" in health
 
     # And the poller that feeds both has to run on both views, or whichever one
-    # is not listed sits at the loading ellipsis forever.
+    # is not listed sits at the loading ellipsis forever. It also feeds the
+    # sidebar and the alert slot, which every view shows, so it has no `views`.
     pollers = re.search(r"const POLLERS = \[(.*?)\n\];",
                         _strip_js_comments((JS_DIR / "main.js").read_text()), re.S)
     fetch_health = re.search(r"\{ fn: fetchHealth[^}]*\}", pollers.group(1))
     assert fetch_health, "el poller de /api/health desapareció"
-    assert "'panel'" in fetch_health.group(0)
-    assert "'sistema'" in fetch_health.group(0)
+    assert "views" not in fetch_health.group(0)
 
 
 def test_the_panel_watering_tile_never_fetches_its_own_plan():

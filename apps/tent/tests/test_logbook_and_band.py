@@ -109,6 +109,21 @@ def test_every_stage_gets_a_band(client):
         assert response.status_code == 200, stage
 
 
+def test_config_serves_expected_days_for_every_stage(client):
+    """
+    The stage proportions bar in Cultivo draws each stage against its expected
+    length. A stage missing here draws with no reference, and the bar says
+    nothing about how far along the grow is.
+    """
+    payload = client.get("/api/config").get_json()
+    expected = payload["stage_expected_days"]
+    assert set(expected) == set(STAGES)
+    for stage in STAGES:
+        days = expected[stage]
+        assert isinstance(days, int) and not isinstance(days, bool), stage
+        assert days > 0, stage
+
+
 def test_logbook_merges_sources_newest_first_in_spanish(client, temp_db):
     now = int(time.time())
     grow_id = temp_db.create_grow("Carpa 1", "early_veg")

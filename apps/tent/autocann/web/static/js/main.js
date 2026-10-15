@@ -21,6 +21,7 @@ import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
 import { wireSidebar } from './sidebar.js';
+import { applyTheme, readTheme } from './theme.js';
 import { applyConfig, state } from './state.js';
 import { fetchNodeLog, fetchNodes, wireNodes } from './nodes.js';
 import { wireSystem } from './system.js';
@@ -29,6 +30,11 @@ import { currentView, initViews, showInitialView } from './views.js';
 /**
  * Entry point: configuration, event wiring and the polling schedule.
  */
+
+// The theme is applied before anything is drawn: the tokens swap on the root
+// element, so doing it here, at module evaluation, is the earliest a file of
+// ours can run (index.html has no inline script for it, by design).
+applyTheme(readTheme());
 
 // ---------------------------------------------------------------------------
 // Polling
@@ -47,9 +53,12 @@ const POLLERS = [
     // One call for the whole verdict - sensores, lazo e histórico - en vez de
     // dos que podían contestar cosas distintas. The node posts each sensor
     // every 10 s, so polling faster buys nothing but load on the Raspberry.
-    // Panel y Sistema: las tarjetas de sensores viven allá y el renglón que las
-    // resume, acá. Las dos salen de esta misma respuesta.
-    { fn: fetchHealth, every: 10000, views: ['panel', 'sistema'] },
+    // Sin `views` a propósito: esta respuesta alimenta el estado de la barra
+    // lateral ("Lazo caído") y el cartel de arriba, que se ven en todas las
+    // vistas. Si sólo corriera en Panel y Sistema, el cartel de "roto" tardaría
+    // en aparecer o quedaría viejo en Cultivo y Riego, justo donde se está
+    // mirando otra cosa.
+    { fn: fetchHealth, every: 10000 },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
     // The bitácora is a week of entries that change a few times a day: a
     // minute is plenty, and the tab also fetches when it is opened.

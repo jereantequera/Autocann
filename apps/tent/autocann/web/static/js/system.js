@@ -1,151 +1,259 @@
 /**
- * Sistema: calibration, connectivity and the database.
+ * Sistema: calibration, the installation's sensors, the database and the screen.
  *
  * Calibration has had a validated endpoint on both verbs since the backend
  * audit and no way to reach it from the browser. The offsets correct every
  * reading the rest of the app shows, so editing them with curl meant the one
  * knob nobody could see was the one that moves all the numbers.
+ *
+ * The sensor table is two writers in one row: health.js writes the readings
+ * every ten seconds, and this module writes the correction cells once per
+ * calibration version. The second never happens on the poll, so a value that
+ * is being typed is not wiped by a reading arriving.
  */
 
-import { apiGet, apiPost, connection } from './api.js';
-import { escapeHtml, fmtNum, fmtSigned, icon, iconText } from './util.js';
+import { apiGet, apiPost } from './api.js';
+import { escapeHtml, fmtNum, fmtSigned, formatAge, icon } from './util.js';
+import { fetchHealth, latestHealth } from './health.js';
+import { applyTheme, readTheme } from './theme.js';
 
 /**
  * Stored offsets by sensor id.
  *
  * /api/calibration answers with a list of rows, not a map; keying it here is
- * what lets a card find its own sensor instead of whatever row happened to be
+ * what lets a row find its own sensor instead of whatever row happened to be
  * in that position.
  */
 let calibration = {};
-/** Sensors seen posting, so a never-calibrated one still gets a row. */
-let knownSensors = [];
+/** Bumped on every calibration fetch: a row is rebuilt when its version is stale. */
+let calibrationVersion = 0;
 /**
  * Sensors saved in this page session.
  *
- * The caveat that matters - saved is not applied until the loop restarts - was
- * written into the card and then wiped two hundred milliseconds later by the
- * re-render that confirmed the save. It stays until the page is reloaded, which
- * is what restarting the loop leads to anyway.
+ * The caveat that matters - saved is not applied until the loop restarts - is
+ * said once, where the save button is, and stays until the page is reloaded,
+ * which is what restarting the loop leads to anyway.
  */
 const savedThisSession = new Set();
 
 // ---------------------------------------------------------------------------
-// Calibration
+// Pure helpers
 // ---------------------------------------------------------------------------
 
 /** "a" reads as a label, "dht22_outdoor" reads as itself. */
-function sensorLabel(sensorId) {
+export function sensorLabel(sensorId) {
     return sensorId.length <= 2 ? `Sensor ${sensorId.toUpperCase()}` : sensorId;
 }
 
-function calibrationRowHtml(sensorId) {
-    const current = calibration[sensorId] || {};
+/**
+ * Which of the rows differ from what the server holds.
+ *
+ * Compared as numbers and trimmed text: the field is a string, the stored value
+ * is a number, and "0" against 0 is not a change.
+ */
+export function changedCalibrations(rows, stored) {
+    return rows.filter(row => {
+        const saved = stored[row.sensorId] || {};
+        return Number(row.temperature) !== (Number(saved.temperature_offset) || 0)
+            || Number(row.humidity) !== (Number(saved.humidity_offset) || 0)
+            || (row.notes || null) !== (saved.notes || null);
+    });
+}
+
+/** Ids a calibration row could be about: the posting sensors, then the ones only the table knows. */
+export function calibrationIds(live, stored) {
+    const orphans = Object.keys(stored).filter(id => !live.includes(id)).sort();
+    return { live: [...live].sort(), orphans };
+}
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+function sensorRows() {
+    return [...(document.getElementById('indoor-sensors-grid')?.rows || [])];
+}
+
+/** The rows health.js writes: the sensors, not the outdoor reference or an orphan. */
+function liveSensorIds() {
+    return sensorRows()
+        .filter(row => row.dataset.sensorRow && row.dataset.sensorRow !== 'outdoor'
+            && !row.hasAttribute('data-orphan'))
+        .map(row => row.dataset.sensorRow);
+}
+
+function calibrationCellsHtml(sensorId, current) {
     const id = escapeHtml(sensorId);
     const temperature = Number(current.temperature_offset) || 0;
     const humidity = Number(current.humidity_offset) || 0;
-    const set = temperature !== 0 || humidity !== 0;
-    // An offset stored against an id nothing posts under any more corrects
-    // nothing, and looks exactly like one that works until it is said.
-    const orphan = !knownSensors.includes(sensorId);
-    const saved = savedThisSession.has(sensorId);
-
-    return `
-        <div class="calib-card${set ? ' is-set' : ''}${orphan ? ' is-orphan' : ''}" data-sensor="${id}">
-            <div class="calib-head">
-                <span class="calib-name">${escapeHtml(sensorLabel(sensorId))}</span>
-                <span class="calib-state">${set
-                    ? `${escapeHtml(fmtSigned(temperature, 2))} °C / ${escapeHtml(fmtSigned(humidity, 2))} %`
-                    : 'sin corrección'}</span>
-            </div>
-            ${orphan ? `<div class="calib-orphan">${icon('triangle-alert')}Ningún sensor está posteando con este id,
-                así que esta corrección no se le aplica a nada.</div>` : ''}
-            <div class="calib-fields">
-                <label>
-                    Offset temperatura (°C)
-                    <input type="number" step="0.05" min="-20" max="20" inputmode="decimal"
-                           data-calib="temperature" value="${fmtNum(temperature, 2, '0')}">
-                </label>
-                <label>
-                    Offset humedad (%)
-                    <input type="number" step="0.5" min="-50" max="50" inputmode="decimal"
-                           data-calib="humidity" value="${fmtNum(humidity, 2, '0')}">
-                </label>
-            </div>
-            <label class="calib-notes">
-                Nota
-                <input type="text" data-calib="notes" maxlength="200"
-                       placeholder="Contra el termómetro de referencia, 2026-10-12"
-                       value="${escapeHtml(current.notes || '')}">
-            </label>
-            <div class="calib-actions">
-                <button class="btn btn-primary btn-mini" data-calib-save="${id}">Guardar</button>
-                <button class="btn btn-ghost btn-mini" data-calib-zero="${id}">Poner en 0</button>
-                <span class="calib-msg${saved ? ' is-ok' : ''}">${saved
-                    ? 'Guardado · se aplica cuando reinicies el lazo' : ''}</span>
-            </div>
-        </div>`;
-}
-
-function renderCalibration() {
-    const grid = document.getElementById('calibration-grid');
-    const badge = document.getElementById('calibration-badge');
-    if (!grid) return;
-
-    // Posting sensors first: the ones somebody came here to adjust. Ids that
-    // only exist in the calibration table go last, flagged.
-    const live = [...knownSensors].sort();
-    const orphans = Object.keys(calibration).filter(id => !live.includes(id)).sort();
-    const sensors = [...live, ...orphans];
-    if (!sensors.length) {
-        grid.innerHTML = '<div class="sys-note">Ningún sensor posteó todavía, '
-            + 'así que no hay nada que calibrar.</div>';
-        if (badge) { badge.className = 'sensor-badge'; badge.textContent = 'sin sensores'; }
-        return;
-    }
-
-    grid.innerHTML = sensors.map(calibrationRowHtml).join('');
-
-    if (badge) {
-        const corrected = sensors.filter(id => {
-            const row = calibration[id];
-            return row && (Number(row.temperature_offset) || Number(row.humidity_offset));
-        }).length;
-        badge.className = corrected ? 'sensor-badge ok' : 'sensor-badge';
-        badge.textContent = corrected
-            ? `${corrected} con corrección`
-            : 'todos en 0';
-    }
-}
-
-async function saveCalibration(card, { zero = false } = {}) {
-    const sensorId = card.dataset.sensor;
-    const message = card.querySelector('.calib-msg');
-    const field = name => card.querySelector(`[data-calib="${name}"]`);
-
-    if (zero) {
-        field('temperature').value = '0';
-        field('humidity').value = '0';
-    }
-
-    const body = {
-        sensor_id: sensorId,
-        temperature_offset: Number(field('temperature').value) || 0,
-        humidity_offset: Number(field('humidity').value) || 0,
-        notes: field('notes').value.trim() || null,
+    return {
+        temperature: `<input class="ac-field__input ac-field__input--num" type="number" step="0.05"
+            min="-20" max="20" inputmode="decimal" data-calib="temperature"
+            aria-label="Corrección de temperatura del sensor ${id}"
+            value="${fmtNum(temperature, 2, '0')}">`,
+        humidity: `<input class="ac-field__input ac-field__input--num" type="number" step="0.5"
+            min="-50" max="50" inputmode="decimal" data-calib="humidity"
+            aria-label="Corrección de humedad del sensor ${id}"
+            value="${fmtNum(humidity, 2, '0')}">`,
+        notes: `<div class="calib-note">
+            <input class="ac-field__input" type="text" data-calib="notes" maxlength="200"
+                aria-label="Nota de la corrección del sensor ${id}"
+                placeholder="Contra el termómetro de referencia"
+                value="${escapeHtml(current.notes || '')}">
+            <button type="button" class="ac-btn ac-btn--ghost" data-calib-zero="${id}">Poner en 0</button>
+        </div>`,
     };
+}
 
-    message.textContent = 'Guardando…';
-    const result = await apiPost('/api/calibration', body);
-    if (!result.ok) {
-        message.textContent = result.error;
-        message.className = 'calib-msg is-error';
+/** Fills the three correction cells of a row, once per calibration version. */
+function fillCalibrationRow(row, sensorId) {
+    const cells = calibrationCellsHtml(sensorId, calibration[sensorId] || {});
+    for (const [field, html] of Object.entries(cells)) {
+        const cell = row.querySelector(`[data-calib-cell="${field}"]`);
+        if (cell) cell.innerHTML = html;
+    }
+    row.dataset.calibVersion = String(calibrationVersion);
+    row.classList.toggle('is-set', (Number(calibration[sensorId]?.temperature_offset) || 0) !== 0
+        || (Number(calibration[sensorId]?.humidity_offset) || 0) !== 0);
+    row.classList.remove('is-dirty');
+}
+
+function orphanRowHtml(sensorId) {
+    // An offset stored against an id nothing posts under any more corrects
+    // nothing, and looks exactly like one that works until it is said. The row
+    // keeps the table's shape, and says so in the place a reading would be.
+    return `
+        <td class="sensor-name">
+            <span class="sensor-name-line"><span class="ac-dot ac-dot--idle"></span><span>${escapeHtml(sensorLabel(sensorId))}</span></span>
+            <span class="sensor-why"><span>Ningún sensor está posteando con este id: esta corrección no se le aplica a nada.</span></span>
+        </td>
+        <td>—</td>
+        <td class="ac-num">—</td>
+        <td class="ac-num">—</td>
+        <td class="ac-num">—</td>
+        <td data-calib-cell="temperature"></td>
+        <td data-calib-cell="humidity"></td>
+        <td data-calib-cell="notes"></td>`;
+}
+
+/**
+ * Brings every correction cell up to the current calibration.
+ *
+ * Rows the user is editing (`is-dirty`) are left alone: a fetch that lands
+ * mid-typing must not erase what was typed.
+ */
+function renderCalibrationRows() {
+    const tbody = document.getElementById('indoor-sensors-grid');
+    if (!tbody) return;
+
+    const health = latestHealth();
+    for (const row of sensorRows()) {
+        const id = row.dataset.sensorRow;
+        if (!id || id === 'outdoor') continue;
+        if (row.classList.contains('is-dirty')) continue;
+        if (row.dataset.calibVersion === String(calibrationVersion)) continue;
+        fillCalibrationRow(row, id);
+    }
+
+    // An orphan is only a claim once health has said which sensors exist: before
+    // that, every stored id would look like one.
+    if (!health) return;
+    const live = liveSensorIds();
+    const { orphans } = calibrationIds(live, calibration);
+    for (const id of orphans) {
+        let row = sensorRows().find(other => other.dataset.sensorRow === id);
+        if (!row) {
+            row = document.createElement('tr');
+            row.dataset.sensorRow = id;
+            row.dataset.orphan = '';
+            row.innerHTML = orphanRowHtml(id);
+            tbody.appendChild(row);
+        }
+        if (row.dataset.calibVersion !== String(calibrationVersion)
+            && !row.classList.contains('is-dirty')) {
+            fillCalibrationRow(row, id);
+        }
+    }
+}
+
+function renderCalibrationBadge() {
+    const badge = document.getElementById('calibration-badge');
+    if (!badge) return;
+    const corrected = Object.values(calibration).filter(row =>
+        Number(row.temperature_offset) || Number(row.humidity_offset)).length;
+    badge.className = corrected ? 'sensor-badge ok' : 'sensor-badge';
+    badge.textContent = corrected ? `${corrected} con corrección` : 'todos en 0';
+}
+
+/** The saved values of one row, read from its inputs. */
+function readRow(row) {
+    const field = name => row.querySelector(`[data-calib="${name}"]`);
+    const number = input => Number(input?.value) || 0;
+    return {
+        sensorId: row.dataset.sensorRow,
+        temperature: number(field('temperature')),
+        humidity: number(field('humidity')),
+        notes: field('notes')?.value.trim() || null,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Saving
+// ---------------------------------------------------------------------------
+
+/**
+ * Saves the rows that differ from the server, one request each.
+ *
+ * Rows that did not change are not sent: a save that rewrites every sensor
+ * says "saved" about values nobody touched.
+ */
+async function saveChanged(rows, message) {
+    if (!rows.length) {
+        message.textContent = 'Nada cambió desde la última vez.';
+        message.className = 'sys-note-inline';
         return;
     }
+    message.textContent = 'Guardando…';
+    message.className = 'sys-note-inline';
+
+    for (const row of rows) {
+        const body = {
+            sensor_id: row.sensorId,
+            temperature_offset: row.temperature,
+            humidity_offset: row.humidity,
+            notes: row.notes,
+        };
+        const result = await apiPost('/api/calibration', body);
+        if (!result.ok) {
+            message.textContent = `${sensorLabel(row.sensorId)}: ${result.error}`;
+            message.className = 'sys-note-inline is-error';
+            return;
+        }
+        savedThisSession.add(row.sensorId);
+    }
+
     // Said out loud and left there: the loop reads the offsets once at startup,
     // so a saved value that is not yet in effect would otherwise look applied.
-    savedThisSession.add(sensorId);
+    message.textContent = 'Guardado · se aplica cuando reinicies el lazo de control';
+    message.className = 'sys-note-inline is-ok';
     fetchCalibration();
+}
+
+function saveAll() {
+    const rows = sensorRows()
+        .filter(row => row.querySelector('[data-calib="temperature"]'))
+        .map(readRow);
+    saveChanged(changedCalibrations(rows, calibration), document.getElementById('calibration-msg'));
+}
+
+/** "Poner en 0" saves that one sensor at zero, as it always did: the button says what it does. */
+function zeroRow(sensorId) {
+    const row = sensorRows().find(other => other.dataset.sensorRow === sensorId);
+    if (!row) return;
+    row.querySelector('[data-calib="temperature"]').value = '0';
+    row.querySelector('[data-calib="humidity"]').value = '0';
+    saveChanged(changedCalibrations([readRow(row)], calibration),
+        document.getElementById('calibration-msg'));
 }
 
 function fetchCalibration() {
@@ -153,62 +261,17 @@ function fetchCalibration() {
         if (!data || !Array.isArray(data.calibration)) return;
         calibration = Object.fromEntries(
             data.calibration.filter(row => row && row.sensor_id).map(row => [row.sensor_id, row]));
-        renderCalibration();
+        calibrationVersion += 1;
+        renderCalibrationRows();
+        renderCalibrationBadge();
+        if (savedThisSession.size) {
+            const message = document.getElementById('calibration-msg');
+            if (message && !message.textContent) {
+                message.textContent = 'Guardado · se aplica cuando reinicies el lazo de control';
+                message.className = 'sys-note-inline is-ok';
+            }
+        }
     });
-}
-
-/**
- * Which sensors exist at all.
- *
- * Asked separately from the offsets because a sensor that has never been
- * corrected has no calibration row, and that is exactly the sensor somebody
- * opening this view wants a form for.
- */
-function fetchKnownSensors() {
-    apiGet('/api/sensors/indoor', { key: 'sensors-system' }).then(data => {
-        const ids = (data?.sensors || []).map(sensor => sensor.sensor_id).filter(Boolean);
-        if (!ids.length) return;
-        knownSensors = [...new Set([...knownSensors, ...ids])];
-        renderCalibration();
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Connectivity
-// ---------------------------------------------------------------------------
-
-function statusCardHtml(title, ok, detail) {
-    const state = ok === true ? 'ok' : ok === false ? 'error' : '';
-    const text = ok === true ? { icon: 'circle-check', text: 'OK' }
-        : ok === false ? { icon: 'circle-x', text: 'Error' }
-            : { icon: 'hourglass', text: 'Desconocido' };
-    return `
-        <div class="sys-card">
-            <div class="metric-label">${escapeHtml(title)}</div>
-            <div class="sys-state ${state}">${iconText(text)}</div>
-            <div class="sys-detail">${escapeHtml(detail || '')}</div>
-        </div>`;
-}
-
-function renderConnectivity(status) {
-    const grid = document.getElementById('connectivity-grid');
-    if (!grid) return;
-
-    grid.innerHTML = [
-        statusCardHtml('Backend', !connection.offline,
-            connection.lastSuccessAt
-                ? `Última respuesta ${new Date(connection.lastSuccessAt).toLocaleTimeString('es-AR', { hour12: false })}`
-                : 'Sin respuestas todavía'),
-        statusCardHtml('Sensor interior', status?.indoor?.ok ?? null,
-            status?.indoor?.error || 'Primario del lazo de control'),
-        statusCardHtml('Sensor exterior', status?.outdoor?.ok ?? null,
-            status?.outdoor?.error || 'Referencia de afuera'),
-    ].join('');
-}
-
-function fetchConnectivity() {
-    apiGet('/api/sensor-status', { key: 'sensor-status-system' })
-        .then(data => renderConnectivity(data));
 }
 
 // ---------------------------------------------------------------------------
@@ -263,13 +326,38 @@ async function logout() {
 }
 
 // ---------------------------------------------------------------------------
+// The screen: index, theme
+// ---------------------------------------------------------------------------
+
+/** The in-page index: scrolls to the section and marks the link, without touching the hash. */
+function jumpTo(sectionId, view) {
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+    target.scrollIntoView({
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'start',
+    });
+    view.querySelectorAll('[data-sys-jump]').forEach(link => {
+        const current = link.dataset.sysJump === sectionId;
+        link.classList.toggle('is-current', current);
+        if (current) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+    });
+}
+
+function paintThemeChoice(name) {
+    document.querySelectorAll('[data-theme-choice]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.themeChoice === name));
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
 function refreshSystem() {
-    fetchKnownSensors();
+    fetchHealth();
     fetchCalibration();
-    fetchConnectivity();
     fetchDatabase();
     fetchSession();
 }
@@ -281,7 +369,22 @@ function wireSystem() {
     const view = document.querySelector('.view[data-view="sistema"]');
     if (!view) return;
 
+    paintThemeChoice(readTheme());
+
     view.addEventListener('click', event => {
+        const jump = event.target.closest('[data-sys-jump]');
+        if (jump) {
+            // Preventing the default is the point: an anchor here would change
+            // the hash, and the router would read it as a view and leave Sistema.
+            event.preventDefault();
+            jumpTo(jump.dataset.sysJump, view);
+            return;
+        }
+        const theme = event.target.closest('[data-theme-choice]');
+        if (theme) {
+            paintThemeChoice(applyTheme(theme.dataset.themeChoice));
+            return;
+        }
         if (event.target.closest('[data-sys="refresh"]')) {
             refreshSystem();
             return;
@@ -290,13 +393,18 @@ function wireSystem() {
             logout();
             return;
         }
-        const save = event.target.closest('[data-calib-save]');
-        if (save) {
-            saveCalibration(save.closest('.calib-card'));
+        if (event.target.closest('#calibration-save')) {
+            saveAll();
             return;
         }
         const zero = event.target.closest('[data-calib-zero]');
-        if (zero) saveCalibration(zero.closest('.calib-card'), { zero: true });
+        if (zero) zeroRow(zero.dataset.calibZero);
+    });
+
+    // Marks a row as being typed in, so a calibration fetch leaves it alone.
+    view.addEventListener('input', event => {
+        const row = event.target.closest('#indoor-sensors-grid tr[data-sensor-row]');
+        if (row) row.classList.add('is-dirty');
     });
 
     // Only on entering: none of this moves on its own, and the view is opened
@@ -304,6 +412,8 @@ function wireSystem() {
     document.addEventListener('view:enter', event => {
         if (event.detail?.view === 'sistema') refreshSystem();
     });
+    // The rows exist once health has answered; the correction cells follow it.
+    document.addEventListener('health:updated', renderCalibrationRows);
 }
 
 export { fetchCalibration, fetchSession, logout, refreshSystem, wireSystem };

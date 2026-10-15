@@ -176,23 +176,90 @@ body {
     font-size: 0.85em;
 }
 
-/* Sensor Alert */
-.sensor-alert {
-    background: var(--bg-card);
-    padding: 16px 24px;
-    border-radius: var(--radius-md);
-    margin-bottom: 24px;
+/* Alerts: one slot above the content, every box on the component .ac-alert.
+   Hidden until its owner says otherwise with .show: api.js for the connection,
+   health.js for the other two (which one it is is decided there, once). */
+.alert-box {
     display: none;
-    align-items: center;
-    gap: 16px;
-    border: 1px solid var(--vpd-danger);
+    margin-bottom: 24px;
 }
 
-.sensor-alert-icon { display: flex; }
-.sensor-alert-icon .icon { width: 32px; height: 32px; }
-.sensor-alert-content { flex: 1; }
-.sensor-alert-title { font-weight: 600; font-size: 1.1em; margin-bottom: 4px; }
-.sensor-alert-message { opacity: 0.9; font-size: 0.95em; }
+.alert-box.show {
+    display: flex;
+}
+
+.alert-box .alert-icon {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--state-alert);
+}
+
+.alert-box .alert-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* The quieter variant: a warning about the record, not about the tent now. */
+.alert-box--warn {
+    border-color: var(--state-warn);
+    align-items: flex-start;
+}
+
+.alert-box--warn .alert-icon {
+    color: var(--state-warn);
+}
+
+.alert-more {
+    margin-top: 4px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.anomalies-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.anomaly-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+}
+
+.anomaly-item .anomaly-icon {
+    color: var(--state-warn);
+    flex-shrink: 0;
+}
+
+.anomaly-item.critical .anomaly-icon {
+    color: var(--state-alert);
+}
+
+.anomaly-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.anomaly-time {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-subtle);
+}
+
+.anomaly-more {
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
 
 /* Grow Control Bar */
 .grow-info {
@@ -1387,63 +1454,7 @@ body {
     color: var(--text-muted);
 }
 
-/* Anomalies Alert */
-.anomalies-alert {
-    background: var(--bg-card);
-    border: 1px solid var(--vpd-adjusting);
-    border-radius: var(--radius-md);
-    padding: 16px 24px;
-    margin-bottom: 24px;
-    display: none;
-}
-
-.anomalies-alert.show { display: block; }
-.anomalies-alert.critical {
-    background: var(--bg-card);
-    border-color: var(--vpd-danger);
-}
-
-.anomalies-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.anomalies-title {
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.anomalies-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.anomaly-item .anomaly-icon { color: var(--vpd-adjusting); }
-.anomaly-item.critical .anomaly-icon { color: var(--vpd-danger); }
-
-.anomaly-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: var(--radius-md);
-    font-size: 0.9em;
-}
-
-.anomaly-item.critical { border-left: 3px solid var(--state-alert); }
-.anomaly-item.warning { border-left: 3px solid var(--vpd-adjusting); }
-
-.anomaly-time {
-    color: var(--text-muted);
-    font-size: 0.85em;
-    font-family: var(--font-mono);
-}
+/* (Anomaly rows: see "Alerts" above.) */
 
 /* Weekly Report Modal */
 .report-grid {
@@ -2644,6 +2655,24 @@ body {
 
 .system-state.is-offline {
     border-color: var(--vpd-danger);
+}
+
+/* The loop is down: the dot and the words say so, in the alert colour. A
+   paused or monitoring tent keeps its own look, so this only ever adds to the
+   plain "activo" state and never repaints the states that are intentional. */
+.ac-sidebar .system-state.is-loop-down {
+    border-color: var(--state-alert);
+}
+
+.ac-sidebar .system-state.is-loop-down .status-dot {
+    background: var(--state-alert);
+    box-shadow: none;
+    animation: none;
+}
+
+.ac-sidebar .system-state.is-loop-down .system-state-text {
+    color: var(--state-alert);
+    font-weight: 600;
 }
 
 .header-cta {
@@ -4351,7 +4380,7 @@ body:not(.is-booting) .view.is-active:not(.is-loading) {
     animation: reveal 0.25s ease-out;
 }
 
-.anomalies-alert.show {
+.alert-box.show {
     animation: reveal 0.25s ease-out;
 }
 
@@ -4365,7 +4394,7 @@ body:not(.is-booting) .view.is-active:not(.is-loading) {
     .view.is-loading *,
     .loading,
     body:not(.is-booting) .view.is-active,
-    .anomalies-alert.show {
+    .alert-box.show {
         animation: none !important;
     }
 }
