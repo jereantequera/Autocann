@@ -8,13 +8,13 @@
         <section class="view view-grow" data-view="cultivo" aria-label="Cultivo">
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">🌱</span>
+                    <span class="section-title-icon">{{ icon("sprout") }}</span>
                     Cultivo activo
                     <span class="section-subtitle" id="grow-detail-name">--</span>
                 </h2>
                 <div class="grow-actions">
-                    <button class="btn btn-secondary" data-action="show-stage">🔄 Cambiar etapa</button>
-                    <button class="btn btn-primary" data-action="new-grow">➕ Nuevo cultivo</button>
+                    <button class="btn btn-secondary" data-action="show-stage">{{ icon("refresh-cw") }} Cambiar etapa</button>
+                    <button class="btn btn-primary" data-action="new-grow">{{ icon("plus") }} Nuevo cultivo</button>
                 </div>
             </div>
 
@@ -29,10 +29,10 @@
 
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">📋</span>
+                    <span class="section-title-icon">{{ icon("clipboard-list") }}</span>
                     Todos los cultivos
                 </h2>
-                <span class="sensor-badge" id="grow-count-badge">⏳</span>
+                <span class="sensor-badge" id="grow-count-badge">{{ icon("hourglass") }}</span>
             </div>
             <div class="grow-list" id="growList">
                 <div class="loading">Cargando cultivos</div>

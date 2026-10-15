@@ -15,11 +15,11 @@
             -->
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">📡</span>
+                    <span class="section-title-icon">{{ icon("radio-tower") }}</span>
                     Nodos ESP32
                 </h2>
-                <span class="sensor-badge" id="nodes-badge">⏳</span>
-                <button class="btn btn-ghost btn-mini" data-sys="refresh-nodes">🔄 Actualizar</button>
+                <span class="sensor-badge" id="nodes-badge">{{ icon("hourglass") }}</span>
+                <button class="btn btn-ghost btn-mini" data-sys="refresh-nodes">{{ icon("refresh-cw") }} Actualizar</button>
             </div>
             <div class="sys-grid" id="nodes-grid">
                 <div class="loading">Consultando nodos</div>
@@ -27,7 +27,7 @@
 
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">📜</span>
+                    <span class="section-title-icon">{{ icon("scroll-text") }}</span>
                     Log del nodo
                 </h2>
                 <select class="node-log-picker" id="node-log-picker" aria-label="Nodo"></select>

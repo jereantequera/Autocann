@@ -8,7 +8,7 @@
  */
 
 import { apiGet, apiPost, connection } from './api.js';
-import { escapeHtml, fmtNum, fmtSigned } from './util.js';
+import { escapeHtml, fmtNum, fmtSigned, icon, iconText } from './util.js';
 
 /**
  * Stored offsets by sensor id.
@@ -58,8 +58,8 @@ function calibrationRowHtml(sensorId) {
                     ? `${escapeHtml(fmtSigned(temperature, 2))} °C / ${escapeHtml(fmtSigned(humidity, 2))} %`
                     : 'sin corrección'}</span>
             </div>
-            ${orphan ? '<div class="calib-orphan">⚠️ Ningún sensor está posteando con este id, '
-                + 'así que esta corrección no se le aplica a nada.</div>' : ''}
+            ${orphan ? `<div class="calib-orphan">${icon('triangle-alert')}Ningún sensor está posteando con este id,
+                así que esta corrección no se le aplica a nada.</div>` : ''}
             <div class="calib-fields">
                 <label>
                     Offset temperatura (°C)
@@ -179,11 +179,13 @@ function fetchKnownSensors() {
 
 function statusCardHtml(title, ok, detail) {
     const state = ok === true ? 'ok' : ok === false ? 'error' : '';
-    const text = ok === true ? '✅ OK' : ok === false ? '❌ Error' : '⏳ Desconocido';
+    const text = ok === true ? { icon: 'circle-check', text: 'OK' }
+        : ok === false ? { icon: 'circle-x', text: 'Error' }
+            : { icon: 'hourglass', text: 'Desconocido' };
     return `
         <div class="sys-card">
             <div class="metric-label">${escapeHtml(title)}</div>
-            <div class="sys-state ${state}">${text}</div>
+            <div class="sys-state ${state}">${iconText(text)}</div>
             <div class="sys-detail">${escapeHtml(detail || '')}</div>
         </div>`;
 }

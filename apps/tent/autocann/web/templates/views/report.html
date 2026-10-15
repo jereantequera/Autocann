@@ -8,11 +8,11 @@
         <section class="view view-report" data-view="reportes" aria-label="Reportes">
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">📋</span>
+                    <span class="section-title-icon">{{ icon("clipboard-list") }}</span>
                     Reporte semanal
                     <span class="section-subtitle" id="report-period"></span>
                 </h2>
-                <button class="btn btn-ghost" data-action="weekly-report">🔄 Recalcular</button>
+                <button class="btn btn-ghost" data-action="weekly-report">{{ icon("refresh-cw") }} Recalcular</button>
             </div>
 
             <div id="report-loading" class="loading">Generando reporte</div>
@@ -39,16 +39,16 @@
 
                 <!-- Insights -->
                 <div class="report-section">
-                    <div class="report-section-title">💡 Insights</div>
+                    <div class="report-section-title">{{ icon("lightbulb") }} Insights</div>
                     <div class="insights-grid">
                         <div class="insight-card">
-                            <div class="insight-icon">🌟</div>
+                            <div class="insight-icon good">{{ icon("sparkles") }}</div>
                             <div class="insight-label">Mejor hora</div>
                             <div class="insight-value" id="report-best-hour">--:00</div>
                             <div class="insight-score good" id="report-best-score">-- score</div>
                         </div>
                         <div class="insight-card">
-                            <div class="insight-icon">⚠️</div>
+                            <div class="insight-icon bad">{{ icon("triangle-alert") }}</div>
                             <div class="insight-label">Peor hora</div>
                             <div class="insight-value" id="report-worst-hour">--:00</div>
                             <div class="insight-score bad" id="report-worst-score">-- score</div>
@@ -58,7 +58,7 @@
 
                 <!-- Hourly Distribution -->
                 <div class="report-section">
-                    <div class="report-section-title">📈 VPD Score por hora</div>
+                    <div class="report-section-title">{{ icon("chart-line") }} VPD Score por hora</div>
                     <div class="hourly-chart" id="report-hourly-chart">
                         <!-- Bars will be inserted here -->
                     </div>
@@ -69,7 +69,7 @@
 
                 <!-- Daily Scores -->
                 <div class="report-section">
-                    <div class="report-section-title">📅 Score diario</div>
+                    <div class="report-section-title">{{ icon("calendar") }} Score diario</div>
                     <div class="report-daily" id="report-daily-scores">
                         <!-- Daily scores will be inserted here -->
                     </div>

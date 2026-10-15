@@ -1,5 +1,27 @@
 # Changelog
 
+## Los íconos eran cuadrados vacíos
+
+El dashboard usaba 117 emoji como íconos — 37 distintos, en la navegación, en
+los títulos y, sobre todo, en los estados: el ✅ y el ❌ eran lo único que
+distinguía "anda" de "no anda" en un badge. La Raspberry no tiene fuente de
+emoji, así que en la tablet de la carpa cada uno se dibujaba como un cuadrado
+vacío. El badge decía "lazo caído" con un cuadradito adelante, igual que "OK".
+
+Ahora son íconos de Lucide en un sprite SVG incrustado en la página: no hay un
+request más, toman el color del texto (un ícono en un badge rojo es rojo) y se
+ven igual en cualquier dispositivo. Los helpers de estado devuelven
+`{icon, text, state}` en lugar de un texto con el emoji pegado adelante.
+
+De paso:
+
+- Las fuentes venían de Google Fonts, y era lo único de la página que dependía
+  de internet. Están en `static/vendor/fonts/`.
+- "Agregar riego" y "Registrar riego" son links con forma de botón y salían
+  subrayados.
+- En el celular el header ocupaba un tercio de la pantalla, apilado y
+  centrado. Ahora logo, estado y riego entran en una fila.
+
 ## 3357 conexiones a Redis sin que nadie las pidiera
 
 El backend abría conexiones a Redis y no las devolvía nunca. Un proceso que

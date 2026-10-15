@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autocann — PIN</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
 </head>
 <!--
@@ -15,9 +12,10 @@
      loads, and every one of them would answer 401 behind the dialog.
 -->
 <body class="login-body">
+{% include "partials/icons.html" %}
     <main class="login-card">
         <div class="login-logo">
-            <div class="logo-icon">🌿</div>
+            <div class="logo-icon">{{ icon("sprout") }}</div>
             <h1>Auto<span>cann</span></h1>
         </div>
 

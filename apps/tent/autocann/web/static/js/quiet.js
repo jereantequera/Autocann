@@ -11,7 +11,7 @@
  */
 
 import { apiGet } from './api.js';
-import { escapeHtml, fmtNum } from './util.js';
+import { escapeHtml, fmtNum, icon, iconText } from './util.js';
 
 /** Last payload of /api/quiet-hours, and the copy the form edits. */
 let served = null;
@@ -77,7 +77,7 @@ function cardHtml(output) {
                     <input type="checkbox" data-quiet-field="enabled" ${on ? 'checked' : ''}>
                     <span class="quiet-name">${escapeHtml(output.label || output.name)}</span>
                 </label>
-                ${silencing ? '<span class="sensor-badge ok">🔕 silenciando ahora</span>' : ''}
+                ${silencing ? `<span class="sensor-badge ok">${icon('bell-off')}silenciando ahora</span>` : ''}
             </div>
             ${action ? `<div class="quiet-action">El lazo no va a elegir
                 «${escapeHtml(action)}» dentro de la franja.</div>` : ''}
@@ -102,11 +102,17 @@ function cardHtml(output) {
         </div>`;
 }
 
-/** Said in words, because "23:00 → 07:00" is two intervals on a clock face. */
+/**
+ * Said in words, because "23:00 → 07:00" is two intervals on a clock face.
+ *
+ * @returns {{icon?: string, text: string}}  an icon only when it is a warning
+ */
 function describe(w) {
-    if (!w.enabled) return 'Sin franja: el lazo decide a cualquier hora.';
-    if (!w.start || !w.end) return '⚠️ Falta la hora de inicio o de fin; así no se aplica.';
-    if (w.start === w.end) return '⚠️ Una franja de ancho cero no silencia nada.';
+    if (!w.enabled) return { text: 'Sin franja: el lazo decide a cualquier hora.' };
+    if (!w.start || !w.end) {
+        return { icon: 'triangle-alert', text: 'Falta la hora de inicio o de fin; así no se aplica.' };
+    }
+    if (w.start === w.end) return { icon: 'triangle-alert', text: 'Una franja de ancho cero no silencia nada.' };
 
     const crosses = w.start > w.end ? ' (cruza la medianoche)' : '';
     const cap = (typeof w.max_humidity === 'number' && Number.isFinite(w.max_humidity))
@@ -114,13 +120,13 @@ function describe(w) {
         // Said every time it is empty: a hard block is choosing quiet over the
         // plants, which is allowed, but not by accident.
         : ', sin excepción por humedad';
-    return `De ${w.start} a ${w.end}${crosses}${cap}.`;
+    return { text: `De ${w.start} a ${w.end}${crosses}${cap}.` };
 }
 
 function renderHints() {
     document.querySelectorAll('[data-quiet-output]').forEach(card => {
         const hint = card.querySelector('[data-quiet-hint]');
-        if (hint) hint.textContent = describe(windowFor(card.dataset.quietOutput));
+        if (hint) hint.innerHTML = iconText(describe(windowFor(card.dataset.quietOutput)));
     });
 }
 

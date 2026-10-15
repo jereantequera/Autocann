@@ -8,10 +8,10 @@
         <section class="view view-system" data-view="sistema" aria-label="Sistema">
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">🎚️</span>
+                    <span class="section-title-icon">{{ icon("sliders-horizontal") }}</span>
                     Calibración de sensores
                 </h2>
-                <span class="sensor-badge" id="calibration-badge">⏳</span>
+                <span class="sensor-badge" id="calibration-badge">{{ icon("hourglass") }}</span>
             </div>
             <div class="sys-note">
                 El offset se suma a lo que postea el sensor antes de que el lazo lo
@@ -24,10 +24,10 @@
 
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">📡</span>
+                    <span class="section-title-icon">{{ icon("radio-tower") }}</span>
                     Conectividad
                 </h2>
-                <button class="btn btn-ghost btn-mini" data-sys="refresh">🔄 Revisar</button>
+                <button class="btn btn-ghost btn-mini" data-sys="refresh">{{ icon("refresh-cw") }} Revisar</button>
             </div>
             <div class="sys-grid" id="connectivity-grid">
                 <div class="loading">Consultando estado</div>
@@ -41,7 +41,7 @@
 
             <div class="section-header">
                 <h2 class="section-title">
-                    <span class="section-title-icon">🗄️</span>
+                    <span class="section-title-icon">{{ icon("database") }}</span>
                     Base de datos
                 </h2>
             </div>
@@ -76,7 +76,7 @@
             <div id="session-section" hidden>
                 <div class="section-header">
                     <h2 class="section-title">
-                        <span class="section-title-icon">🔒</span>
+                        <span class="section-title-icon">{{ icon("lock") }}</span>
                         Sesión
                     </h2>
                 </div>
@@ -85,6 +85,6 @@
                     afuera hasta que lo vuelvas a poner — útil si el tablero
                     quedó abierto en un teléfono prestado.
                 </div>
-                <button class="btn btn-ghost" data-sys="logout">🔒 Cerrar sesión</button>
+                <button class="btn btn-ghost" data-sys="logout">{{ icon("log-out") }} Cerrar sesión</button>
             </div>
         </section>

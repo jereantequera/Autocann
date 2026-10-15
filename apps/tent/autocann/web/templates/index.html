@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autocann - Control Room</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Vendored, not from a CDN: the dashboard has to work on a grow-tent
          network with no internet, and a failed CDN load is silent. -->
     <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}?v={{ asset_version }}"></script>
@@ -14,6 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_version }}">
 </head>
 <body>
+{% include "partials/icons.html" %}
     <div class="container">
 {% include "partials/header.html" %}
 {% include "partials/nav.html" %}

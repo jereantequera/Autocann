@@ -970,3 +970,63 @@ def test_monitoring_is_not_exempt_from_the_history_check():
     assert history_verdict(999999, "paused")["level"] == "ok"
     assert history_verdict(999999, MODE_MONITOR)["level"] == "error"
     assert history_verdict(10, MODE_MONITOR)["state"] == "writing"
+
+
+# Pictographic emoji, plus the variation selector that turns a plain glyph into one.
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿⌚-⏿️]")
+
+
+def _ui_sources():
+    yield from TEMPLATES_DIR.rglob("*.html")
+    yield from (STATIC_DIR / "js").glob("*.js")
+    yield STATIC_DIR / "css" / "app.css"
+
+
+def _code_only(path: Path) -> str:
+    """The file without its comments, which may quote what the screen used to say."""
+    text = path.read_text()
+    text = re.sub(r"{#.*?#}|<!--.*?-->|/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"^\s*(//|\*).*$", "", text, flags=re.M)
+
+
+def test_the_dashboard_draws_no_emoji():
+    """
+    The Raspberry has no emoji font: on the tablet on the tent wall every emoji
+    rendered as an empty box, the ✅ and ❌ of the status badges included.
+    """
+    offenders = {
+        path.name: sorted(set(_EMOJI.findall(_code_only(path))))
+        for path in _ui_sources()
+        if _EMOJI.search(_code_only(path))
+    }
+    assert offenders == {}
+
+
+def test_every_icon_the_dashboard_asks_for_is_in_the_sprite():
+    """A missing symbol renders nothing at all, with no error anywhere."""
+    sprite = (TEMPLATES_DIR / "partials" / "icons.html").read_text()
+    available = set(re.findall(r'<symbol id="i-([a-z0-9-]+)"', sprite))
+
+    wanted = set()
+    for path in TEMPLATES_DIR.rglob("*.html"):
+        wanted |= set(re.findall(r'icon\("([a-z0-9-]+)"', path.read_text()))
+    for path in (STATIC_DIR / "js").glob("*.js"):
+        code = _code_only(path)
+        wanted |= set(re.findall(r"\bicon\(\s*'([a-z0-9-]+)'", code))
+        wanted |= set(re.findall(r"\bicon: '([a-z0-9-]+)'", code))
+        # Lookup tables of state -> icon name.
+        for table in re.findall(r"const [A-Z_]+_ICONS = \{([^}]*)\}", code):
+            wanted |= set(re.findall(r"'([a-z0-9-]+)'", table))
+
+    assert wanted, "the scan found no icons at all, so it is not looking"
+    assert wanted - available == set()
+
+
+def test_fonts_are_served_from_here_not_from_google():
+    """The stylesheet request to Google is what a page with no internet hangs on."""
+    for entry in ENTRY_POINTS:
+        assert "fonts.googleapis.com" not in (TEMPLATES_DIR / entry).read_text(), entry
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    for font in re.findall(r"url\('\.\./(vendor/fonts/[^']+)'\)", css):
+        assert (STATIC_DIR / font).exists(), font
+    assert "vendor/fonts/" in css

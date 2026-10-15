@@ -17,7 +17,7 @@
         -->
         <header class="header">
             <div class="logo">
-                <div class="logo-icon">🌿</div>
+                <div class="logo-icon">{{ icon("sprout") }}</div>
                 <h1>Auto<span>cann</span></h1>
             </div>
 {% include "partials/growbar.html" %}
@@ -42,8 +42,9 @@
                     <span class="system-state-action" id="system-state-action">Pausar</span>
                 </button>
 
-                <a class="btn btn-primary header-cta" href="#/riego">
-                    💧 Agregar riego
+                <a class="btn btn-primary header-cta" href="#/riego" aria-label="Agregar riego">
+                    {{ icon("droplets") }}
+                    <span class="header-cta-label">Agregar riego</span>
                     <span class="header-cta-badge" id="feed-cta-badge" hidden></span>
                 </a>
 

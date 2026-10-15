@@ -4,7 +4,7 @@ import { getVpdChart, renderStageMarkers } from './charts.js';
 import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './dashboard.js';
 import { fetchVpdScore } from './analytics.js';
 import { config, state } from './state.js';
-import { escapeHtml } from './util.js';
+import { escapeHtml, icon } from './util.js';
 
 /**
  * Grow lifecycle: the active grow, its stage history, and the list of all of
@@ -373,7 +373,7 @@ async function loadGrowsList() {
                      data-action="${grow.is_active ? '' : 'activate'}">
                     <div class="grow-item-name">
                         ${escapeHtml(grow.name)}
-                        ${grow.is_active ? '<span style="color: var(--accent-green);">✅ ACTIVO</span>' : ''}
+                        ${grow.is_active ? `<span class="grow-item-active">${icon('circle-check')}Activo</span>` : ''}
                     </div>
                     <span class="grow-stage ${stage}">${escapeHtml(stageNames[grow.stage] || grow.stage)}</span>
                     <div class="grow-item-date">

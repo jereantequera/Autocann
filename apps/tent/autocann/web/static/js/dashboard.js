@@ -3,7 +3,7 @@ import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { alertDialog, closeModal, showModal, toast } from './modals.js';
 import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, config, state } from './state.js';
 import {
-    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
+    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, icon, iconText, outputPinLabel, relaySourceLabel,
     withGrow,
 } from './util.js';
 
@@ -62,7 +62,7 @@ function updateHumidityBar(humidity, targetHumidity) {
     if (diffEl) {
         const label = humidityDiffLabel(humidity, targetHumidity);
         diffEl.className = label ? `humidity-diff ${label.state}` : 'humidity-diff';
-        diffEl.textContent = label ? label.text : '';
+        diffEl.innerHTML = label ? iconText(label) : '';
     }
 }
 
@@ -101,13 +101,13 @@ function updateCurrentData(data) {
         vpdCard.classList.remove('vpd-adjusting');
         vpdCard.classList.add('vpd-optimal');
         vpdStatus.className = 'vpd-badge in-range';
-        vpdStatus.innerHTML = '✓ En rango óptimo';
+        vpdStatus.innerHTML = `${icon('check')}En rango óptimo`;
         vpdHint.textContent = `(${range.min}-${range.max} kPa)`;
     } else if (data.vpd_in_range === false) {
         vpdCard.classList.remove('vpd-optimal');
         vpdCard.classList.add('vpd-adjusting');
         vpdStatus.className = 'vpd-badge adjusting';
-        vpdStatus.innerHTML = '⚡ Ajustando...';
+        vpdStatus.innerHTML = `${icon('zap')}Ajustando…`;
         vpdHint.textContent = `Objetivo: ${range.min}-${range.max} kPa`;
     } else {
         vpdCard.classList.remove('vpd-optimal', 'vpd-adjusting');
@@ -336,7 +336,7 @@ function outputCardHtml(output, mode) {
         // The minimum on/off times hold even for a person: the equipment does
         // not care who asked.
         const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
-            ? `<div class="output-held">⏳ esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</div>`
+            ? `<div class="output-held">${icon('hourglass')}esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</div>`
             : '';
         controls = `
             <div class="output-controls">

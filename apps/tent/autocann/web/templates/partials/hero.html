@@ -12,17 +12,17 @@
         -->
         <div class="section-header section-header-row">
             <h2 class="section-title">
-                <span class="section-title-icon">🌡️</span>
+                <span class="section-title-icon">{{ icon("thermometer") }}</span>
                 Ambiente
             </h2>
-            <span class="sensor-badge" id="sensor-status-indoor">⏳</span>
+            <span class="sensor-badge" id="sensor-status-indoor">{{ icon("hourglass") }}</span>
         </div>
 
         <div class="hero-grid">
             <!-- VPD Card -->
             <div class="hero-card hero-vpd" id="vpd-card">
                 <div class="hero-header">
-                    <div class="hero-label" title="VPD de hoja (leaf VPD): valor relevante para las plantas">🎯 VPD Hoja</div>
+                    <div class="hero-label" title="VPD de hoja (leaf VPD): valor relevante para las plantas">{{ icon("gauge") }} VPD Hoja</div>
                 </div>
                 <div class="hero-value" id="current-vpd">--<span class="hero-unit">kPa</span></div>
                 <div class="hero-subtitle">
@@ -50,7 +50,7 @@
             <!-- Temperature Card -->
             <div class="hero-card hero-temp">
                 <div class="hero-header">
-                    <div class="hero-label">🌡️ Temperatura</div>
+                    <div class="hero-label">{{ icon("thermometer") }} Temperatura</div>
                 </div>
                 <div class="hero-value temp-value" id="current-temp">--<span class="hero-unit">°C</span></div>
                 <div class="hero-subtitle">
@@ -62,7 +62,7 @@
             <!-- Humidity Card: what it is, and what it is being driven to -->
             <div class="hero-card hero-humidity">
                 <div class="hero-header">
-                    <div class="hero-label">💧 Humedad</div>
+                    <div class="hero-label">{{ icon("droplet") }} Humedad</div>
                 </div>
                 <div class="hero-value humidity-value" id="current-humidity">--<span class="hero-unit">%</span></div>
                 <div class="hero-subtitle">

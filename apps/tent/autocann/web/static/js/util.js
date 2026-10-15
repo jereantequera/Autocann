@@ -15,6 +15,24 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+/**
+ * An icon from the sprite in partials/icons.svg, as markup.
+ *
+ * Emoji used to be the icons. The Raspberry has no emoji font, so on the
+ * tablet on the tent wall every one of them was an empty box - including the
+ * ✅ and ❌ that were the only difference between "anda" and "no anda".
+ */
+function icon(name, extraClass = '') {
+    const cls = `icon ${extraClass}`.trim();
+    return `<svg class="${escapeHtml(cls)}" aria-hidden="true" focusable="false">`
+        + `<use href="#i-${escapeHtml(name)}"></use></svg>`;
+}
+
+/** Icon + words, the shape every badge and status line on the page has. */
+function iconText({ icon: name, text }) {
+    return `${name ? icon(name) : ''}${escapeHtml(text || '')}`;
+}
+
 // `x ? fmt(x) : '--'` renders a real 0 as "--". 0 °C of leaf temperature
 // and 0% of target humidity are both legitimate readings.
 
@@ -110,9 +128,9 @@ function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
     if (!Number.isFinite(humidity) || !Number.isFinite(targetHumidity)) return null;
     const diff = humidity - targetHumidity;
     const absDiff = Math.abs(diff).toFixed(1);
-    if (Math.abs(diff) <= tolerance) return { state: 'on-target', text: '✓ En objetivo' };
-    if (diff < 0) return { state: 'too-low', text: `↓ ${absDiff}% por debajo` };
-    return { state: 'too-high', text: `↑ ${absDiff}% por encima` };
+    if (Math.abs(diff) <= tolerance) return { state: 'on-target', icon: 'check', text: 'En objetivo' };
+    if (diff < 0) return { state: 'too-low', icon: 'arrow-down', text: `${absDiff}% por debajo` };
+    return { state: 'too-high', icon: 'arrow-up', text: `${absDiff}% por encima` };
 }
 
 // ===============================
@@ -153,14 +171,16 @@ function doseAmount(item, litres) {
 function waterOnlyNote(reason) {
     if (reason === 'seedling') {
         return {
-            badge: '💧 solo agua',
+            icon: 'droplet',
+            badge: 'solo agua',
             text: 'Plántula: el plan no lleva nutrientes todavía. '
                 + 'Regá con agua sola y el pH corregido.',
         };
     }
     if (reason === 'flush') {
         return {
-            badge: '💧 lavado',
+            icon: 'droplet',
+            badge: 'lavado',
             text: 'Semana de lavado: el plan no lleva nutrientes. '
                 + 'Regá con agua sola y el pH corregido.',
         };
@@ -284,14 +304,16 @@ function getScoreClass(score) {
     return 'poor';
 }
 
+/** @returns {{icon: string, text: string}} */
 function getScoreLabel(score) {
-    if (score >= 85) return '🏆 Excelente';
-    if (score >= 70) return '✅ Bueno';
-    if (score >= 50) return '⚠️ Regular';
-    return '❌ Necesita mejorar';
+    if (score >= 85) return { icon: 'trophy', text: 'Excelente' };
+    if (score >= 70) return { icon: 'circle-check', text: 'Bueno' };
+    if (score >= 50) return { icon: 'triangle-alert', text: 'Regular' };
+    return { icon: 'circle-x', text: 'Necesita mejorar' };
 }
 
 export {
+    icon, iconText,
     escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
     formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
     outputPinLabel, relaySourceLabel,

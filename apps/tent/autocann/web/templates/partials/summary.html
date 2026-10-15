@@ -7,7 +7,7 @@
             <div class="summary-card">
                 <div class="summary-card-header">
                     <div class="summary-card-title">
-                        <span class="icon">🌡️</span>
+                        {{ icon("thermometer") }}
                         Temperatura Interior
                     </div>
                 </div>
@@ -30,7 +30,7 @@
             <div class="summary-card">
                 <div class="summary-card-header">
                     <div class="summary-card-title">
-                        <span class="icon">💧</span>
+                        {{ icon("droplet") }}
                         Humedad Interior
                     </div>
                 </div>
@@ -49,7 +49,7 @@
             <div class="summary-card">
                 <div class="summary-card-header">
                     <div class="summary-card-title">
-                        <span class="icon">🎯</span>
+                        {{ icon("gauge") }}
                         VPD Promedio
                     </div>
                 </div>
@@ -75,7 +75,7 @@
             <div class="summary-card summary-card-outside">
                 <div class="summary-card-header">
                     <div class="summary-card-title">
-                        <span class="icon">🌤️</span>
+                        {{ icon("cloud-sun") }}
                         Exterior
                     </div>
                 </div>
@@ -95,7 +95,7 @@
             <div class="vpd-score-card">
                 <div class="vpd-score-header">
                     <div class="vpd-score-title">
-                        <span>🏆</span>
+                        {{ icon("trophy") }}
                         VPD Score (7 días)
                     </div>
                     <span class="vpd-score-range" id="vpd-score-range">--</span>

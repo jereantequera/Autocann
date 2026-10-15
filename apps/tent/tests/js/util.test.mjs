@@ -11,7 +11,7 @@ import { test } from 'node:test';
 
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
-    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
+    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel, icon, iconText,
     lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
     withGrow,
 } from '../../autocann/web/static/js/util.js';
@@ -87,8 +87,8 @@ test('score bands are contiguous and cover the whole 0-100 range', () => {
     assert.ok(bands.every(Boolean), 'todo score debe tener una clase');
     assert.equal(getScoreClass(100), getScoreClass(95));
     assert.notEqual(getScoreClass(0), getScoreClass(100));
-    assert.ok(getScoreLabel(90).length > 0);
-    assert.ok(getScoreLabel(10).length > 0);
+    assert.equal(getScoreLabel(90).text, 'Excelente');
+    assert.equal(getScoreLabel(10).text, 'Necesita mejorar');
 });
 
 test('formatAge speaks in units a grower reads at a glance', () => {
@@ -134,10 +134,11 @@ test('formatDuration shows a dash rather than a countdown already past', () => {
 });
 
 test('humidityDiffLabel names the three states a grower acts on', () => {
-    assert.deepEqual(humidityDiffLabel(60, 60), { state: 'on-target', text: '✓ En objetivo' });
-    assert.deepEqual(humidityDiffLabel(63, 60), { state: 'on-target', text: '✓ En objetivo' });
-    assert.deepEqual(humidityDiffLabel(50, 60), { state: 'too-low', text: '↓ 10.0% por debajo' });
-    assert.deepEqual(humidityDiffLabel(70.5, 60), { state: 'too-high', text: '↑ 10.5% por encima' });
+    const onTarget = { state: 'on-target', icon: 'check', text: 'En objetivo' };
+    assert.deepEqual(humidityDiffLabel(60, 60), onTarget);
+    assert.deepEqual(humidityDiffLabel(63, 60), onTarget);
+    assert.deepEqual(humidityDiffLabel(50, 60), { state: 'too-low', icon: 'arrow-down', text: '10.0% por debajo' });
+    assert.deepEqual(humidityDiffLabel(70.5, 60), { state: 'too-high', icon: 'arrow-up', text: '10.5% por encima' });
 });
 
 test('humidityDiffLabel returns nothing when a payload carries no readings', () => {
@@ -320,4 +321,15 @@ test('relaySourceLabel says which board the panel is talking about', () => {
     // Sin payload el encabezado queda vacío: inventar una placa es el defecto.
     assert.deepEqual(relaySourceLabel(undefined), { text: '', title: '' });
     assert.deepEqual(relaySourceLabel({ scope: 'otra' }), { text: '', title: '' });
+});
+
+test('icon() points at a symbol in the sprite and hides it from screen readers', () => {
+    const svg = icon('droplets');
+    assert.match(svg, /<use href="#i-droplets"><\/use>/);
+    assert.match(svg, /aria-hidden="true"/);
+});
+
+test('iconText() escapes the words it is given', () => {
+    assert.equal(iconText({ text: '<b>' }), '&lt;b&gt;');
+    assert.match(iconText({ icon: 'check', text: 'OK' }), /<\/svg>OK$/);
 });

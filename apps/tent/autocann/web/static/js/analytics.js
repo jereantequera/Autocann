@@ -1,7 +1,7 @@
 import { apiGet } from './api.js';
 import { navigate } from './views.js';
 import { state } from './state.js';
-import { escapeHtml, getScoreClass, getScoreLabel, withGrow } from './util.js';
+import { escapeHtml, getScoreClass, getScoreLabel, icon, iconText, withGrow } from './util.js';
 
 /** VPD score, anomaly banner and the weekly report. */
 
@@ -30,7 +30,7 @@ function updateVpdScore(data) {
     if (score !== null && score !== undefined) {
         scoreEl.textContent = `${score}%`;
         scoreEl.className = `vpd-score-value ${getScoreClass(score)}`;
-        labelEl.textContent = getScoreLabel(score);
+        labelEl.innerHTML = iconText(getScoreLabel(score));
     } else {
         scoreEl.textContent = '--%';
         labelEl.textContent = 'Sin datos suficientes';
@@ -108,17 +108,17 @@ function updateAnomalies(data) {
     
     if (data.status === 'critical') {
         alertEl.classList.add('critical');
-        iconEl.textContent = '🚨';
+        iconEl.innerHTML = icon('siren');
         titleEl.textContent = 'Problemas Críticos Detectados';
     } else {
         alertEl.classList.remove('critical');
-        iconEl.textContent = '⚠️';
+        iconEl.innerHTML = icon('triangle-alert');
         titleEl.textContent = 'Advertencias Detectadas';
     }
 
     listEl.innerHTML = allIssues.slice(0, 5).map(issue => `
         <div class="anomaly-item ${issue.severity}">
-            <span>${issue.severity === 'critical' ? '🔴' : '🟡'}</span>
+            ${icon(issue.severity === 'critical' ? 'circle-alert' : 'triangle-alert', 'anomaly-icon')}
             <span style="flex: 1;">${escapeHtml(issue.message)}</span>
             <span class="anomaly-time">${escapeHtml(issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '')}</span>
         </div>

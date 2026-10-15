@@ -15,7 +15,7 @@
  */
 
 import { apiGet } from './api.js';
-import { escapeHtml, fmtNum, fmtSigned, formatAge } from './util.js';
+import { escapeHtml, fmtNum, fmtSigned, formatAge, icon, iconText } from './util.js';
 
 // ===============================
 // Vocabulario
@@ -26,12 +26,12 @@ import { escapeHtml, fmtNum, fmtSigned, formatAge } from './util.js';
 // can see it - which is what this section is.
 
 const SENSOR_ROLES = {
-    primary: { icon: '🎯', label: 'Primario · controla' },
-    witness: { icon: '👁️', label: 'Testigo · sólo vigila' },
+    primary: { icon: 'crosshair', label: 'Primario · controla' },
+    witness: { icon: 'eye', label: 'Testigo · sólo vigila' },
     // Shown and nothing else. The sensor above the lamp is worth reading and
     // useless as a witness: its offset against the primary moves with the
     // photoperiod, not with the sensors' health.
-    observer: { icon: '📈', label: 'Observación · sólo informa' },
+    observer: { icon: 'chart-line', label: 'Observación · sólo informa' },
 };
 
 /** Same wording the control loop logs, so the two are recognisably the same fault. */
@@ -49,19 +49,17 @@ const DRIFT_FLAG_LABELS = {
  * "postea pero el detector lo marcó" es el que más esconde un badge verde.
  */
 const SENSOR_STATES = {
-    posting: { icon: '✅', css: 'is-ok', badge: 'ok' },
-    suspect: { icon: '⚠️', css: 'is-suspect', badge: 'stale' },
-    stale: { icon: '⏱️', css: 'is-stale', badge: 'error' },
-    missing: { icon: '❌', css: 'is-missing', badge: 'error' },
+    posting: { icon: 'circle-check', css: 'is-ok', badge: 'ok' },
+    suspect: { icon: 'triangle-alert', css: 'is-suspect', badge: 'stale' },
+    stale: { icon: 'clock', css: 'is-stale', badge: 'error' },
+    missing: { icon: 'circle-x', css: 'is-missing', badge: 'error' },
 };
-
-const LEVEL_ICONS = { ok: '✅', warn: '⚠️', error: '❌' };
 
 // `monitor` is its own icon, not the pause's: the two are different answers to
 // "¿por qué no está controlando?" and the strip is the one line on the panel
 // that says which.
-const LOOP_ICONS = { running: '✅', monitor: '◍', paused: '⏸️', down: '❌' };
-const HISTORY_ICONS = { writing: '✅', paused: '⏸️', stalled: '❌', empty: '⏳' };
+const LOOP_ICONS = { running: 'circle-check', monitor: 'scan-eye', paused: 'circle-pause', down: 'circle-x' };
+const HISTORY_ICONS = { writing: 'circle-check', paused: 'circle-pause', stalled: 'circle-x', empty: 'hourglass' };
 
 /** El último estado conocido, para que otros módulos no vuelvan a pedirlo. */
 let snapshot = null;
@@ -76,46 +74,46 @@ const latestHealth = () => snapshot;
  * El badge del hero, que está sobre la tarjeta de VPD.
  *
  * Reporta lo que esa tarjeta puede mostrar, no sólo si el sensor contesta. Con
- * el lazo en pausa no hay VPD que mostrar, y un "✅ OK" al lado de un "--" es
+ * el lazo en pausa no hay VPD que mostrar, y un "OK" en verde al lado de un "--" es
  * exactamente la contradicción que hizo falta arreglar.
  *
- * @returns {{text: string, state: string}}
+ * @returns {{icon: string, text: string, state: string}}
  */
 function heroBadge(health) {
-    if (!health) return { text: '⏳', state: '' };
+    if (!health) return { icon: 'hourglass', text: '', state: '' };
 
     const loop = health.loop || {};
-    if (loop.state === 'down') return { text: '❌ lazo caído', state: 'error' };
-    if (loop.state === 'paused') return { text: '⏸️ en pausa', state: 'stale' };
+    if (loop.state === 'down') return { icon: 'circle-x', text: 'lazo caído', state: 'error' };
+    if (loop.state === 'paused') return { icon: 'circle-pause', text: 'en pausa', state: 'stale' };
     // Monitoring says the same thing this badge is for - there is no VPD on
     // this card because nothing is aiming at one - and says which of the two
     // reasons it is, so the card is not read as broken.
-    if (loop.state === 'monitor') return { text: '◍ monitoreo', state: 'stale' };
+    if (loop.state === 'monitor') return { icon: 'scan-eye', text: 'monitoreo', state: 'stale' };
 
     // Sólo el lazo y el sensor que controla: son los dos de los que depende el
     // número que esta tarjeta muestra. Un hueco en el histórico es un problema
     // real y no es de esta tarjeta, y pintarla de rojo por eso es volver a lo
     // de antes al revés — un badge que no se corresponde con lo que tiene al lado.
     const primary = (health.sensors || []).find(sensor => sensor.controls);
-    if (!primary) return { text: '⚠️ sin primario', state: 'stale' };
-    if (primary.state === 'missing') return { text: '❌ sin sensor', state: 'error' };
-    if (primary.state === 'stale') return { text: '❌ sin datos', state: 'error' };
-    if (primary.state === 'suspect') return { text: '⚠️ revisar', state: 'stale' };
-    return { text: '✅ OK', state: 'ok' };
+    if (!primary) return { icon: 'triangle-alert', text: 'sin primario', state: 'stale' };
+    if (primary.state === 'missing') return { icon: 'circle-x', text: 'sin sensor', state: 'error' };
+    if (primary.state === 'stale') return { icon: 'circle-x', text: 'sin datos', state: 'error' };
+    if (primary.state === 'suspect') return { icon: 'triangle-alert', text: 'revisar', state: 'stale' };
+    return { icon: 'circle-check', text: 'OK', state: 'ok' };
 }
 
 /**
  * El badge de la sección: cuántos sensores están posteando, de cuántos.
  *
- * Un número, no un ✅: "2 de 2 posteando" sigue siendo verdad cuando alguien
+ * Un número, no un tilde: "2 de 2 posteando" sigue siendo verdad cuando alguien
  * agrega un tercer sensor y se olvida de configurarlo, y un tilde verde no.
  */
 function sensorsBadge(sensors) {
     if (!sensors || !sensors.length) return { text: 'sin sensores', state: '' };
     const live = sensors.filter(s => s.state === 'posting' || s.state === 'suspect').length;
-    const icon = live === sensors.length ? '✅' : live ? '⚠️' : '❌';
     return {
-        text: `${icon} ${live} de ${sensors.length} posteando`,
+        icon: live === sensors.length ? 'circle-check' : live ? 'triangle-alert' : 'circle-x',
+        text: `${live} de ${sensors.length} posteando`,
         state: live === sensors.length ? 'ok' : live ? 'stale' : 'error',
     };
 }
@@ -125,23 +123,23 @@ function sensorsBadge(sensors) {
 // ===============================
 
 function sensorCardHtml(sensor) {
-    const role = SENSOR_ROLES[sensor.role] || { icon: '📍', label: sensor.role || '' };
+    const role = SENSOR_ROLES[sensor.role] || { icon: 'map-pin', label: sensor.role || '' };
     const look = SENSOR_STATES[sensor.state] || SENSOR_STATES.missing;
     // Una lectura vieja se muestra apagada. Mostrar 21.6 °C en naranja fuerte
     // cuando es de hace cuatro horas es, en sí mismo, decir algo falso.
     const cold = sensor.state === 'stale' || sensor.state === 'missing';
 
     const flags = (sensor.flags || [])
-        .map(flag => `<div class="sensor-flag">⚠️ ${escapeHtml(DRIFT_FLAG_LABELS[flag] || flag)}</div>`)
+        .map(flag => `<div class="sensor-flag">${icon('triangle-alert')}${escapeHtml(DRIFT_FLAG_LABELS[flag] || flag)}</div>`)
         .join('');
 
     return `
         <div class="sensor-card ${look.css}">
             <div class="sensor-card-header">
                 <div class="sensor-card-name">${escapeHtml(sensor.label || 'Sensor')}</div>
-                <span class="sensor-badge ${look.badge}">${look.icon} ${escapeHtml(sensor.state_label || '')}</span>
+                <span class="sensor-badge ${look.badge}">${iconText({ icon: look.icon, text: sensor.state_label })}</span>
             </div>
-            <div class="sensor-card-role">${role.icon} ${escapeHtml(role.label)}</div>
+            <div class="sensor-card-role">${iconText({ icon: role.icon, text: role.label })}</div>
             <div class="sensor-card-readings${cold ? ' is-cold' : ''}">
                 <div>
                     <div class="metric-label">Temperatura</div>
@@ -168,15 +166,15 @@ function driftVerdictHtml(drift) {
     if (!drift) {
         // sensor_status expires with the rest of the dashboard keys, so no
         // verdict means the control loop is not publishing one.
-        return '<div class="sensor-flag">⏳ El lazo de control no publicó un veredicto</div>';
+        return `<div class="sensor-flag">${icon('hourglass')}El lazo de control no publicó un veredicto</div>`;
     }
     if (drift.ok) {
-        return '<div class="drift-verdict ok">✅ Sin deriva</div>';
+        return `<div class="drift-verdict ok">${icon('circle-check')}Sin deriva</div>`;
     }
     const messages = (drift.messages || [])
-        .map(message => `<div class="sensor-flag">⚠️ ${escapeHtml(message)}</div>`)
+        .map(message => `<div class="sensor-flag">${icon('triangle-alert')}${escapeHtml(message)}</div>`)
         .join('');
-    return messages || '<div class="sensor-flag">⚠️ Revisar los sensores</div>';
+    return messages || `<div class="sensor-flag">${icon('triangle-alert')}Revisar los sensores</div>`;
 }
 
 function comparisonCardHtml(payload) {
@@ -203,7 +201,7 @@ function comparisonCardHtml(payload) {
             <div class="sensor-card-header">
                 <div class="sensor-card-name">Diferencia</div>
             </div>
-            <div class="sensor-card-role">↔️ testigo − primario</div>
+            <div class="sensor-card-role">${icon('arrow-left-right')}testigo − primario</div>
             <div class="${deltaClass}">${escapeHtml(deltaText)}</div>
             <div class="sensor-card-footer"><span>${escapeHtml(baselineText)}</span></div>
             ${driftVerdictHtml(drift)}
@@ -219,7 +217,7 @@ function setBadge(id, badge) {
     const el = document.getElementById(id);
     if (!el) return;
     el.className = `sensor-badge ${badge.state}`.trim();
-    el.textContent = badge.text;
+    el.innerHTML = iconText(badge);
 }
 
 function renderRow(prefix, verdict, icons) {
@@ -229,7 +227,7 @@ function renderRow(prefix, verdict, icons) {
     if (!row || !verdict) return;
 
     row.className = `health-row is-${verdict.level}`;
-    state.textContent = `${icons[verdict.state] || '⏳'} ${verdict.label || ''}`;
+    state.innerHTML = iconText({ icon: icons[verdict.state] || 'hourglass', text: verdict.label });
     detail.textContent = verdict.detail || '';
 }
 
@@ -299,15 +297,15 @@ function renderHealth(health) {
     const sensors = sensorsBadge(health.sensors);
     setBadge('sensors-badge', sensors);
     const strip = document.getElementById('health-sensors-state');
-    if (strip) strip.textContent = sensors.text;
+    if (strip) strip.innerHTML = iconText(sensors);
 
     setBadge('sensor-status-indoor', heroBadge(health));
 
     const outdoor = health.outdoor || {};
     setBadge('sensor-status-outdoor',
-        outdoor.ok === true ? { text: '✅ OK', state: 'ok' }
-            : outdoor.ok === false ? { text: '❌ Error', state: 'error' }
-                : { text: '⏳', state: '' });
+        outdoor.ok === true ? { icon: 'circle-check', text: 'OK', state: 'ok' }
+            : outdoor.ok === false ? { icon: 'circle-x', text: 'Error', state: 'error' }
+                : { icon: 'hourglass', text: '', state: '' });
 
     renderAlert(health);
 }

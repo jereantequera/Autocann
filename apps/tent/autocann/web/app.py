@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
+from markupsafe import Markup, escape
 
 from autocann import __version__
 from autocann.config import (
@@ -219,6 +220,20 @@ def static_asset_version() -> str:
         return __version__
     return f"{__version__}-{int(newest):x}" if newest else __version__
 
+def icon(name: str, extra_class: str = "") -> Markup:
+    """
+    An icon from the sprite in partials/icons.svg, for the templates.
+
+    The same markup icon() in static/js/util.js builds, so an icon rendered by
+    the server and one rendered by a poller look the same.
+    """
+    classes = f"icon {extra_class}".strip()
+    return Markup(
+        f'<svg class="{escape(classes)}" aria-hidden="true" focusable="false">'
+        f'<use href="#i-{escape(name)}"></use></svg>'
+    )
+
+
 def create_app() -> Flask:
     app = Flask(
         __name__,
@@ -236,7 +251,7 @@ def create_app() -> Flask:
     def inject_version():
         # Appended to static URLs so a deploy busts the browser cache without
         # having to serve the assets with no-cache.
-        return {"asset_version": asset_version}
+        return {"asset_version": asset_version, "icon": icon}
     redis_cfg = redis_config_from_env()
     # One client for the life of the process, with a bounded pool and a socket
     # that gives up: see autocann/redis_pool.py for what the defaults cost.

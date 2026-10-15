@@ -16,14 +16,16 @@ import { readRate, signalLabel } from '../../autocann/web/static/js/nodes.js';
 const posting = { controls: true, state: 'posting' };
 
 test('the hero badge does not say OK while the card it sits on has nothing to show', () => {
-    // Con el lazo en pausa no hay VPD que mostrar: el badge decía "✅ OK"
+    // Con el lazo en pausa no hay VPD que mostrar: el badge decía "OK" en verde
     // arriba de un "--", que es exactamente lo que no se entendía.
     const paused = heroBadge({ level: 'warn', loop: { state: 'paused' }, sensors: [posting] });
-    assert.equal(paused.text, '⏸️ en pausa');
+    assert.equal(paused.text, 'en pausa');
+    assert.equal(paused.icon, 'circle-pause');
     assert.equal(paused.state, 'stale');
 
     const down = heroBadge({ level: 'error', loop: { state: 'down' }, sensors: [posting] });
-    assert.equal(down.text, '❌ lazo caído');
+    assert.equal(down.text, 'lazo caído');
+    assert.equal(down.icon, 'circle-x');
 });
 
 test('the hero badge reports the sensor that controls, not the installation average', () => {
@@ -37,7 +39,7 @@ test('the hero badge reports the sensor that controls, not the installation aver
 
 test('the hero badge is green only when everything it depends on is', () => {
     const health = { level: 'ok', loop: { state: 'running' }, sensors: [posting] };
-    assert.equal(heroBadge(health).text, '✅ OK');
+    assert.deepEqual(heroBadge(health), { icon: 'circle-check', text: 'OK', state: 'ok' });
 });
 
 test('the hero badge stays green when what is broken is not its business', () => {
@@ -50,11 +52,11 @@ test('the hero badge stays green when what is broken is not its business', () =>
         history: { state: 'stalled', level: 'error' },
         sensors: [posting],
     };
-    assert.equal(heroBadge(health).text, '✅ OK');
+    assert.equal(heroBadge(health).state, 'ok');
 });
 
 test('the hero badge waits rather than guessing before the first answer', () => {
-    assert.equal(heroBadge(null).text, '⏳');
+    assert.equal(heroBadge(null).icon, 'hourglass');
     assert.equal(heroBadge(undefined).state, '');
 });
 
@@ -63,9 +65,10 @@ test('the section badge counts, so a sensor nobody configured still shows up', (
     // sensor y se olvida de configurarlo; "2 de 3" no.
     assert.equal(
         sensorsBadge([posting, posting, { controls: false, state: 'missing' }]).text,
-        '⚠️ 2 de 3 posteando',
+        '2 de 3 posteando',
     );
-    assert.equal(sensorsBadge([posting, posting]).text, '✅ 2 de 2 posteando');
+    assert.equal(sensorsBadge([posting, posting]).text, '2 de 2 posteando');
+    assert.equal(sensorsBadge([posting, posting]).icon, 'circle-check');
     assert.equal(sensorsBadge([{ state: 'missing' }]).state, 'error');
     assert.equal(sensorsBadge([]).text, 'sin sensores');
 });
@@ -73,7 +76,7 @@ test('the section badge counts, so a sensor nobody configured still shows up', (
 test('a sensor the drift monitor flagged still counts as posting', () => {
     // Postea, contesta y está equivocado: es un problema del valor, no del
     // enlace, y contarlo como caído mandaría a revisar el cable equivocado.
-    assert.equal(sensorsBadge([{ state: 'suspect' }]).text, '✅ 1 de 1 posteando');
+    assert.equal(sensorsBadge([{ state: 'suspect' }]).text, '1 de 1 posteando');
 });
 
 test('the WiFi signal is reported in words, not only in dBm', () => {

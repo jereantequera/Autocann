@@ -6,6 +6,28 @@
  * the parts.
  */
 
+/*
+ * Fonts, served from here. They came from Google Fonts, which made every page
+ * load wait on the internet - on a tent network that has none, the stylesheet
+ * request is what the page hangs on. Latin subset only: it covers Spanish.
+ * Both are variable fonts, so one file carries every weight the CSS asks for.
+ */
+@font-face {
+    font-family: 'Outfit';
+    font-style: normal;
+    font-weight: 300 700;
+    font-display: swap;
+    src: url('../vendor/fonts/outfit-latin.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('../vendor/fonts/jetbrains-mono-latin.woff2') format('woff2');
+}
+
 :root {
     --bg-primary: #0a0f0d;
     --bg-secondary: #111916;
@@ -63,6 +85,45 @@ body {
     padding: 16px 20px;
 }
 
+/* Icons: Lucide symbols from the sprite in partials/icons.svg. They take the
+   colour of the text they sit in and a size relative to it, so an icon inside
+   a red badge is red without anyone saying so. */
+.icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.icon {
+    width: 1.15em;
+    height: 1.15em;
+    flex-shrink: 0;
+    vertical-align: -0.2em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* A badge or a status line is icon + words; the gap is the badge's, not a
+   space character's, so it is the same width in every font. */
+.sensor-badge,
+.health-row-state,
+.drift-verdict,
+.sensor-flag,
+.sensor-card-role,
+.output-held,
+.calib-orphan,
+.score-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sensor-badge .icon { width: 1em; height: 1em; }
+
 /* Header */
 .header {
     display: flex;
@@ -87,8 +148,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    color: var(--bg-primary);
     box-shadow: var(--shadow-glow);
+}
+
+.logo-icon .icon {
+    width: 24px;
+    height: 24px;
 }
 
 .logo h1 {
@@ -171,7 +237,8 @@ body {
     50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); }
 }
 
-.sensor-alert-icon { font-size: 2em; }
+.sensor-alert-icon { display: flex; }
+.sensor-alert-icon .icon { width: 32px; height: 32px; }
 .sensor-alert-content { flex: 1; }
 .sensor-alert-title { font-weight: 600; font-size: 1.1em; margin-bottom: 4px; }
 .sensor-alert-message { opacity: 0.9; font-size: 0.95em; }
@@ -237,6 +304,9 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Some buttons are links - "Agregar riego" goes to a view - and an
+       underline on a filled green button reads as a broken style. */
+    text-decoration: none;
 }
 
 .btn-primary {
@@ -646,7 +716,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    color: var(--accent-green);
 }
 
 /* Summary Stats */
@@ -681,7 +751,7 @@ body {
 }
 
 .summary-card-title .icon {
-    font-size: 1.2em;
+    color: var(--accent-green);
 }
 
 .summary-avg {
@@ -1239,14 +1309,35 @@ body {
 }
 
 @media (max-width: 768px) {
+    /* Logo and the two controls on one row, the grow under them. Stacked and
+       centred, the header took a third of a phone screen before the first
+       reading. */
     .header {
-        flex-direction: column;
-        gap: 16px;
-        text-align: center;
+        gap: 12px;
     }
 
     .header-right {
-        flex-direction: column;
+        gap: 8px;
+    }
+
+    .logo {
+        gap: 10px;
+    }
+
+    .logo h1 {
+        font-size: 1.4em;
+    }
+
+    /* The subtitle of a section - which board drives the relays - takes its
+       own line rather than running under the badge beside it. */
+    .section-title {
+        flex-wrap: wrap;
+        row-gap: 2px;
+    }
+
+    .section-title .section-subtitle {
+        flex-basis: 100%;
+        padding-left: 42px;
     }
 
     .grow-bar {
@@ -1419,6 +1510,9 @@ body {
     gap: 8px;
 }
 
+.anomaly-item .anomaly-icon { color: var(--vpd-adjusting); }
+.anomaly-item.critical .anomaly-icon { color: var(--vpd-danger); }
+
 .anomaly-item {
     display: flex;
     align-items: center;
@@ -1548,9 +1642,12 @@ body {
 }
 
 .insight-icon {
-    font-size: 1.5em;
     margin-bottom: 8px;
 }
+
+.insight-icon .icon { width: 24px; height: 24px; }
+.insight-icon.good { color: var(--vpd-optimal); }
+.insight-icon.bad { color: var(--vpd-adjusting); }
 
 .insight-label {
     font-size: 0.8em;
@@ -2220,7 +2317,7 @@ body {
 }
 
 .nav-tab-icon {
-    font-size: 1.05em;
+    display: flex;
 }
 
 /* One view on screen at a time; the rest stay in the DOM so their charts and
@@ -2439,9 +2536,10 @@ body {
 
 .stop-mode-icon {
     flex: 0 0 auto;
-    font-size: 1.5em;
-    line-height: 1.2;
+    color: var(--accent-green);
 }
+
+.stop-mode-icon .icon { width: 26px; height: 26px; }
 
 .stop-mode-body {
     display: flex;
@@ -3109,6 +3207,9 @@ body {
 }
 
 .sys-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-size: 1.1em;
     font-weight: 600;
 }
@@ -3937,4 +4038,44 @@ body {
     margin-top: 20px;
     color: var(--text-muted);
     font-size: 0.85em;
+}
+
+.grow-item-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    color: var(--accent-green);
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+/* A section or chart title is icon + words, aligned on the icon's centre. */
+.chart-title,
+.hero-label,
+.report-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chart-title .icon,
+.report-section-title .icon {
+    color: var(--accent-green);
+}
+
+/* On a phone the watering button is its icon: the header has one row, and the
+   droplets are the same ones on the Riego tab it leads to. */
+@media (max-width: 520px) {
+    .header-cta-label {
+        display: none;
+    }
+
+    .header-cta {
+        padding: 10px 12px;
+    }
+
+    .system-state-action {
+        display: none;
+    }
 }

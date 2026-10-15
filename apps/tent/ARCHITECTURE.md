@@ -70,6 +70,13 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 
 - `autocann/web/static/js/`: 18 módulos ES, sin bundler.
 - `autocann/web/templates/`: `index.html` y `login.html`, más 16 parciales.
+- Íconos: [Lucide](https://lucide.dev) como sprite SVG incrustado en la página
+  (`templates/partials/icons.html`), con `icon()` en Jinja y en `util.js`. Nada
+  de emoji: la Raspberry no tiene fuente de emoji y se veían como cuadrados
+  vacíos. `make test` falla si vuelve uno o si se pide un ícono que no está en
+  el sprite.
+- Fuentes (Outfit, JetBrains Mono) servidas desde `static/vendor/fonts/`, igual
+  que Chart.js: la página no depende de internet para nada.
 - `tests/`: suite de pytest. La lógica de control no necesita hardware ni Redis.
   Los tests de JS corren con `node --test tests/js/` y también desde pytest.
 

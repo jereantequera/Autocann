@@ -10,7 +10,7 @@
 import { apiGet } from './api.js';
 import { updatePanelChart } from './charts.js';
 import { config } from './state.js';
-import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
+import { doseAmount, escapeHtml, fmtDose, iconText, lastWateringLabel, waterOnlyNote } from './util.js';
 
 /** Fixed, deliberately: a wall screen has nobody to pick a range on it. */
 const PANEL_HOURS = 24;
@@ -48,10 +48,10 @@ function stageName(stage) {
 
 /** What kind of week this is, in two words, for the section badge. */
 function planBadge(today) {
-    if (!today) return { text: '⏳', state: '' };
+    if (!today) return { icon: 'hourglass', text: '', state: '' };
 
     const waterOnly = waterOnlyNote(today.water_only);
-    if (waterOnly) return { text: waterOnly.badge, state: '' };
+    if (waterOnly) return { icon: waterOnly.icon, text: waterOnly.badge, state: '' };
 
     const count = (today.items || []).length;
     if (!count) return { text: 'plan vacío', state: 'stale' };
@@ -96,7 +96,7 @@ function renderFeedTile({ today, irrigations }) {
     const badge = el('panel-feed-badge');
     const plan = planBadge(today);
     badge.className = `sensor-badge ${plan.state}`.trim();
-    badge.textContent = plan.text;
+    badge.innerHTML = iconText(plan);
 
     // No log at all is not an alarm: it is a tent nobody has watered yet, and
     // the tile already says what to do about that.

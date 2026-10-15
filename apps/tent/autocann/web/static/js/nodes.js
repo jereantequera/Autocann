@@ -10,10 +10,12 @@
  */
 
 import { apiGet } from './api.js';
-import { escapeHtml, fmtNum, formatAge, formatDuration } from './util.js';
+import { escapeHtml, fmtNum, formatAge, formatDuration, icon } from './util.js';
 
-const LEVEL_ICONS = { ok: '✅', warn: '⚠️', error: '❌' };
-const LINE_LEVELS = { info: '·', warn: '⚠', error: '✖' };
+const LEVEL_ICONS = { ok: 'circle-check', warn: 'triangle-alert', error: 'circle-x' };
+// Text marks, not icons: the console is a column of monospace, and a glyph that
+// is one character wide keeps the lines aligned.
+const LINE_LEVELS = { info: '·', warn: '!', error: '×' };
 
 /** Qué nodo se está mirando; null hasta que el backend diga cuáles hay. */
 let selected = null;
@@ -72,7 +74,7 @@ function nodeSensorHtml(sensor) {
 }
 
 function nodeCardHtml(node) {
-    const icon = LEVEL_ICONS[node.level] || '⏳';
+    const levelIcon = icon(LEVEL_ICONS[node.level] || 'hourglass');
     const sensors = (node.sensors || []).map(nodeSensorHtml).join('');
 
     // Cada dato está acá porque contesta una pregunta concreta cuando algo
@@ -95,7 +97,7 @@ function nodeCardHtml(node) {
         <div class="sys-card node-card is-${escapeHtml(node.level || 'warn')}">
             <div class="node-card-head">
                 <span class="node-card-name">${escapeHtml(node.node)}</span>
-                <span class="sys-state ${node.level === 'ok' ? 'ok' : 'error'}">${icon} ${escapeHtml(node.label || '')}</span>
+                <span class="sys-state ${node.level === 'ok' ? 'ok' : 'error'}">${levelIcon}${escapeHtml(node.label || '')}</span>
             </div>
             <div class="sys-detail">${escapeHtml(node.detail || '')}</div>
             <div class="node-card-rows">
