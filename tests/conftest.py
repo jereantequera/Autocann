@@ -39,7 +39,7 @@ def client(monkeypatch, temp_db):
     import autocann.web.app as web
 
     fake = FakeRedis()
-    monkeypatch.setattr(web.redis, "Redis", lambda **kwargs: fake)
+    monkeypatch.setattr(web, "pooled_client", lambda *args, **kwargs: fake)
     app = web.create_app()
     app.config.update(TESTING=True)
     test_client = app.test_client()

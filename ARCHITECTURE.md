@@ -13,6 +13,9 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `autocann/config.py`: configuración (Redis + pines GPIO) con overrides por env vars.
 - `autocann/paths.py`: paths del proyecto (`data/`, `autocann/web/templates/`, etc).
 - `autocann/time.py`: timezone común.
+- `autocann/redis_pool.py`: el cliente de Redis de los procesos largos.
+  Pool con techo y socket con timeout: los defaults de redis-py no tienen
+  ninguno de los dos, y un backend que vive semanas los necesita.
 - `autocann/db.py`: capa de persistencia SQLite + API de “grows”.
 - `autocann/web/app.py`: Flask app + endpoints API.
 - `autocann/hardware/outputs.py`: definición de outputs (nombre/label/pin/redis_key)

@@ -1,5 +1,38 @@
 # Changelog
 
+## 3357 conexiones a Redis sin que nadie las pidiera
+
+El backend abría conexiones a Redis y no las devolvía nunca. Un proceso que
+llevaba diez horas sirviendo **una** pestaña del dashboard tenía 3357
+conexiones establecidas, todas ociosas, cada una con un solo `GET` encima.
+Redis acepta 10000 clientes: un tercio del servidor estaba reservado por un
+proceso que no estaba haciendo nada, y al llegar al límite Redis deja de
+aceptar a todos — incluido el lazo de control, que es el que mueve los relés.
+Lo primero que se notó fue la suite de tests colgada, porque cualquier cliente
+nuevo quedaba esperando para siempre.
+
+No era una fuga por request: 150 requests seguidos usan **una** conexión y la
+reciclan bien. El pool de redis-py crece hasta la concurrencia máxima que vio
+alguna vez y **no se achica nunca** — no tiene quién recoja las ociosas — y con
+el `max_connections` por defecto (`2**31`) no hay nada que lo pare. Así, cada
+ráfaga de concurrencia sube el escalón de forma permanente: un dashboard con
+pestañas de más, o un navegador reintentando un poll que falla, lo va subiendo
+de a uno y nada lo baja. Medido en una ráfaga de 250 requests: 100 conexiones
+que se quedaban abiertas para siempre; con el pool acotado, 25 y ahí quedan.
+
+La otra mitad era el socket sin timeout, y es la que duele. Cada lectura y cada
+escritura del lazo de control está envuelta en `try/except` justamente para que
+un Redis caído no pueda detener el control de la carpa — pero un socket sin
+timeout no levanta excepción, se bloquea, y un `except` al que nunca se llega no
+protege de nada. Un Redis que acepta la conexión y no contesta dejaba al lazo
+esperando con los relés sin supervisión, y al dashboard colgado en la única
+pregunta que tiene que contestar. Ahora levanta `TimeoutError` a los 3 s y el
+`except` que ya estaba escrito hace su trabajo.
+
+Todo en `autocann/redis_pool.py`, un solo lugar con los números y el motivo de
+cada uno, usado por el backend y por el lazo. Los clientes cortos de
+`check_system` y `compact_db` quedan como estaban: viven lo que dura un comando
+y ya fallaban rápido al conectar.
 ## La plántula es una etapa, no el día 1 de vegetativo
 
 El modelo arrancaba en `early_veg` y no tenía nada antes. Un cultivo cargado el

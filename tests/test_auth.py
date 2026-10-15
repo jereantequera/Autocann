@@ -20,7 +20,7 @@ def locked(monkeypatch, temp_db):
     from tests.conftest import FakeRedis
 
     fake = FakeRedis()
-    monkeypatch.setattr(web.redis, "Redis", lambda **kwargs: fake)
+    monkeypatch.setattr(web, "pooled_client", lambda *args, **kwargs: fake)
     monkeypatch.setenv("AUTOCANN_PIN", "4821")
     app = web.create_app()
     app.config.update(TESTING=True)
@@ -180,7 +180,7 @@ def test_changing_the_pin_ends_the_sessions_opened_with_the_old_one(monkeypatch,
     import autocann.web.app as web
     from tests.conftest import FakeRedis
 
-    monkeypatch.setattr(web.redis, "Redis", lambda **kwargs: FakeRedis())
+    monkeypatch.setattr(web, "pooled_client", lambda *args, **kwargs: FakeRedis())
     monkeypatch.setenv("AUTOCANN_PIN", "4821")
     first = web.create_app().test_client()
     first.post("/api/login", json={"pin": "4821"})
