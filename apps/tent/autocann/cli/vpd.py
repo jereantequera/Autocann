@@ -54,6 +54,7 @@ from autocann.control.humidity import (
 from autocann.control.quiet import blocked_actions, windows_from_dict
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, Calibration, SampleAccumulator
 from autocann.control.vpd_math import (
+    LEAF_TEMP_OFFSET_C,
     STAGES,
     calculate_vpd,
     humidity_range_bounds_for_stage,
@@ -93,8 +94,6 @@ QUIET_HOURS_SETTING = "quiet_hours"
 #: calling a reading fresh that the loop is refusing to act on is worse than
 #: either answer on its own.
 ESP32_MAX_AGE_SECONDS = INDOOR_SENSOR_MAX_AGE_SECONDS
-#: Leaves run cooler than the air; VPD is judged at leaf temperature.
-LEAF_TEMP_OFFSET_C = 1.5
 #: Expiry on the Redis keys the dashboard reads, so a dead loop stops looking alive.
 REDIS_KEY_TTL_SECONDS = 600
 #: Minimum gap between attempts to re-create failed sensor objects.

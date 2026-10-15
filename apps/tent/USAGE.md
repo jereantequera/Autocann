@@ -50,6 +50,7 @@ abajo; el resto se documenta acá y en el README.
 |---|---|
 | `GET /` | El dashboard |
 | `GET /api/config` | Etapas, rangos y salidas, para que el front no los duplique |
+| `GET /api/vpd-band` | La banda de humedad de una etapa, punto por punto, con la cuenta que usa el lazo |
 | `GET /api/current-data` | Estado actual de sensores y control, desde Redis |
 | `GET /api/health` | **¿Anda?** El veredicto único, con el motivo y qué mirar |
 | `GET /api/sensor-status` | Conectividad de los sensores |
@@ -99,6 +100,7 @@ abajo; el resto se documenta acá y en el README.
 | `GET /api/feeding/today` | La dosis que toca hoy, escalada a los litros que se mezclan |
 | `GET /api/irrigations` · `POST /api/irrigations` | Listar y registrar riegos |
 | `DELETE /api/irrigations/<id>` | Borrar un riego |
+| `GET /api/logbook` | El diario de la carpa: salidas, riegos y etapas, lo más nuevo primero |
 
 **Nodos y sesión**
 

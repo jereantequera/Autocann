@@ -169,6 +169,8 @@ http://<ip-de-tu-raspberry>:5000
 - `GET /api/vpd-score`, `GET /api/weekly-report`, `GET /api/anomalies` - Analítica
 - `GET /api/period-summary` - Resumen de un período para las tarjetas
 - `GET /api/config` - Etapas, rangos y salidas, para que el front no los duplique
+- `GET /api/vpd-band` - La banda de humedad de una etapa por temperatura, con la misma cuenta que el lazo
+- `GET /api/logbook` - El diario de la carpa: salidas, riegos y cambios de etapa, lo más nuevo primero
 - `GET`/`POST /api/calibration` - Offsets por sensor, reversibles
 - `GET`/`PUT /api/quiet-hours` - Las franjas de silencio por salida
 - `GET`/`POST /api/grows`, `GET /api/grows/active`,
