@@ -70,7 +70,7 @@ const chartDefaults = {
     }
 };
 
-let tempHumidityChart, vpdChart, comparisonChart, panelChart;
+let tempHumidityChart, vpdChart, comparisonChart;
 
 /** What is currently plotted, so markers can be placed on the same axis. */
 let lastPlotted = { labels: [], timestamps: [] };
@@ -306,124 +306,6 @@ function initCharts() {
             }
         }
     });
-
-    initPanelChart();
-}
-
-/**
- * The panel's fixed 24-hour chart.
- *
- * Separate from the three in Estadísticas, and on purpose: those follow the
- * range selector, and the screen on the tent wall has nobody to set a range on
- * it. Temperature against humidity against the target is the control story —
- * VPD has its own gauge in the cards above, and its own chart next door.
- */
-function initPanelChart() {
-    const canvas = document.getElementById('panelChart');
-    if (!canvas) return;
-
-    panelChart = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                {
-                    label: 'Temperatura (°C)',
-                    data: [],
-                    borderColor: chartColors.temp.border,
-                    backgroundColor: chartColors.temp.bg,
-                    borderWidth: 2,
-                    tension: 0.4,
-                    fill: true,
-                    yAxisID: 'y',
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                },
-                {
-                    label: 'Humedad (%)',
-                    data: [],
-                    borderColor: chartColors.humidity.border,
-                    backgroundColor: chartColors.humidity.bg,
-                    borderWidth: 2,
-                    tension: 0.4,
-                    fill: true,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                },
-                {
-                    label: 'Objetivo (%)',
-                    data: [],
-                    borderColor: chartColors.targetHumidity.border,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2,
-                    borderDash: [5, 5],
-                    tension: 0.4,
-                    fill: false,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                    pointHoverRadius: 4,
-                },
-            ],
-        },
-        options: {
-            ...chartDefaults,
-            plugins: {
-                ...chartDefaults.plugins,
-                legend: {
-                    ...chartDefaults.plugins.legend,
-                    labels: { ...chartDefaults.plugins.legend.labels, padding: 10, boxWidth: 8 },
-                },
-            },
-            scales: {
-                x: {
-                    ...chartDefaults.scales.x,
-                    // Hourly points over a day is 24 ticks in a short strip;
-                    // every third keeps the axis readable across the room.
-                    ticks: { ...chartDefaults.scales.x.ticks, maxRotation: 0, autoSkip: true,
-                             maxTicksLimit: 8 },
-                },
-                y: {
-                    type: 'linear',
-                    position: 'left',
-                    grid: { color: 'rgba(36, 48, 40, 0.5)' },
-                    ticks: { color: '#5a6b5f', font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '°C', color: '#5a6b5f' },
-                },
-                y1: {
-                    type: 'linear',
-                    position: 'right',
-                    min: 0,
-                    max: 100,
-                    grid: { drawOnChartArea: false },
-                    ticks: { color: '#5a6b5f', font: { size: 11, family: 'JetBrains Mono' } },
-                    title: { display: true, text: '%', color: '#5a6b5f' },
-                },
-            },
-        },
-    });
-}
-
-/**
- * @param {Array} rows  hourly rows from /api/history/aggregated
- */
-function updatePanelChart(rows) {
-    if (!panelChart) return;
-
-    const sorted = [...(rows || [])].sort(
-        (a, b) => parseLocalDatetime(a.datetime) - parseLocalDatetime(b.datetime));
-
-    // The hour alone: the window is fixed at a day, so the date adds nothing
-    // and costs the axis half its room. The rows are hourly averages, so the
-    // minutes are always :00 and saying so is honest.
-    panelChart.data.labels = sorted.map(row => {
-        const date = parseLocalDatetime(row.datetime);
-        return isNaN(date.getTime()) ? '' : `${String(date.getHours()).padStart(2, '0')}:00`;
-    });
-    panelChart.data.datasets[0].data = sorted.map(row => row.temperature);
-    panelChart.data.datasets[1].data = sorted.map(row => row.humidity);
-    panelChart.data.datasets[2].data = sorted.map(row => row.target_humidity ?? null);
-    panelChart.update();
 }
 
 /**
@@ -433,7 +315,7 @@ function updatePanelChart(rows) {
  * only notices once something tells it to look again.
  */
 function resizeCharts() {
-    [tempHumidityChart, vpdChart, comparisonChart, panelChart]
+    [tempHumidityChart, vpdChart, comparisonChart]
         .filter(Boolean)
         .forEach(chart => chart.resize());
 }
@@ -591,6 +473,6 @@ function renderStageMarkers(timeline, labels = lastPlotted.labels,
 }
 
 export {
-    initCharts, updateHistoricalCharts, updatePanelChart, resizeCharts, getVpdChart,
+    initCharts, updateHistoricalCharts, resizeCharts, getVpdChart,
     renderStageMarkers, setChartEmpty,
 };

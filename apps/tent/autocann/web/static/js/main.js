@@ -17,6 +17,7 @@ import {
     showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
 import { closeModal, initModals } from './modals.js';
+import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
 import { wireSidebar } from './sidebar.js';
@@ -50,6 +51,9 @@ const POLLERS = [
     // resume, acá. Las dos salen de esta misma respuesta.
     { fn: fetchHealth, every: 10000, views: ['panel', 'sistema'] },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
+    // The bitácora is a week of entries that change a few times a day: a
+    // minute is plenty, and the tab also fetches when it is opened.
+    { fn: fetchLogbook, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000, views: ['stats'] },
     { fn: fetchVpdScore, every: 5 * 60 * 1000, views: ['stats'] },

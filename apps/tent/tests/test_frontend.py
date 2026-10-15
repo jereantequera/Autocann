@@ -23,6 +23,10 @@ JS_TEST_DIR = Path(__file__).parent / "js"
 #: The two modules the control-mode tests read as text.
 VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
 APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
+#: Partials kept on disk on purpose with no page including them yet. The
+#: Exterior card left the panel and comes back in Estadísticas; this list is
+#: what stops the exception from growing without anybody deciding it.
+PENDING_PARTIALS = {"partials/outdoor.html"}
 
 
 def _strip_js_comments(source: str) -> str:
@@ -228,7 +232,7 @@ def test_every_template_is_reachable_from_a_page():
     on_disk = {
         str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
     }
-    assert on_disk - reachable == set()
+    assert on_disk - reachable - PENDING_PARTIALS == set()
 
 
 def test_every_entry_point_is_actually_served():
@@ -240,20 +244,21 @@ def test_every_entry_point_is_actually_served():
     for entry in ENTRY_POINTS:
         assert entry in app_py or entry in auth_py, entry
 
-def test_the_humidity_card_cannot_render_a_difference_without_readings():
+
+def test_the_humidity_readout_cannot_render_a_difference_without_readings():
     """
     /api/current-data answers 404 with a JSON body, and apiGet only raises on
-    5xx, so the dashboard renders that body with every field `undefined`. The
-    guard was `humidity !== null`, which `undefined` passes, and the card
-    announced "NaN% por encima". The comparison now lives in a pure helper that
-    tests/js/ exercises with an empty payload.
+    5xx, so the dashboard renders that body with every field `undefined`. A
+    guard written `humidity !== null` lets `undefined` through, and the readout
+    announced "NaN% por encima". The difference now lives in renderReadouts,
+    which checks the reading itself before it compares anything.
     """
     dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
-    match = re.search(r"function updateHumidityBar\(.*?\n\}", dashboard, re.S)
-    assert match, "updateHumidityBar desapareció de dashboard.js"
+    match = re.search(r"function renderReadouts\(.*?\n\}", dashboard, re.S)
+    assert match, "renderReadouts desapareció de dashboard.js"
     body = match.group(0)
 
-    assert "humidityDiffLabel(humidity, targetHumidity)" in body
+    assert "humidityOk &&" in body
     assert "humidity - targetHumidity" not in body
     # `undefined !== null` is true, which is how the NaN got on screen.
     assert "!== null" not in body
@@ -654,48 +659,41 @@ def test_the_pause_is_announced_in_exactly_one_place():
     assert ".pause-bar" not in (STATIC_DIR / "css" / "app.css").read_text()
 
 
-def test_the_panel_answers_its_three_questions_in_order():
+
+def test_the_panel_answers_its_questions_in_order():
     """
-    The panel is the screen somebody reads standing in the tent, and it is read
-    for three things in this order: cómo está el ambiente, qué relés están
-    prendidos, con qué hay que regar hoy. They are three bands top to bottom so
-    that each is found by looking at one part of the screen - the readings and
-    the relays used to be in two columns with six diagnostic cards between them,
-    and the watering plan was not on this screen at all.
+    The Ahora tab is read for three things, in this order: how the tent is
+    (the two readings), which relays are on, and what to pour today. They are
+    bands top to bottom, so each is found by looking at one part of the tab.
+    The status line and the chart sit beside them, not in front of them.
     """
     panel = (TEMPLATES_DIR / "views" / "panel.html").read_text()
+    readings = panel.index('class="ac-readout-row"')
     order = [panel.index(f'{{% include "partials/{name}.html" %}}')
-             for name in ("hero", "outputs", "today-feed")]
-    assert order == sorted(order), "el orden de las tres bandas del panel cambió"
+             for name in ("outputs", "today-feed")]
+    assert readings < order[0] < order[1], "el orden de las bandas del panel cambió"
+    assert 'include "partials/hero.html"' not in panel
 
-    # Ambiente is one band: the outside air is read in the same glance as the
-    # inside, not two sections down the right-hand column.
-    assert 'include "partials/outdoor.html"' in (
-        TEMPLATES_DIR / "partials" / "hero.html").read_text()
 
 
 def test_the_sensor_diagnostics_are_not_on_the_panel():
     """
     Six cards of raw readings, roles, ages and drift verdicts were taking half
-    of the screen that exists to be read from across the room, restating in
-    small type the numbers the Ambiente band shows in large. They belong next
-    to the calibration, the connectivity and the node log.
+    of the screen that exists to be read from across the room. They belong next
+    to the calibration, the connectivity and the node log, in Sistema.
 
-    What the panel keeps is the one line that says whether to believe the rest
-    of it, computed from the same /api/health response - so the strip and the
-    cards cannot say different things about the same sensor.
+    The panel no longer has a sensors row either: its status line says whether
+    to believe the readings, and it reads the loop from the same /api/health
+    response the Sistema cards use, so the two cannot disagree.
     """
     assert 'include "partials/sensors.html"' in (
         TEMPLATES_DIR / "views" / "system.html").read_text()
-    assert "sensors.html" not in (TEMPLATES_DIR / "views" / "panel.html").read_text()
-
-    assert 'include "partials/health-strip.html"' in (
-        TEMPLATES_DIR / "views" / "panel.html").read_text()
-    assert 'id="health-sensors-state"' in (
-        TEMPLATES_DIR / "partials" / "health-strip.html").read_text()
+    panel = (TEMPLATES_DIR / "views" / "panel.html").read_text()
+    assert "sensors.html" not in panel
+    assert "health-strip" not in panel
 
     health = _strip_js_comments((JS_DIR / "health.js").read_text())
-    assert "health-sensors-state" in health
+    assert "health-sensors-state" not in health
     assert "sensorsBadge(health.sensors)" in health
 
     # And the poller that feeds both has to run on both views, or whichever one
@@ -1100,10 +1098,33 @@ def test_the_page_loads_behind_one_skeleton_and_always_comes_out_of_it():
     assert ".is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert)" in css
 
 
+
 def test_a_chart_with_nothing_to_plot_says_so():
     """An empty grid with axes from 0 to 1 reads as a broken chart, not as no data."""
     charts = _strip_js_comments((JS_DIR / "charts.js").read_text())
     panel = _strip_js_comments((JS_DIR / "panel.js").read_text())
-    assert "setChartEmpty" in charts and "setChartEmpty('panelChart'" in panel
+    vpd = _strip_js_comments((JS_DIR / "vpdchart.js").read_text())
+    # Estadísticas still has charts that can be empty.
+    assert "setChartEmpty" in charts
+    # The panel's chart has no grid to be empty with: without a reading it
+    # draws the band and says so, instead of a dot at a made-up place.
+    assert "Sin lectura actual" in vpd
+    assert "setChartEmpty" not in panel
     css = (STATIC_DIR / "css" / "app.css").read_text()
     assert ".chart-wrapper.is-empty::after" in css
+
+
+def test_the_sidebar_tent_holds_no_space_for_a_hidden_progress_bar():
+    """
+    The progress block is `hidden` when a stage has no expected length, but a
+    `display: flex` rule beats the attribute, and in the tent's column layout
+    its flex-basis was a 140 px height: an empty gap between the stage line and
+    "día N de ~M". The rule that displays it has to yield to `hidden`.
+    """
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".ac-sidebar .stage-progress[hidden] {" in css
+    block = re.search(r"\.ac-sidebar \.stage-progress \{(.*?)\}", css, re.S)
+    assert block, "la regla de .stage-progress desapareció"
+    assert "flex: none" in block.group(1)
+    assert "140px" not in block.group(1)
+

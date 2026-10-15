@@ -2330,13 +2330,24 @@ body {
     color: var(--vpd-adjusting);
 }
 
+/* The tent block is a column, so the global `flex: 0 1 140px` on the progress
+   block is a 140 px HEIGHT here, and its `flex: 1` bar fills it: that was the
+   empty gap between the stage line and "día N de ~M". Its `display: flex` also
+   beat the `hidden` attribute, so an unshown bar still held the space. */
 .ac-sidebar .stage-progress {
     display: flex;
+    flex: none;
+    min-width: 0;
     flex-direction: column;
     gap: 0;
 }
 
+.ac-sidebar .stage-progress[hidden] {
+    display: none;
+}
+
 .ac-sidebar .stage-progress-bar {
+    flex: none;
     height: 3px;
 }
 
@@ -4253,12 +4264,16 @@ body {
         .output-state, .output-name, .panel-feed-value, .panel-feed-label,
         .grow-name, .grow-stage, .grow-day, .last-update, .system-state-text,
         .section-subtitle, .vpd-score-value, .insight-value, .report-stat-value,
-        .feed-week, .humidity-target, .panel-feed-litres),
+        .feed-week, .humidity-target, .panel-feed-litres,
+        .ac-status__title, .ac-status__text, .ac-readout__value, .ac-readout__sub,
+        .ac-output__state, .panel-water__title, .panel-water__doses),
 .view.is-loading :is(.hero-value, .metric-value, .summary-avg,
         .summary-stat-value, .sensor-badge, .health-row-state, .output-state,
         .output-name, .vpd-score-value, .vpd-score-range, .insight-value,
         .insight-score, .report-stat-value, .report-trend, .feed-week,
-        .cal-month, .sys-state) {
+        .cal-month, .sys-state,
+        .ac-status__title, .ac-status__text, .ac-readout__value, .ac-readout__sub,
+        .ac-output__state, .panel-water__title, .panel-water__doses) {
     color: transparent !important;
     background: var(--skeleton) !important;
     border-color: transparent !important;
@@ -4282,9 +4297,28 @@ body {
     min-height: 1.4em;
 }
 
-.is-booting .hero-value,
-.view.is-loading .hero-value {
+.is-booting :is(.hero-value, .ac-readout__value),
+.view.is-loading :is(.hero-value, .ac-readout__value) {
     width: 60%;
+}
+
+/* The VPD chart and the bitácora are one block each while they wait: the
+   figure keeps its size, so nothing moves when the plot lands. */
+.is-booting :is(.panel-vpd, .panel-logbook),
+.view.is-loading :is(.panel-vpd, .panel-logbook) {
+    background: var(--skeleton);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.is-booting :is(.panel-vpd, .panel-logbook) > *,
+.view.is-loading :is(.panel-vpd, .panel-logbook) > * {
+    visibility: hidden;
+}
+
+.is-booting .panel-vpd,
+.view.is-loading .panel-vpd {
+    min-height: 320px;
 }
 
 /* A chart that has not been drawn yet is one block, not an empty grid with
@@ -4389,4 +4423,240 @@ body:not(.is-booting) .view.is-active:not(.is-loading) {
     .btn-mini {
         padding-inline: 14px;
     }
+}
+
+/* PANEL (A2) */
+
+/* The panel's layout on top of the design-system classes (components.css):
+   status and chart on the left, readings / relays / water or the log on the
+   right. Only design tokens here, no literal colours. */
+
+.panel-a2 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: var(--space-12);
+    align-items: start;
+}
+
+.panel-a2__main,
+.panel-a2__side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-width: 0;
+}
+
+/* The design-system components set `display` on their own classes, and
+   `display: flex` beats the `hidden` attribute, so the tooltip and the tabs
+   stayed on screen after they were hidden. */
+.panel-a2 [hidden] {
+    display: none !important;
+}
+
+/* A readout's unit stays on its number: "55,0 %" never breaks across lines. */
+.panel-a2 .ac-readout__value {
+    white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+    .panel-a2 {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-8);
+    }
+}
+
+/* ---------- VPD chart ---------- */
+
+.panel-vpd {
+    position: relative;
+    margin: 0;
+}
+
+.panel-vpd__plot svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* The band's labels sit just past the last grid line, in the margin the
+       viewBox leaves for the axes; they must not be cut at its edge. */
+    overflow: visible;
+}
+
+/* The dot's hit area is bigger than the dot, so it is easy to land on with a
+   finger and on the tablet on the tent wall. */
+.panel-vpd__point {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: transparent;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+}
+
+/* Beside the dot, on the side with room for it (renderVpdChart sets --tip-*). */
+.panel-vpd__tip {
+    position: absolute;
+    z-index: 2;
+    left: calc(var(--tip-x, 50%) + 24px);
+    top: calc(var(--tip-y, 50%) - 60px);
+    width: 226px;
+    box-sizing: border-box;
+}
+
+.panel-vpd__tip.is-left {
+    left: calc(var(--tip-x, 50%) - 250px);
+}
+
+.panel-vpd__tip .ac-tooltip__val.is-warn {
+    color: var(--state-warn);
+}
+
+.panel-vpd__close {
+    display: none;
+    margin-top: var(--space-2);
+}
+
+/* On a phone the tooltip is a sheet above the bottom bar, not a box that
+   might be cut off by the edge of the screen. */
+@media (max-width: 768px) {
+    .panel-vpd__tip,
+    .panel-vpd__tip.is-left {
+        position: fixed;
+        top: auto;
+        left: var(--space-4);
+        right: var(--space-4);
+        bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+        width: auto;
+        box-shadow: var(--shadow-overlay);
+    }
+
+    .panel-vpd__close {
+        display: flex;
+    }
+
+    /* Two readouts share a 390 px screen: at the desktop size the humidity
+       would not fit beside the temperature. */
+    .panel-a2 .ac-readout__value {
+        font-size: 40px;
+    }
+}
+
+/* ---------- Ahora ---------- */
+
+.panel-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.panel-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-6) 0 var(--space-2);
+}
+
+.panel-outputs {
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-manual {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--hairline-faint);
+}
+
+.panel-manual__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.panel-manual__row .ac-output__name {
+    flex: 1 1 auto;
+}
+
+.panel-manual__buttons {
+    display: flex;
+    gap: var(--space-2);
+}
+
+/* The button for what the relay is asked to do, pressed. */
+.panel-manual__buttons .ac-btn[aria-pressed="true"] {
+    background: var(--fill-inverse);
+    color: var(--fg-inverse);
+    font-weight: 600;
+}
+
+.panel-manual__held {
+    flex-basis: 100%;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-subtle);
+}
+
+/* Riego de hoy: the watering strip, with the one action on it. */
+.panel-water {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-6);
+    padding: var(--space-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+}
+
+.panel-water__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.panel-water__title {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--fg);
+}
+
+/* One mono line of doses; it is read at a glance, so it does not wrap on a
+   desktop. On a phone it may wrap, rather than hide a dose. */
+.panel-water__doses {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .panel-water__doses {
+        white-space: normal;
+    }
+}
+
+/* ---------- Bitácora ---------- */
+
+.panel-logbook__filters {
+    align-self: flex-start;
+}
+
+.panel-logbook {
+    min-height: 0;
 }

@@ -1,134 +1,90 @@
 /**
- * The 24/7 panel's own pieces.
+ * The panel's own pieces: the status line, the watering strip, the two tabs,
+ * and the hourly history that feeds the VPD chart's trail.
  *
  * They exist because the panel must not depend on anything selected somewhere
  * else: its history is fixed at 24 hours rather than reading the range selector
- * that now lives in Estadísticas, and the watering tile reads the plan the
+ * that lives in Estadísticas, and the watering strip renders the plan the
  * feeding module already fetched.
  */
 
 import { apiGet } from './api.js';
-import { setChartEmpty, updatePanelChart } from './charts.js';
+import { latestHealth } from './health.js';
+import { fetchLogbook, wireLogbook } from './logbook.js';
 import { config } from './state.js';
-import { doseAmount, escapeHtml, fmtDose, iconText, lastWateringLabel, waterOnlyNote } from './util.js';
+import { panelStatus } from './status.js';
+import { setVpdCurrent, setVpdTrail, wireVpdChart } from './vpdchart.js';
+import { doseAmount, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
 
-/** Fixed, deliberately: a wall screen has nobody to pick a range on it. */
-const PANEL_HOURS = 24;
+const TABS = ['ahora', 'bitacora'];
 
-function fetchPanelHistory() {
-    apiGet(`/api/history/aggregated?days=1&interval=hourly`, { key: 'panel-history' })
-        .then(data => {
-            if (!data || !data.data) return;
-            updatePanelChart(data.data);
-            setChartEmpty('panelChart', data.data.length
-                ? null : 'Todavía no hay muestras de las últimas 24 horas');
-            const note = document.getElementById('panel-chart-note');
-            if (note) {
-                note.textContent = data.data.length
-                    ? `${data.data.length} h de promedios horarios`
-                    : 'sin datos en las últimas 24 h';
-            }
-        });
-}
+/** The dot's colour for each status level, from components.css. */
+const LEVEL_DOT = { ok: 'ac-dot--ok', warn: 'ac-dot--warn', alert: 'ac-dot--alert', idle: 'ac-dot--idle' };
 
-// ---------------------------------------------------------------------------
-// Riego de hoy
-// ---------------------------------------------------------------------------
-// One of the three questions the panel exists to answer, and the only one that
-// used to need a second tab. It renders the payload the feeding module already
-// has rather than fetching its own, so the tile and the Riego view cannot show
-// two different plans - which is exactly how the previous version of this tile
-// earned being deleted.
+/** What the status line is judged on. Each event updates one part of it. */
+const latest = { current: null, outputs: [], testMode: null };
 
 function el(id) {
     return document.getElementById(id);
 }
 
-function stageName(stage) {
-    return config.stageNames[stage] || stage || '--';
+// ---------------------------------------------------------------------------
+// Estado: the one sentence at the top of the left column
+// ---------------------------------------------------------------------------
+// Re-judged on any of the three things it depends on - the reading, the relays
+// and the control loop's health - because each can change the verdict alone.
+
+function renderStatus() {
+    const dot = el('panel-status-dot');
+    const title = el('panel-status-title');
+    const text = el('panel-status-text');
+    if (!dot || !title || !text) return;
+
+    const status = panelStatus(latest.current, latestHealth(), latest.testMode,
+        latest.outputs, config.stageNames);
+    dot.className = `ac-dot ac-dot--lg ${LEVEL_DOT[status.level] || LEVEL_DOT.idle}`;
+    title.textContent = status.title;
+    text.textContent = status.text;
 }
 
-/** What kind of week this is, in two words, for the section badge. */
-function planBadge(today) {
-    if (!today) return { icon: 'hourglass', text: '', state: '' };
+// ---------------------------------------------------------------------------
+// Riego de hoy
+// ---------------------------------------------------------------------------
+// It renders the payload the feeding module already has rather than fetching
+// its own, so the strip and the Riego view cannot show two different plans.
 
-    const waterOnly = waterOnlyNote(today.water_only);
-    if (waterOnly) return { icon: waterOnly.icon, text: waterOnly.badge, state: '' };
-
-    const count = (today.items || []).length;
-    if (!count) return { text: 'plan vacío', state: 'stale' };
-    return { text: `${count} ${count === 1 ? 'producto' : 'productos'}`, state: 'ok' };
+/** "Grow", not "pH Perfect Grow": the name on the jug is not what the eye needs. */
+function shortProductName(name) {
+    return String(name || '').replace(/^pH Perfect\s+/i, '');
 }
 
-/**
- * One row per product: name, what to pour, and the dose it came from.
- *
- * The amount is the middle column and the only one set in the monospace,
- * because it is the number that gets measured into the jug; the per-litre dose
- * is kept beside it so a different volume can be worked out by hand without
- * opening the plan.
- */
-function dosesHtml(today) {
-    if (!today) return '<div class="loading">Cargando plan</div>';
-
+function dosesLine(today) {
+    if (!today) return 'Cargando plan';
     const waterOnly = waterOnlyNote(today.water_only);
-    if (waterOnly) {
-        return `<div class="panel-feed-note">${escapeHtml(waterOnly.text)}</div>`;
-    }
-    if (!(today.items || []).length) {
-        return `
-            <div class="panel-feed-note">
-                No hay nada cargado en el plan para esta semana.
-                Completá la grilla en Riego → Plan.
-            </div>`;
-    }
-
-    return today.items.map(item => `
-        <div class="panel-feed-dose">
-            <span class="panel-feed-dose-name">${escapeHtml(item.name)}</span>
-            <span class="panel-feed-dose-total">${escapeHtml(doseAmount(item, today.litres))}</span>
-            <span class="panel-feed-dose-rate">${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}</span>
-        </div>`).join('');
+    if (waterOnly) return waterOnly.text;
+    if (!(today.items || []).length) return 'No hay nada cargado en el plan para esta semana.';
+    return today.items
+        .map(item => `${shortProductName(item.name)} ${doseAmount(item, today.litres)}`)
+        .join(' · ');
 }
 
 function renderFeedTile({ today, irrigations }) {
-    const tile = el('panel-feed');
-    if (!tile) return;
+    const title = el('panel-feed-title');
+    if (!title) return;
 
-    const badge = el('panel-feed-badge');
-    const plan = planBadge(today);
-    badge.className = `sensor-badge ${plan.state}`.trim();
-    badge.innerHTML = iconText(plan);
+    // The volume the doses were scaled against, so the title and the line
+    // below are read as one instruction: "10 L, y en esos 10 L va esto".
+    const litres = Number.isFinite(today?.litres) ? `${fmtDose(today.litres)} L` : '--';
+    title.textContent = `Riego de hoy · ${litres}`;
+    el('panel-feed-doses').textContent = dosesLine(today);
 
-    // No log at all is not an alarm: it is a tent nobody has watered yet, and
-    // the tile already says what to do about that.
     const since = lastWateringLabel((irrigations || [])[0]?.date);
-    tile.classList.toggle('is-stale', !!since?.stale);
-    el('panel-feed-since').textContent = since ? since.text : 'Sin riegos';
-
-    el('panel-feed-week').textContent = today
-        ? (today.week
-            ? `${stageName(today.stage)} · semana ${today.week} de ${today.weeks_in_stage}`
-            : stageName(today.stage))
-        : '--';
-
-    // The volume the doses below were scaled against, so the two are read as
-    // one instruction: "10 L, y en esos 10 L va esto".
-    el('panel-feed-litres').textContent = Number.isFinite(today?.litres)
-        ? fmtDose(today.litres) : '--';
-
-    el('panel-feed-doses').innerHTML = dosesHtml(today);
+    el('panel-feed-since').textContent = since ? `Último riego · ${since.text}` : 'Sin riegos';
 }
 
-// ---------------------------------------------------------------------------
-// The watering CTA
-// ---------------------------------------------------------------------------
-// The part that is a prompt to act - that it has been a while - hung on the
-// button in the header, and only when it has. The tile above says how long on
-// every view of the panel; this is what carries that onto the other five.
-
+/** The sidebar's Agregar riego badge: how long since the last watering. */
 function renderFeedBadge({ irrigations }) {
-    const badge = document.getElementById('feed-cta-badge');
+    const badge = el('feed-cta-badge');
     if (!badge) return;
 
     const since = lastWateringLabel((irrigations || [])[0]?.date);
@@ -142,12 +98,88 @@ function renderFeedBadge({ irrigations }) {
     badge.title = `Último riego: ${irrigations[0].date}`;
 }
 
+// ---------------------------------------------------------------------------
+// Tabs: Ahora | Bitácora. Kept in memory only, not in the URL.
+// ---------------------------------------------------------------------------
+
+function selectTab(name, { focus = false } = {}) {
+    for (const tab of TABS) {
+        const button = el(`panel-tab-${tab}`);
+        const pane = el(`panel-${tab}`);
+        if (!button || !pane) continue;
+
+        const on = tab === name;
+        button.setAttribute('aria-selected', String(on));
+        // Roving tabindex: Tab enters the tablist once, and the arrows move on.
+        button.tabIndex = on ? 0 : -1;
+        pane.hidden = !on;
+        if (on && focus) button.focus();
+    }
+    // The log is fetched when it is looked at, not only on the poll.
+    if (name === 'bitacora') fetchLogbook();
+}
+
+function wireTabs() {
+    const list = el('panel-tabs');
+    if (!list) return;
+
+    list.addEventListener('click', event => {
+        const tab = event.target.closest('[data-panel-tab]');
+        if (tab) selectTab(tab.dataset.panelTab);
+    });
+
+    list.addEventListener('keydown', event => {
+        const index = TABS.findIndex(name => el(`panel-tab-${name}`)?.getAttribute('aria-selected') === 'true');
+        const last = TABS.length - 1;
+        const next = {
+            ArrowRight: (index + 1) % TABS.length,
+            ArrowLeft: (index - 1 + TABS.length) % TABS.length,
+            Home: 0,
+            End: last,
+        }[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        selectTab(TABS[next], { focus: true });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// History: the trail behind the VPD dot
+// ---------------------------------------------------------------------------
+
+/** Fixed at a day, deliberately: a wall screen has nobody to pick a range on it. */
+function fetchPanelHistory() {
+    apiGet('/api/history/aggregated?days=1&interval=hourly', { key: 'panel-history' })
+        .then(data => {
+            if (data && Array.isArray(data.data)) setVpdTrail(data.data);
+        });
+}
+
 function wirePanel() {
     document.addEventListener('feeding:updated', event => {
         const detail = event.detail || {};
         renderFeedBadge(detail);
         renderFeedTile(detail);
     });
+
+    document.addEventListener('current:updated', event => {
+        latest.current = event.detail || null;
+        renderStatus();
+        setVpdCurrent(latest.current);
+    });
+
+    document.addEventListener('outputs:updated', event => {
+        latest.outputs = event.detail?.outputs || [];
+        latest.testMode = event.detail?.test_mode || null;
+        renderStatus();
+    });
+
+    document.addEventListener('health:updated', renderStatus);
+
+    wireVpdChart();
+    wireTabs();
+    wireLogbook();
+    selectTab('ahora');
 }
 
-export { PANEL_HOURS, fetchPanelHistory, wirePanel };
+export { fetchPanelHistory, wirePanel };

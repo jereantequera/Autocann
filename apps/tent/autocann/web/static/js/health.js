@@ -55,12 +55,6 @@ const SENSOR_STATES = {
     missing: { icon: 'circle-x', css: 'is-missing', badge: 'error' },
 };
 
-// `monitor` is its own icon, not the pause's: the two are different answers to
-// "¿por qué no está controlando?" and the strip is the one line on the panel
-// that says which.
-const LOOP_ICONS = { running: 'circle-check', monitor: 'scan-eye', paused: 'circle-pause', down: 'circle-x' };
-const HISTORY_ICONS = { writing: 'circle-check', paused: 'circle-pause', stalled: 'circle-x', empty: 'hourglass' };
-
 /** El último estado conocido, para que otros módulos no vuelvan a pedirlo. */
 let snapshot = null;
 
@@ -69,38 +63,6 @@ const latestHealth = () => snapshot;
 // ===============================
 // Helpers puros
 // ===============================
-
-/**
- * El badge del hero, que está sobre la tarjeta de VPD.
- *
- * Reporta lo que esa tarjeta puede mostrar, no sólo si el sensor contesta. Con
- * el lazo en pausa no hay VPD que mostrar, y un "OK" en verde al lado de un "--" es
- * exactamente la contradicción que hizo falta arreglar.
- *
- * @returns {{icon: string, text: string, state: string}}
- */
-function heroBadge(health) {
-    if (!health) return { icon: 'hourglass', text: '', state: '' };
-
-    const loop = health.loop || {};
-    if (loop.state === 'down') return { icon: 'circle-x', text: 'lazo caído', state: 'error' };
-    if (loop.state === 'paused') return { icon: 'circle-pause', text: 'en pausa', state: 'stale' };
-    // Monitoring says the same thing this badge is for - there is no VPD on
-    // this card because nothing is aiming at one - and says which of the two
-    // reasons it is, so the card is not read as broken.
-    if (loop.state === 'monitor') return { icon: 'scan-eye', text: 'monitoreo', state: 'stale' };
-
-    // Sólo el lazo y el sensor que controla: son los dos de los que depende el
-    // número que esta tarjeta muestra. Un hueco en el histórico es un problema
-    // real y no es de esta tarjeta, y pintarla de rojo por eso es volver a lo
-    // de antes al revés — un badge que no se corresponde con lo que tiene al lado.
-    const primary = (health.sensors || []).find(sensor => sensor.controls);
-    if (!primary) return { icon: 'triangle-alert', text: 'sin primario', state: 'stale' };
-    if (primary.state === 'missing') return { icon: 'circle-x', text: 'sin sensor', state: 'error' };
-    if (primary.state === 'stale') return { icon: 'circle-x', text: 'sin datos', state: 'error' };
-    if (primary.state === 'suspect') return { icon: 'triangle-alert', text: 'revisar', state: 'stale' };
-    return { icon: 'circle-check', text: 'OK', state: 'ok' };
-}
 
 /**
  * El badge de la sección: cuántos sensores están posteando, de cuántos.
@@ -220,17 +182,6 @@ function setBadge(id, badge) {
     el.innerHTML = iconText(badge);
 }
 
-function renderRow(prefix, verdict, icons) {
-    const row = document.getElementById(`health-${prefix}`);
-    const state = document.getElementById(`health-${prefix}-state`);
-    const detail = document.getElementById(`health-${prefix}-detail`);
-    if (!row || !verdict) return;
-
-    row.className = `health-row is-${verdict.level}`;
-    state.innerHTML = iconText({ icon: icons[verdict.state] || 'hourglass', text: verdict.label });
-    detail.textContent = verdict.detail || '';
-}
-
 function renderSensors(health) {
     const grid = document.getElementById('indoor-sensors-grid');
     if (!grid) return;
@@ -287,19 +238,10 @@ function renderHealth(health) {
     snapshot = health;
 
     renderSensors(health);
-    renderRow('loop', health.loop, LOOP_ICONS);
-    renderRow('history', health.history, HISTORY_ICONS);
 
-    // Two places, one computation: the section badge over the cards in Sistema
-    // and the Sensores row of the panel's Estado strip. The cards moved off the
-    // panel, so that row is all it says about them - it must not be able to say
-    // something the cards contradict.
-    const sensors = sensorsBadge(health.sensors);
-    setBadge('sensors-badge', sensors);
-    const strip = document.getElementById('health-sensors-state');
-    if (strip) strip.innerHTML = iconText(sensors);
-
-    setBadge('sensor-status-indoor', heroBadge(health));
+    // The section badge over the cards in Sistema, the only place sensors are
+    // shown now that the panel reads the loop and the sensors from its status.
+    setBadge('sensors-badge', sensorsBadge(health.sensors));
 
     const outdoor = health.outdoor || {};
     setBadge('sensor-status-outdoor',
@@ -308,6 +250,10 @@ function renderHealth(health) {
                 : { icon: 'hourglass', text: '', state: '' });
 
     renderAlert(health);
+
+    // The panel's status line reads the loop's state from this same answer,
+    // so it is told when a new one lands rather than polling for it.
+    document.dispatchEvent(new CustomEvent('health:updated'));
 }
 
 function fetchHealth() {
@@ -316,4 +262,4 @@ function fetchHealth() {
     });
 }
 
-export { fetchHealth, latestHealth, heroBadge, sensorsBadge, SENSOR_ROLES, DRIFT_FLAG_LABELS };
+export { fetchHealth, latestHealth, sensorsBadge, SENSOR_ROLES, DRIFT_FLAG_LABELS };

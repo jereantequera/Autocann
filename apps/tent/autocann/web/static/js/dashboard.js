@@ -1,130 +1,72 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { alertDialog, closeModal, showModal, toast } from './modals.js';
-import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, config, state } from './state.js';
+import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, state } from './state.js';
+import { outputRowState, outputShortName } from './status.js';
 import {
-    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, icon, iconText, outputPinLabel, relaySourceLabel,
-    withGrow,
+    escapeHtml, fmtComma, fmtNum, formatDuration, icon, relaySourceLabel, withGrow,
 } from './util.js';
 
-/** Live readings, period summary, sensor badges and relay cards. */
+/** Live readings, period summary, the pause state and the relay rows. */
 
-function updateVpdGauge(vpd) {
-    const marker = document.getElementById('vpd-marker');
-    if (!marker) return;
+// ===============================
+// Ahora: the two readings the panel is read for
+// ===============================
+// The readouts are where temperature and humidity are shown on the panel. The
+// status line and the VPD chart need the same reading, so they are handed it
+// as an event rather than fetching it a second time: one request, one answer.
 
-    const vpdAbsMax = 2.0;
-    const range = config.vpdRanges[state.stage] || config.vpdRanges.late_veg;
-    const vpdMin = range.min;
-    const vpdMax = range.max;
-
-    // Update zone widths dynamically from current stage range
-    const lowPct  = (vpdMin / vpdAbsMax) * 100;
-    const optPct  = ((vpdMax - vpdMin) / vpdAbsMax) * 100;
-    const highPct = ((vpdAbsMax - vpdMax) / vpdAbsMax) * 100;
-    document.querySelector('.vpd-zone.low').style.width     = lowPct  + '%';
-    document.querySelector('.vpd-zone.optimal').style.width = optPct  + '%';
-    document.querySelector('.vpd-zone.high').style.width    = highPct + '%';
-
-    // Update gauge labels
-    const labels = document.querySelectorAll('.vpd-gauge-labels span');
-    if (labels.length === 4) {
-        labels[0].textContent = '0.0';
-        labels[1].textContent = vpdMin.toFixed(1);
-        labels[2].textContent = vpdMax.toFixed(1);
-        labels[3].textContent = vpdAbsMax.toFixed(1);
-    }
-
-    // Position marker; skip if no value
-    if (vpd === null || vpd === undefined) return;
-    const position = Math.min(Math.max((vpd / vpdAbsMax) * 100, 0), 100);
-    marker.style.left = `${position}%`;
+/** Band edges are whole numbers in practice; a fraction keeps its tenth. */
+function bandEdge(value) {
+    return Number.isInteger(value) ? String(value) : fmtComma(value, 1);
 }
 
-// Cada pieza de la barra depende de una lectura distinta y cualquiera puede
-// faltar, así que cada una se dibuja sólo si su propio número existe.
+function setReadoutValue(id, value, unit, { empty = false, warn = false } = {}) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = `${escapeHtml(value)}<span class="ac-readout__unit"> ${escapeHtml(unit)}</span>`;
+    el.classList.toggle('is-empty', empty);
+    el.classList.toggle('is-warn', warn);
+}
 
-function updateHumidityBar(humidity, targetHumidity) {
-    const fillEl = document.getElementById('humidity-bar-fill');
-    const targetEl = document.getElementById('humidity-bar-target');
-    const diffEl = document.getElementById('humidity-diff');
+function setReadoutSub(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
 
-    if (fillEl && Number.isFinite(humidity)) {
-        fillEl.style.width = `${Math.min(Math.max(humidity, 0), 100)}%`;
-    }
+function renderReadouts(data) {
+    const band = Array.isArray(data.humidity_band) && data.humidity_band.length === 2
+        ? data.humidity_band : null;
+    const [low, high] = band || [];
+    const humidityOk = Number.isFinite(data.humidity);
+    // Truthiness, not `!== null`: an error body arrives with every field
+    // undefined, and an undefined band must read as "no band".
+    const below = humidityOk && !!band && data.humidity < low;
+    const above = humidityOk && !!band && data.humidity > high;
 
-    if (targetEl && Number.isFinite(targetHumidity)) {
-        targetEl.style.left = `${Math.min(Math.max(targetHumidity, 0), 100)}%`;
-    }
+    setReadoutValue('panel-temp', fmtComma(data.temperature, 1), '°C',
+        { empty: !Number.isFinite(data.temperature) });
+    setReadoutSub('panel-temp-sub', Number.isFinite(data.outside_temperature)
+        ? `afuera ${fmtComma(data.outside_temperature, 1)} °C` : 'afuera --');
 
-    // Sin lectura no hay diferencia: el cartel vuelve a quedar vacío, como nace
-    // en la plantilla, en lugar de anunciar una resta contra undefined.
-    if (diffEl) {
-        const label = humidityDiffLabel(humidity, targetHumidity);
-        diffEl.className = label ? `humidity-diff ${label.state}` : 'humidity-diff';
-        diffEl.innerHTML = label ? iconText(label) : '';
-    }
+    // Warn only when the humidity is outside its band: inside it, the colour
+    // would be claiming a problem the readout does not have.
+    setReadoutValue('panel-humidity', fmtComma(data.humidity, 1), '%',
+        { empty: !humidityOk, warn: below || above });
+    let sub = band ? `objetivo ${bandEdge(low)} – ${bandEdge(high)}` : 'objetivo --';
+    if (below) sub += ` · ${Math.round(low - data.humidity)} por debajo`;
+    if (above) sub += ` · ${Math.round(data.humidity - high)} por encima`;
+    setReadoutSub('panel-humidity-sub', sub);
 }
 
 function updateCurrentData(data) {
-    // No reading is shown as no reading: grey dashes, not orange ones that pass
-    // for a temperature at a glance. A 404 lands here too, as `{error}`.
-    document.querySelector('.hero-grid')
-        ?.classList.toggle('no-reading', !Number.isFinite(data.temperature));
-    document.getElementById('current-temp').innerHTML =
-        fmtNum(data.temperature, 1) + '<span class="hero-unit">°C</span>';
-    document.getElementById('current-humidity').innerHTML =
-        fmtNum(data.humidity, 1) + '<span class="hero-unit">%</span>';
-    // A line inside the humidity card, not a big number of its own: the '%'
-    // is in the template because the target is read as "objetivo 60%", not as
-    // a measurement in its own right.
-    document.getElementById('current-target-humidity').textContent =
-        fmtNum(data.target_humidity, 1);
-    document.getElementById('current-vpd').innerHTML =
-        fmtNum(data.leaf_vpd, 2) + '<span class="hero-unit">kPa</span>';
-    document.getElementById('current-leaf-temp').textContent =
-        fmtNum(data.leaf_temperature, 1);
-    document.getElementById('current-outdoor-temp').innerHTML =
-        fmtNum(data.outside_temperature, 1) + '<span class="metric-unit">°C</span>';
-    document.getElementById('current-outdoor-humidity').innerHTML =
-        fmtNum(data.outside_humidity, 1) + '<span class="metric-unit">%</span>';
-    
-    // Update VPD gauge
-    updateVpdGauge(data.leaf_vpd);
-    
-    // Update humidity bar
-    updateHumidityBar(data.humidity, data.target_humidity);
-    
-    // Update VPD status
-    const vpdCard = document.getElementById('vpd-card');
-    const vpdStatus = document.getElementById('vpd-status');
-    const vpdHint = document.getElementById('vpd-target-hint');
-    
-    const range = config.vpdRanges[state.stage];
-    if (data.vpd_in_range === true) {
-        vpdCard.classList.remove('vpd-adjusting');
-        vpdCard.classList.add('vpd-optimal');
-        vpdStatus.className = 'vpd-badge in-range';
-        vpdStatus.innerHTML = `${icon('check')}En rango óptimo`;
-        vpdHint.textContent = `(${range.min}-${range.max} kPa)`;
-    } else if (data.vpd_in_range === false) {
-        vpdCard.classList.remove('vpd-optimal');
-        vpdCard.classList.add('vpd-adjusting');
-        vpdStatus.className = 'vpd-badge adjusting';
-        vpdStatus.innerHTML = `${icon('zap')}Ajustando…`;
-        vpdHint.textContent = `Objetivo: ${range.min}-${range.max} kPa`;
-    } else {
-        vpdCard.classList.remove('vpd-optimal', 'vpd-adjusting');
-        vpdStatus.className = 'vpd-badge';
-        vpdStatus.textContent = '';
-        vpdHint.textContent = '';
-    }
-    
-    // The time, and nothing else. It read "Actualizado: 14/10/2026, 17:26:38",
-    // which is a date you already know, to a precision nobody reads, in the
-    // corner of a row that was already too full. What it is for is answering
-    // "is this live?" at a glance; the full stamp is in the tooltip for the
-    // rare time that is the actual question.
+    // No reading is shown as no reading: a dash, not a number that passes for
+    // one. A 404 lands here too, as `{error}`.
+    renderReadouts(data);
+    document.dispatchEvent(new CustomEvent('current:updated', { detail: data }));
+
+    // The time, and nothing else. What it is for is answering "is this live?"
+    // at a glance; the full stamp is in the tooltip.
     const now = new Date();
     const stamp = document.getElementById('last-update');
     stamp.textContent = now.toLocaleTimeString('es-AR', {
@@ -318,91 +260,71 @@ document.addEventListener('connection:changed', event => {
     renderSystemState();
 });
 
-function outputCardHtml(output, mode) {
-    let stateText = '--';
-    let stateClass = 'unknown';
-    if (output.state === true) {
-        stateText = 'ENCENDIDA';
-        stateClass = 'on';
-    } else if (output.state === false) {
-        stateText = 'APAGADA';
-        stateClass = 'off';
-    }
+// Remembered per relay: when this page first saw it on. The backend does not
+// say when a relay switched, so after a reload the minutes count from the
+// reload rather than from the switch - the row says so by showing less, not
+// by being wrong about it.
+const onSince = {};
 
-    const label = escapeHtml(output.label || output.name || 'Salida');
-    const name = escapeHtml(output.name || '');
-    const pin = outputPinLabel(output.pin);
+/** The outputs with `since` filled in for any relay that is on. */
+function outputsWithSince(outputs) {
+    const nowSeconds = Date.now() / 1000;
+    return outputs.map(output => {
+        if (output.state !== true) {
+            delete onSince[output.name];
+            return output;
+        }
+        if (!(output.name in onSince)) onSince[output.name] = nowSeconds;
+        return { ...output, since: onSince[output.name] };
+    });
+}
 
-    let controls = '';
-    if (mode.active && output.name) {
-        const requested = mode.requested_outputs?.[output.name];
-        // A relay that does not move must say why, or the button looks broken.
-        // The minimum on/off times hold even for a person: the equipment does
-        // not care who asked.
-        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
-            ? `<div class="output-held">${icon('hourglass')}esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</div>`
-            : '';
-        controls = `
-            <div class="output-controls">
-                <button class="btn-output on ${requested === true ? 'active' : ''}"
-                        data-action="test-output" data-name="${name}" data-state="true">Prender</button>
-                <button class="btn-output off ${requested === false ? 'active' : ''}"
-                        data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
-            </div>
-            ${held}
-        `;
-    }
-
-    // The class, not just the text: the card itself lights up, which is what
-    // makes "¿qué relés están prendidos?" answerable without reading a word.
-    return `
-        <div class="output-card is-${stateClass} ${mode.active ? 'is-manual' : ''}">
-            <div class="output-header">
-                <div class="output-name">${label}</div>
-                <div class="output-pin" title="${escapeHtml(pin.title)}">${escapeHtml(pin.text)}</div>
-            </div>
-            <div class="output-state ${stateClass}">${stateText}</div>
-            ${controls}
-        </div>
-    `;
+function outputRowsHtml(outputs) {
+    return outputs.map(output => {
+        const row = outputRowState(output);
+        return `
+            <div class="ac-output${row.state === 'on' ? ' is-on' : ''}">
+                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
+                <span class="ac-output__state">${escapeHtml(row.text)}</span>
+            </div>`;
+    }).join('');
 }
 
 /**
- * "2 de 3 encendidas", and never a bare tick.
- *
- * A count stays true when a fourth relay is wired in and nothing else is
- * touched; an icon that means "fine" would have to be told what fine is.
+ * The manual relay controls, under the rows, and only while the loop is not in
+ * charge: the buttons are how a person drives a relay, and they mean nothing
+ * while the loop is deciding.
  */
-function renderOutputsBadge(outputs) {
-    const badge = document.getElementById('outputs-badge');
-    if (!badge) return;
-
-    if (!outputs.length) {
-        badge.className = 'sensor-badge';
-        badge.textContent = 'sin salidas';
-        return;
-    }
-    // Only the ones actually answering: a relay whose state is unknown is not
-    // an off relay, and counting it as one is how a stuck reading reads as calm.
-    const known = outputs.filter(o => typeof o.state === 'boolean');
-    const on = known.filter(o => o.state === true).length;
-    badge.className = on ? 'sensor-badge ok' : 'sensor-badge';
-    badge.textContent = known.length < outputs.length
-        ? `${on} de ${outputs.length} encendidas · ${outputs.length - known.length} sin estado`
-        : `${on} de ${outputs.length} encendidas`;
+function manualControlsHtml(outputs, mode) {
+    return outputs.filter(output => output.name).map(output => {
+        const requested = mode.requested_outputs?.[output.name];
+        // A relay that does not move must say why, or the button looks broken.
+        // The minimum on/off times hold even for a person.
+        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
+            ? `<span class="panel-manual__held">${icon('hourglass')}esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</span>`
+            : '';
+        const name = escapeHtml(output.name);
+        return `
+            <div class="panel-manual__row">
+                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
+                <span class="panel-manual__buttons">
+                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === true}"
+                            data-action="test-output" data-name="${name}" data-state="true">Prender</button>
+                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === false}"
+                            data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
+                </span>
+                ${held}
+            </div>`;
+    }).join('');
 }
 
 function updateOutputsStatus(payload) {
-    const grid = document.getElementById('outputs-grid');
-    const outputs = payload?.outputs || [];
+    const outputs = outputsWithSince(payload?.outputs || []);
 
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
-    renderOutputsBadge(outputs);
 
-    // Qué placa conmuta, dicho una vez en el encabezado: las tres salidas
-    // cuelgan siempre de la misma, y el número de cada tarjeta no se entiende
-    // sin saber de qué placa es.
+    // Qué placa conmuta, dicho una vez: las salidas cuelgan de la misma.
     const source = document.getElementById('outputs-source');
     if (source) {
         const label = relaySourceLabel(outputs[0]?.pin);
@@ -410,19 +332,24 @@ function updateOutputsStatus(payload) {
         source.title = label.title;
     }
 
-    if (!grid) return;
-
-    if (!outputs.length) {
-        grid.innerHTML = `
-            <div class="output-card">
-                <div class="output-name">No configuradas</div>
-                <div class="output-state unknown">--</div>
-            </div>
-        `;
-        return;
+    const list = document.getElementById('outputs-list');
+    if (list) {
+        list.innerHTML = outputs.length
+            ? outputRowsHtml(outputs)
+            : '<div class="ac-output"><span class="ac-output__name">No configuradas</span>'
+                + '<span class="ac-output__state">--</span></div>';
     }
 
-    grid.innerHTML = outputs.map(o => outputCardHtml(o, testMode)).join('');
+    const manual = document.getElementById('outputs-manual');
+    if (manual) {
+        const show = testMode.active && outputs.length > 0;
+        manual.innerHTML = show ? manualControlsHtml(outputs, testMode) : '';
+        manual.hidden = !show;
+    }
+
+    document.dispatchEvent(new CustomEvent('outputs:updated', {
+        detail: { outputs, test_mode: testMode },
+    }));
 }
 
 /**

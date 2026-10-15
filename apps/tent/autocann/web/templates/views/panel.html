@@ -1,48 +1,93 @@
         <!-- Panel: the view that stays on screen -->
         <!--
-             Three questions, in the order they get asked from the doorway, and
-             nothing else: cómo está el ambiente, qué relés están prendidos, con
-             qué hay que regar hoy. Each is a section, top to bottom, so the
-             answer to any of them is found by looking at one band of the screen
-             instead of hunting two columns for it.
+             Two columns, and each answers a question from the doorway. Left: how
+             the tent is, in one sentence, and where it sits against the band
+             its stage asks for. Right: the readings, the relays and the water
+             (Ahora), or what happened this week (Bitácora). One column under
+             1024 px, in the order the questions get asked.
 
-             Nothing here is a form, and the order is the budget: the tablet on
-             the tent wall has nobody there to scroll it, so the two bands that
-             answer "cómo está" and "qué está prendido" are the ones guaranteed
-             above the fold on a 1080p screen, with the watering tile and the
-             24 h chart right under them. What used to live here and no longer
-             does: the six sensor diagnostic cards (now in Sistema, behind the
-             Estado strip at the bottom) and the pause banner (now the chip in
-             the header, which was already saying the same thing).
+             The readings are not repeated on the left: the chart is the same
+             two numbers drawn against the band, so the detail lives in its
+             tooltip rather than in another row of cards.
         -->
         <section class="view view-panel" data-view="panel" aria-label="Panel de control">
-{% include "partials/hero.html" %}
+            <div class="panel-a2">
+                <div class="panel-a2__main">
+                    <section class="ac-status" aria-live="polite" aria-labelledby="panel-status-title">
+                        <div class="ac-status__head">
+                            <span class="ac-dot ac-dot--lg ac-dot--idle" id="panel-status-dot" aria-hidden="true"></span>
+                            <h1 class="ac-status__title" id="panel-status-title">Cargando...</h1>
+                        </div>
+                        <p class="ac-status__text" id="panel-status-text"></p>
+                    </section>
+
+                    <figure class="ac-chart panel-vpd" id="vpd-chart">
+                        <div class="panel-vpd__plot" id="vpd-chart-plot"></div>
+                        <button type="button" class="panel-vpd__point" id="vpd-chart-point"
+                                aria-label="Lectura actual: ver el detalle de VPD"
+                                aria-controls="vpd-chart-tip" aria-expanded="false" hidden></button>
+                        <div role="tooltip" class="ac-tooltip panel-vpd__tip" id="vpd-chart-tip" hidden>
+                            <div class="ac-tooltip__time" id="vpd-tip-time"></div>
+                            <div class="ac-tooltip__main" id="vpd-tip-main"></div>
+                            <div class="ac-tooltip__rule"></div>
+                            <div class="ac-tooltip__row">
+                                <span class="ac-tooltip__key">VPD del aire</span>
+                                <span class="ac-tooltip__val" id="vpd-tip-air"></span>
+                            </div>
+                            <div class="ac-tooltip__row">
+                                <span class="ac-tooltip__key">VPD de hoja</span>
+                                <span class="ac-tooltip__val" id="vpd-tip-leaf"></span>
+                            </div>
+                            <div class="ac-tooltip__row">
+                                <span class="ac-tooltip__key">Objetivo</span>
+                                <span class="ac-tooltip__val" id="vpd-tip-target"></span>
+                            </div>
+                            <div class="ac-tooltip__note" id="vpd-tip-note"></div>
+                            <button type="button" class="ac-btn ac-btn--secondary ac-btn--block panel-vpd__close"
+                                    id="vpd-tip-close">Cerrar</button>
+                        </div>
+                    </figure>
+                </div>
+
+                <div class="panel-a2__side">
+                    <div class="ac-tabs" role="tablist" aria-label="Panel" id="panel-tabs">
+                        <button type="button" class="ac-tabs__tab" role="tab" id="panel-tab-ahora"
+                                data-panel-tab="ahora" aria-selected="true" aria-controls="panel-ahora">Ahora</button>
+                        <button type="button" class="ac-tabs__tab" role="tab" id="panel-tab-bitacora"
+                                data-panel-tab="bitacora" aria-selected="false" aria-controls="panel-bitacora"
+                                tabindex="-1">Bitácora</button>
+                    </div>
+
+                    <div role="tabpanel" id="panel-ahora" aria-labelledby="panel-tab-ahora" class="panel-pane">
+                        <div class="ac-readout-row">
+                            <div class="ac-readout">
+                                <span class="ac-readout__label">Temperatura</span>
+                                <span class="ac-readout__value" id="panel-temp">--</span>
+                                <span class="ac-readout__sub" id="panel-temp-sub">afuera --</span>
+                            </div>
+                            <div class="ac-readout">
+                                <span class="ac-readout__label">Humedad</span>
+                                <span class="ac-readout__value" id="panel-humidity">--</span>
+                                <span class="ac-readout__sub" id="panel-humidity-sub">objetivo --</span>
+                            </div>
+                        </div>
 
 {% include "partials/outputs.html" %}
 
-            <!--
-                 Lo de hoy a la izquierda, lo de ayer a la derecha: el riego es
-                 lo único de esta pantalla sobre lo que se actúa, así que va
-                 primero en el orden de lectura, y las 24 horas son el contexto
-                 que explica por qué los relés están donde están.
-            -->
-            <div class="panel-grid">
-                <div class="panel-col panel-col-side">
 {% include "partials/today-feed.html" %}
-                </div>
-
-                <div class="panel-col">
-                    <div class="chart-container chart-container-panel">
-                        <div class="chart-header">
-                            <div class="chart-title">{{ icon("clock") }} Últimas 24 horas</div>
-                            <div class="chart-note" id="panel-chart-note">promedio por hora</div>
-                        </div>
-                        <div class="chart-wrapper chart-wrapper-panel">
-                            <canvas id="panelChart"></canvas>
-                        </div>
                     </div>
 
-{% include "partials/health-strip.html" %}
+                    <div role="tabpanel" id="panel-bitacora" aria-labelledby="panel-tab-bitacora" class="panel-pane" hidden>
+                        <div class="ac-segmented panel-logbook__filters" role="group" aria-label="Filtrar la bitácora"
+                             id="panel-logbook-filters">
+                            <button type="button" class="ac-segmented__item" data-logbook-filter="todo" aria-pressed="true">Todo</button>
+                            <button type="button" class="ac-segmented__item" data-logbook-filter="riegos" aria-pressed="false">Riegos</button>
+                            <button type="button" class="ac-segmented__item" data-logbook-filter="salidas" aria-pressed="false">Salidas</button>
+                            <button type="button" class="ac-segmented__item" data-logbook-filter="cultivo" aria-pressed="false">Cultivo</button>
+                            <button type="button" class="ac-segmented__item" data-logbook-filter="sistema" aria-pressed="false">Sistema</button>
+                        </div>
+                        <div class="panel-logbook" id="panel-logbook"></div>
+                    </div>
                 </div>
             </div>
         </section>

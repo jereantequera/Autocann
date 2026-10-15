@@ -42,6 +42,16 @@ function fmtNum(value, decimals = 1, fallback = '--') {
         : fallback;
 }
 
+/**
+ * The same number with the decimal comma the grower reads: 25.8 -> "25,8".
+ *
+ * Kept apart from fmtNum rather than changing it, because fmtNum also feeds
+ * places that are read by machines (the sensor cards, the chart axes).
+ */
+function fmtComma(value, decimals = 1, fallback = '--') {
+    return fmtNum(value, decimals, fallback).replace('.', ',');
+}
+
 // ===============================
 // Connection state
 // ===============================
@@ -114,31 +124,6 @@ function fmtSigned(value, decimals = 1, fallback = '--') {
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
     return (value >= 0 ? '+' : '') + value.toFixed(decimals);
 }
-
-/**
- * El cartel de diferencia contra la humedad objetivo, o null si falta una lectura.
- *
- * Nullish no es null: cuando /api/current-data responde 404 el cuerpo
- * `{"error": ...}` llega igual, cada campo vale `undefined`, y un guard escrito
- * `humidity !== null` lo deja pasar y rinde "NaN% por encima" en pantalla.
- *
- * @returns {?{state: string, text: string}}  null cuando no hay nada que comparar
- */
-function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
-    if (!Number.isFinite(humidity) || !Number.isFinite(targetHumidity)) return null;
-    const diff = humidity - targetHumidity;
-    const absDiff = Math.abs(diff).toFixed(1);
-    if (Math.abs(diff) <= tolerance) return { state: 'on-target', icon: 'check', text: 'En objetivo' };
-    if (diff < 0) return { state: 'too-low', icon: 'arrow-down', text: `${absDiff}% por debajo` };
-    return { state: 'too-high', icon: 'arrow-up', text: `${absDiff}% por encima` };
-}
-
-// ===============================
-// Feeding
-// ===============================
-// The panel tile and the Riego tab render the same plan from the same payload,
-// so the arithmetic and the wording live here rather than once in each: two
-// copies of "25 ml" is how one of them ends up rounding differently.
 
 /** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
 function fmtDose(value) {
@@ -239,38 +224,6 @@ function withGrow(url, growId) {
 }
 
 /**
- * El borne que hay que ir a medir para una salida: el número corto para la
- * tarjeta, y la frase entera para el title.
- *
- * Decía "BCM 7" siempre, y con `AUTOCANN_RELAY_MODE=remote` la Raspberry no
- * conmuta nada: eran tres pines de una placa que no está en el circuito. Peor
- * todavía, el 25 que mostraba para la ventilación existe también en el ESP32,
- * donde maneja el humidificador — así que mandaba a medir el header correcto
- * con la etiqueta equivocada.
- *
- * @param {?{scope: string, node: ?string, number: ?number}} source  de /api/output-status
- * @returns {{text: string, title: string}}  vacío cuando no hay pin que mostrar
- */
-function outputPinLabel(source) {
-    // Sin coerción: `Number(null)` es 0, y el BCM 0 es un pin que existe. Una
-    // salida sin pin rendiría "BCM 0", que no se lee como un hueco sino como
-    // un dato — justo el defecto que esto viene a sacar de la pantalla.
-    const number = source?.number;
-    if (!Number.isFinite(number)) return { text: '', title: '' };
-    if (source.scope === 'remote') {
-        const node = source.node || 'el nodo remoto';
-        return {
-            text: `GPIO ${number}`,
-            title: `La conmuta el GPIO ${number} de ${node}, no la Raspberry`,
-        };
-    }
-    return {
-        text: `BCM ${number}`,
-        title: `La conmuta el BCM ${number} de la Raspberry`,
-    };
-}
-
-/**
  * Qué placa maneja los relés, para el encabezado del panel.
  *
  * Va una vez arriba y no en cada tarjeta porque las tres salidas están siempre
@@ -314,8 +267,8 @@ function getScoreLabel(score) {
 
 export {
     icon, iconText,
-    escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
-    outputPinLabel, relaySourceLabel,
+    escapeHtml, fmtNum, fmtComma, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
+    formatDate, growParam, getScoreClass, getScoreLabel, withGrow,
+    relaySourceLabel,
     STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel, waterOnlyNote,
 };

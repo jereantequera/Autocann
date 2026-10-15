@@ -11,8 +11,8 @@ import { test } from 'node:test';
 
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
-    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel, icon, iconText,
-    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
+    formatDuration, getScoreClass, getScoreLabel, growParam, icon, iconText,
+    lastWateringLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
     withGrow,
 } from '../../autocann/web/static/js/util.js';
 
@@ -131,33 +131,6 @@ test('formatDuration shows a dash rather than a countdown already past', () => {
     for (const value of [0, -5, null, undefined, NaN, 'pronto']) {
         assert.equal(formatDuration(value), '--', `para ${String(value)}`);
     }
-});
-
-test('humidityDiffLabel names the three states a grower acts on', () => {
-    const onTarget = { state: 'on-target', icon: 'check', text: 'En objetivo' };
-    assert.deepEqual(humidityDiffLabel(60, 60), onTarget);
-    assert.deepEqual(humidityDiffLabel(63, 60), onTarget);
-    assert.deepEqual(humidityDiffLabel(50, 60), { state: 'too-low', icon: 'arrow-down', text: '10.0% por debajo' });
-    assert.deepEqual(humidityDiffLabel(70.5, 60), { state: 'too-high', icon: 'arrow-up', text: '10.5% por encima' });
-});
-
-test('humidityDiffLabel returns nothing when a payload carries no readings', () => {
-    // /api/current-data answers 404 with `{"error": "No current data available"}`,
-    // and apiGet only throws on 5xx, so the dashboard renders that body: every
-    // field is `undefined`. A guard written `humidity !== null` let it through
-    // and the card announced "NaN% por encima".
-    const empty = {};  // the 404 body, as far as updateCurrentData can tell
-    assert.equal(humidityDiffLabel(empty.humidity, empty.target_humidity), null);
-
-    for (const value of [null, undefined, NaN, Infinity, '60', {}]) {
-        assert.equal(humidityDiffLabel(value, 60), null, `humedad ${String(value)}`);
-        assert.equal(humidityDiffLabel(60, value), null, `objetivo ${String(value)}`);
-    }
-});
-
-test('humidityDiffLabel keeps a real zero as a reading, not as a missing one', () => {
-    assert.equal(humidityDiffLabel(0, 60).state, 'too-low');
-    assert.equal(humidityDiffLabel(60, 0).state, 'too-high');
 });
 
 // ---------------------------------------------------------------------------
@@ -281,36 +254,6 @@ test('withGrow appends with whichever separator the url already needs', () => {
     assert.equal(withGrow('/api/vpd-score?days=7', 3), '/api/vpd-score?days=7&grow_id=3');
     assert.equal(withGrow('/api/weekly-report', 'all'), '/api/weekly-report?grow_id=all');
     assert.equal(withGrow('/api/weekly-report', null), '/api/weekly-report');
-});
-
-test('outputPinLabel names the node when the node is what switches the relay', () => {
-    // El defecto: con los relés en el nodo, la pantalla decía "BCM 25" para la
-    // ventilación. El 25 existe en las dos placas y en el ESP32 es el
-    // humidificador, así que mandaba a medir el header correcto con la etiqueta
-    // equivocada.
-    const label = outputPinLabel({ scope: 'remote', node: 'ESP32 relés', number: 27 });
-    assert.equal(label.text, 'GPIO 27');
-    assert.match(label.title, /ESP32 relés/);
-    assert.match(label.title, /no la Raspberry/);
-});
-
-test('outputPinLabel keeps saying BCM when the Raspberry is the one switching', () => {
-    assert.equal(outputPinLabel({ scope: 'local', node: null, number: 7 }).text, 'BCM 7');
-});
-
-test('outputPinLabel shows nothing rather than a pin it was not given', () => {
-    // Un "BCM NaN" o un "GPIO undefined" en la tarjeta es peor que el hueco:
-    // parece un dato.
-    for (const source of [null, undefined, {}, { scope: 'remote' },
-                          { scope: 'local', number: null }, { scope: 'remote', number: 'IN1' }]) {
-        assert.deepEqual(outputPinLabel(source), { text: '', title: '' }, JSON.stringify(source));
-    }
-});
-
-test('outputPinLabel still names a remote pin when nobody named the node', () => {
-    const label = outputPinLabel({ scope: 'remote', node: '', number: 25 });
-    assert.equal(label.text, 'GPIO 25');
-    assert.match(label.title, /nodo remoto/);
 });
 
 test('relaySourceLabel says which board the panel is talking about', () => {

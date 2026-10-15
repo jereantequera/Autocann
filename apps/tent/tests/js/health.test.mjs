@@ -10,55 +10,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { heroBadge, sensorsBadge } from '../../autocann/web/static/js/health.js';
+import { sensorsBadge } from '../../autocann/web/static/js/health.js';
 import { readRate, signalLabel } from '../../autocann/web/static/js/nodes.js';
 
 const posting = { controls: true, state: 'posting' };
-
-test('the hero badge does not say OK while the card it sits on has nothing to show', () => {
-    // Con el lazo en pausa no hay VPD que mostrar: el badge decía "OK" en verde
-    // arriba de un "--", que es exactamente lo que no se entendía.
-    const paused = heroBadge({ level: 'warn', loop: { state: 'paused' }, sensors: [posting] });
-    assert.equal(paused.text, 'en pausa');
-    assert.equal(paused.icon, 'circle-pause');
-    assert.equal(paused.state, 'stale');
-
-    const down = heroBadge({ level: 'error', loop: { state: 'down' }, sensors: [posting] });
-    assert.equal(down.text, 'lazo caído');
-    assert.equal(down.icon, 'circle-x');
-});
-
-test('the hero badge reports the sensor that controls, not the installation average', () => {
-    const health = {
-        level: 'error',
-        loop: { state: 'running' },
-        sensors: [{ controls: true, state: 'stale' }, { controls: false, state: 'posting' }],
-    };
-    assert.equal(heroBadge(health).state, 'error');
-});
-
-test('the hero badge is green only when everything it depends on is', () => {
-    const health = { level: 'ok', loop: { state: 'running' }, sensors: [posting] };
-    assert.deepEqual(heroBadge(health), { icon: 'circle-check', text: 'OK', state: 'ok' });
-});
-
-test('the hero badge stays green when what is broken is not its business', () => {
-    // El histórico puede estar sin guardarse con el VPD perfectamente bien
-    // medido y mostrado. Pintar el badge de rojo por eso es el mismo defecto
-    // de antes dado vuelta: un badge que no habla de lo que tiene al lado.
-    const health = {
-        level: 'error',
-        loop: { state: 'running', level: 'ok' },
-        history: { state: 'stalled', level: 'error' },
-        sensors: [posting],
-    };
-    assert.equal(heroBadge(health).state, 'ok');
-});
-
-test('the hero badge waits rather than guessing before the first answer', () => {
-    assert.equal(heroBadge(null).icon, 'hourglass');
-    assert.equal(heroBadge(undefined).state, '');
-});
 
 test('the section badge counts, so a sensor nobody configured still shows up', () => {
     // Un tilde verde sigue diciendo "todo bien" cuando alguien suma un tercer
