@@ -10,7 +10,7 @@
 
 set -uo pipefail
 
-PROJECT_DIR="${AUTOCANN_DIR:-/home/autocann/Autocann}"
+PROJECT_DIR="${AUTOCANN_DIR:-/home/autocann/Autocann/apps/tent}"
 FECHA=$(date +'%Y-%m-%d')
 # Corchetes a propósito: el patrón matchea "autocann" pero el texto escrito acá
 # dice "[a]utocann", así que pgrep no se matchea a sí mismo ni a este script.

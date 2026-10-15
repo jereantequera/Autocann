@@ -697,7 +697,7 @@ que el problema dominante es otro, mejor saberlo antes de construir tres fases m
 
 ### A — Leer la data del cultivo que hay
 
-La base de producción vive en la Raspberry (`/home/autocann/Autocann/data/autocann.db`)
+La base de producción vive en la Raspberry (`/home/autocann/Autocann/apps/tent/data/autocann.db`)
 y nunca se miró con las herramientas nuevas.
 
 **Traerla:** ✅ hecho. El snapshot que se leyó es

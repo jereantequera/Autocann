@@ -3,13 +3,17 @@
   "configurations": [
     {
       "name": "autocann-web",
-      "runtimeExecutable": "./.venv/bin/python",
-      "runtimeArgs": ["-m", "autocann.cli.backend"],
+      "runtimeExecutable": "apps/tent/.venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "autocann.cli.backend"
+      ],
       "port": 5000,
       "autoPort": true,
       "env": {
         "AUTOCANN_INDOOR_PRIMARY": "a",
-        "AUTOCANN_INDOOR_OBSERVERS": "b"
+        "AUTOCANN_INDOOR_OBSERVERS": "b",
+        "PYTHONPATH": "apps/tent"
       }
     }
   ]

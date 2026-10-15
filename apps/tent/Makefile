@@ -3,7 +3,7 @@
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
 RPI_HOST ?= autocann.local
-RPI_PATH ?= /home/autocann/Autocann
+RPI_PATH ?= /home/autocann/Autocann/apps/tent
 
 # Patrones para encontrar los procesos. Tienen que coincidir con los módulos
 # reales: antes decían 'fix-vpd', un script que ya no existe, así que ningún

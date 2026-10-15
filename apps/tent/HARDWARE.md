@@ -318,7 +318,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=autocann
-WorkingDirectory=/home/autocann/Autocann
+WorkingDirectory=/home/autocann/Autocann/apps/tent
 Environment=PATH=/home/autocann/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/autocann/.local/bin/uv run python -u -m autocann.cli.vpd
 Restart=always
@@ -341,7 +341,7 @@ After=network-online.target docker.service
 [Service]
 Type=simple
 User=autocann
-WorkingDirectory=/home/autocann/Autocann
+WorkingDirectory=/home/autocann/Autocann/apps/tent
 Environment=PATH=/home/autocann/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/autocann/.local/bin/uv run python -m autocann.cli.backend
 Restart=always

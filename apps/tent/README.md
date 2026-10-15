@@ -74,7 +74,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Clonar e instalar
 cd /home/autocann
 git clone <tu-repositorio> Autocann
-cd Autocann
+cd Autocann/apps/tent
 make install  # Auto-detecta Raspberry Pi e instala todo
 make check    # Verifica que todo funcione
 ```
@@ -87,7 +87,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clonar e instalar
 git clone <tu-repositorio> Autocann
-cd Autocann
+cd Autocann/apps/tent
 make install  # Solo instala dependencias base (Flask, Redis, etc)
 ```
 
@@ -700,7 +700,7 @@ RPI_PATH = /ruta/al/proyecto
 **Valores por defecto:**
 - `RPI_USER`: `autocann`
 - `RPI_HOST`: `autocann.local`
-- `RPI_PATH`: `/home/autocann/Autocann`
+- `RPI_PATH`: `/home/autocann/Autocann/apps/tent`
 
 ## Desarrollo
 
