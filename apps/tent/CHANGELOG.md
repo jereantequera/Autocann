@@ -1,5 +1,32 @@
 # Changelog
 
+## Leaf VPD used the wrong vapour pressure
+
+**What was wrong.** Leaf VPD is the saturation pressure at the leaf minus the
+vapour pressure actually in the air: `SVP(T_leaf) - SVP(T_air) * RH/100`. The
+control loop computed `SVP(T_leaf) * (1 - RH/100)`, which treats the measured
+relative humidity as if it were measured at leaf temperature. The leaf runs
+1.5 °C below the air, so this overstated the leaf's VPD by
+`RH * (SVP(T_air) - SVP(T_leaf))`, about 0.16 kPa at 25 °C and 60 %. The humidity
+band had the same mistake: it was inverted with the leaf's saturation pressure
+instead of the air's.
+
+**Effect.** The loop was holding the tent 5 to 7 RH points wetter than the
+stage's band asks for. Early veg at 25 °C air: the band was 65 to 79 % before
+this fix and is 60 to 72 % now. The dashboard's chart and the control loop
+read the same band, so both were wrong together.
+
+**What changes for you.** The loop will now dry the tent toward the correct
+band. Right after deploying, expect the dehumidifier to run more and the
+humidifier less than before, until the tent settles at the new setpoint. If
+the tent sits at the bottom of the band, that is the correct behaviour, not a
+fault.
+
+**Old samples.** `leaf_vpd` values stored before this deploy were computed
+with the old formula. A report or score that spans the deploy date mixes both
+formulas; compare periods on either side of the deploy separately when you
+judge the controller's performance.
+
 ## Un sistema de diseño en lugar de un kit
 
 El dashboard tenía el aspecto de cualquier panel oscuro hecho con plantilla:

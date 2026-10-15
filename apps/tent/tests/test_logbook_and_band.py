@@ -68,7 +68,7 @@ def test_vpd_band_matches_what_the_controller_computes(client):
     point = next(p for p in body["points"] if p["temperature"] == 24.0)
 
     low, high = sorted(
-        humidity_range_bounds_for_stage("late_veg", round(24.0 - LEAF_TEMP_OFFSET_C, 1))
+        humidity_range_bounds_for_stage("late_veg", 24.0, round(24.0 - LEAF_TEMP_OFFSET_C, 1))
     )
     assert point["humidity_low"] == round(low, 1)
     assert point["humidity_high"] == round(high, 1)
@@ -78,6 +78,21 @@ def test_vpd_band_matches_what_the_controller_computes(client):
     setpoint = cli_vpd.resolve_setpoint("late_veg", 24.0, 50.0)
     assert point["humidity_low"] == round(setpoint.humidity_band[0], 1)
     assert point["humidity_high"] == round(setpoint.humidity_band[1], 1)
+
+
+def test_vpd_band_endpoint_matches_resolve_setpoint_at_every_point(client):
+    """
+    The chart and the loop must draw the same band: at every temperature of
+    the chart, the endpoint's band is the band resolve_setpoint holds the tent to.
+    """
+    for stage in STAGES:
+        if stage == "dry":
+            continue
+        body = client.get(f"/api/vpd-band?stage={stage}").get_json()
+        for point in body["points"]:
+            setpoint = cli_vpd.resolve_setpoint(stage, point["temperature"], 50.0)
+            assert point["humidity_low"] == round(setpoint.humidity_band[0], 1), (stage, point)
+            assert point["humidity_high"] == round(setpoint.humidity_band[1], 1), (stage, point)
 
 
 def test_dry_stage_returns_a_humidity_band_not_a_vpd_one(client):
