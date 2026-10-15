@@ -5,6 +5,7 @@ import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './d
 import { fetchVpdScore } from './analytics.js';
 import { config, state } from './state.js';
 import { escapeHtml, icon } from './util.js';
+import { paintTent } from './sidebar.js';
 import {
     durationLabel, formatLongDate, formatShortDate, growDays, growLine, nextStage,
     stageBarModel,
@@ -83,6 +84,14 @@ function updateActiveGrow(grow) {
     stageElement.className = `grow-stage ${grow.stage}`;
     
     renderDayCounters(grow);
+    // The collapsed bar shows the tent as a monogram, and its title and
+    // accessible name carry the same words as the expanded block.
+    paintTent({
+        name: grow.name,
+        stage: stageNames[grow.stage] || grow.stage,
+        day: grow.day_in_stage,
+        expected: grow.stage_expected_days,
+    });
     activeGrow = grow;
     renderCultivo();
 

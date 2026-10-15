@@ -2259,9 +2259,26 @@ body {
     background: var(--bg-card-hover);
 }
 
+/* The stroke is the bar's own 1.75, not the sprite's 2, so the expanded
+   glyph is the one it has always been. */
 .ac-sidebar__toggle-icon {
     width: 18px;
     height: 18px;
+    stroke-width: 1.75;
+}
+
+/* Two Lucide glyphs swapped by state: the one that closes the bar when it is
+   open, the one that opens it when it is shut. */
+.ac-sidebar__toggle .icon-collapsed {
+    display: none;
+}
+
+.ac-sidebar.is-collapsed .ac-sidebar__toggle .icon-expanded {
+    display: none;
+}
+
+.ac-sidebar.is-collapsed .ac-sidebar__toggle .icon-collapsed {
+    display: block;
 }
 
 /* The tent block is a plain surface, not a button: there is one tent, so
@@ -2274,14 +2291,10 @@ body {
     min-width: 0;
 }
 
-.ac-sidebar__tent-icon {
+/* The monogram exists only when the bar is collapsed; expanded, the tent block
+   is its words. */
+.ac-sidebar__tent-mono {
     display: none;
-    color: var(--text-primary);
-}
-
-.ac-sidebar__tent-icon .icon {
-    width: 18px;
-    height: 18px;
 }
 
 .ac-sidebar .grow-info {
@@ -2717,10 +2730,6 @@ body {
     justify-content: center;
 }
 
-.ac-sidebar.is-collapsed .ac-sidebar__tent-icon {
-    display: flex;
-}
-
 .ac-sidebar.is-collapsed .ac-sidebar__tent-name,
 .ac-sidebar.is-collapsed .grow-info,
 .ac-sidebar.is-collapsed .stage-progress,
@@ -2745,6 +2754,68 @@ body {
     height: 40px;
     padding: 0;
     justify-content: center;
+}
+
+/* The collapsed bar is desktop only: on a phone the same markup is a top bar,
+   and a bar that was collapsed on the laptop must not reshape it there. */
+@media (min-width: 769px) {
+    .ac-sidebar.is-collapsed .ac-sidebar__tent {
+        overflow: hidden;
+    }
+
+    /* The tent is its monogram; every word of the block is hidden, the day
+       counter included - it was the line that spilled out of the block. */
+    .ac-sidebar.is-collapsed .ac-sidebar__tent-mono {
+        display: flex;
+        flex: none;
+        box-sizing: border-box;
+        width: 40px;
+        height: 40px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        background: var(--surface-raised);
+        color: var(--fg);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .ac-sidebar.is-collapsed .stage-day,
+    .ac-sidebar.is-collapsed .grow-day,
+    .ac-sidebar.is-collapsed .stage-progress-label {
+        display: none;
+    }
+
+    .ac-sidebar.is-collapsed .ac-sidebar__nav {
+        align-items: center;
+        gap: 4px;
+    }
+
+    .ac-sidebar.is-collapsed .nav-tab.is-active {
+        background: var(--surface-active);
+    }
+
+    /* Hidden, not shrunk: the Riego link above is the same place. */
+    .ac-sidebar.is-collapsed .header-cta {
+        display: none;
+    }
+
+    /* A 40 px square with the dot in it. The border is the control's own in
+       every state, so the loop-down red lives in the dot alone. */
+    .ac-sidebar.is-collapsed .system-state,
+    .ac-sidebar.is-collapsed .system-state.is-paused,
+    .ac-sidebar.is-collapsed .system-state.is-monitor,
+    .ac-sidebar.is-collapsed .system-state.is-offline,
+    .ac-sidebar.is-collapsed .system-state.is-loop-down {
+        border: 1px solid var(--border-control);
+    }
+
+    .ac-sidebar.is-collapsed .system-state .status-dot {
+        width: 10px;
+        height: 10px;
+    }
 }
 
 /* Only there when it has something to say - days since the last watering, once
@@ -3598,7 +3669,7 @@ body {
     }
 
     .app-shell .ac-sidebar .ac-sidebar__top,
-    .app-shell .ac-sidebar .ac-sidebar__tent-icon,
+    .app-shell .ac-sidebar .ac-sidebar__tent-mono,
     .app-shell .ac-sidebar .stage-progress,
     .app-shell .ac-sidebar .grow-day,
     .app-shell .ac-sidebar .header-cta,

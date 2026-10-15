@@ -24,15 +24,14 @@
                      glyph for the sidebar's own chrome, and the sprite is for
                      the things the views say.
                 -->
+                <!--
+                     Two glyphs, swapped by CSS: the one shows where the bar
+                     goes next, so it is the opposite of the bar's state.
+                -->
                 <button type="button" class="ac-sidebar__toggle" data-action="toggle-sidebar"
                         aria-label="Colapsar la barra" aria-expanded="true" aria-controls="app-sidebar">
-                    <svg class="ac-sidebar__toggle-icon" aria-hidden="true" focusable="false"
-                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-                         stroke-linecap="round" stroke-linejoin="round">
-                        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
-                        <path d="M9 3v18"></path>
-                        <path d="m16 15-3-3 3-3"></path>
-                    </svg>
+                    {{ icon("panel-left-close", "ac-sidebar__toggle-icon icon-expanded") }}
+                    {{ icon("panel-left-open", "ac-sidebar__toggle-icon icon-collapsed") }}
                 </button>
             </div>
 
@@ -40,8 +39,13 @@
                  Not a button yet: the tent selector is for when there is more
                  than one tent. Until then it names the one there is.
             -->
-            <div class="ac-sidebar__tent">
-                <span class="ac-sidebar__tent-icon" aria-hidden="true">{{ icon("sprout") }}</span>
+            <!--
+                 Collapsed, the block is a monogram of the grow and every
+                 word in it is hidden; JS writes the words to title and
+                 aria-label so the collapsed bar still says what it is.
+            -->
+            <div class="ac-sidebar__tent" role="group" title="Carpa principal" aria-label="Carpa principal">
+                <span class="ac-sidebar__tent-mono" id="tent-mono" aria-hidden="true"></span>
                 <span class="ac-sidebar__tent-name">Carpa principal</span>
                 <!-- Crop and stage on one line. The stage chip is plain text here. -->
                 <div class="grow-info">
@@ -61,27 +65,33 @@
             </div>
 
             <nav class="view-nav ac-sidebar__nav" aria-label="Vistas">
-                <a class="nav-tab ac-sidebar__link" href="#/panel" data-view="panel">
+                <a class="nav-tab ac-sidebar__link" href="#/panel" data-view="panel"
+                   title="Panel" aria-label="Panel">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("layout-dashboard") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Panel">Panel</span>
                 </a>
-                <a class="nav-tab ac-sidebar__link" href="#/riego" data-view="riego">
+                <a class="nav-tab ac-sidebar__link" href="#/riego" data-view="riego"
+                   title="Riego" aria-label="Riego">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("droplets") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Riego">Riego</span>
                 </a>
-                <a class="nav-tab ac-sidebar__link" href="#/stats" data-view="stats">
+                <a class="nav-tab ac-sidebar__link" href="#/stats" data-view="stats"
+                   title="Estadísticas" aria-label="Estadísticas">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("chart-line") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Datos">Estadísticas</span>
                 </a>
-                <a class="nav-tab ac-sidebar__link" href="#/reportes" data-view="reportes">
+                <a class="nav-tab ac-sidebar__link" href="#/reportes" data-view="reportes"
+                   title="Reportes" aria-label="Reportes">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("clipboard-list") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Reporte">Reportes</span>
                 </a>
-                <a class="nav-tab ac-sidebar__link" href="#/cultivo" data-view="cultivo">
+                <a class="nav-tab ac-sidebar__link" href="#/cultivo" data-view="cultivo"
+                   title="Cultivo" aria-label="Cultivo">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("sprout") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Cultivo">Cultivo</span>
                 </a>
-                <a class="nav-tab ac-sidebar__link" href="#/sistema" data-view="sistema">
+                <a class="nav-tab ac-sidebar__link" href="#/sistema" data-view="sistema"
+                   title="Sistema" aria-label="Sistema">
                     <span class="nav-tab-icon" aria-hidden="true">{{ icon("settings") }}</span>
                     <span class="ac-sidebar__label nav-tab-label" data-short="Sistema">Sistema</span>
                 </a>
@@ -97,6 +107,7 @@
                      is the whole announcement; a second banner saying the same
                      thing is how you end up reading neither.
                 -->
+                <!-- Hidden when collapsed: it is the same place as the Riego link above. -->
                 <a class="ac-btn ac-btn--secondary ac-btn--block header-cta" href="#/riego" aria-label="Agregar riego">
                     {{ icon("droplets") }}
                     <span class="header-cta-label">Agregar riego</span>

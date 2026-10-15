@@ -48,6 +48,58 @@ function setCollapsed(sidebar, button, collapsed) {
     button.setAttribute('aria-label', collapsed ? 'Expandir la barra' : 'Colapsar la barra');
 }
 
+// ---------------------------------------------------------------------------
+// The tent's identity: a monogram for the 40 px square, and words for it
+// ---------------------------------------------------------------------------
+
+/**
+ * The two-character mark for the tent when the bar is 40 px wide.
+ *
+ * "Cultivo #1" becomes "C1": the first letter and the first run of digits,
+ * because the number is what tells two grows apart on a square that small. A
+ * name with no number ("Lechuga") gets its first two letters instead.
+ */
+export function monogram(name) {
+    const text = String(name ?? '').trim();
+    const letters = text.match(/\p{L}/gu) || [];
+    const digits = text.match(/\d+/);
+    if (letters.length === 0) return digits ? digits[0] : '';
+    const second = digits ? digits[0] : (letters[1] || '');
+    return (letters[0] + second).toLocaleUpperCase('es-AR');
+}
+
+/**
+ * The tent block's words, the same ones the expanded block shows: where, which
+ * grow, what stage, and the day. Collapsed, these are only ever read through
+ * the title and the accessible name, so they have to say everything.
+ */
+export function tentLabel({ name, stage, day, expected }) {
+    const parts = ['Carpa principal'];
+    if (name) parts.push(name);
+    if (stage) parts.push(stage);
+    if (Number.isFinite(day)) {
+        parts.push(expected ? `día ${day} de ~${expected}` : `día ${day}`);
+    }
+    return parts.join(' · ');
+}
+
+/** Writes the tent's monogram and its words from the grow that is active. */
+export function paintTent(grow) {
+    const block = document.querySelector('.ac-sidebar__tent');
+    const mark = document.getElementById('tent-mono');
+    if (mark) mark.textContent = monogram(grow.name);
+    if (block) {
+        const label = tentLabel(grow);
+        block.title = label;
+        block.setAttribute('aria-label', label);
+    }
+}
+
+/** What the status button says on its own: the state, then the verb that changes it. */
+export function stateLabel(text, action) {
+    return [text, action].filter(Boolean).join(' · ');
+}
+
 
 // ---------------------------------------------------------------------------
 // The loop's state in the status block
@@ -94,18 +146,39 @@ function syncLoopState(chip, text) {
     }
 }
 
-function wireLoopState() {
+/**
+ * The status button's accessible name and, collapsed, its tooltip: the state
+ * and the verb, because the words themselves are hidden in that mode.
+ *
+ * The title is only written while collapsed. Expanded, the chip keeps the
+ * longer tooltip dashboard.js writes, which explains what stopping does.
+ */
+function syncStateLabel(sidebar, chip) {
+    const label = stateLabel(
+        document.getElementById('system-state-text')?.textContent.trim(),
+        document.getElementById('system-state-action')?.textContent.trim(),
+    );
+    if (chip.getAttribute('aria-label') !== label) chip.setAttribute('aria-label', label);
+    if (sidebar.classList.contains('is-collapsed') && chip.title !== label) chip.title = label;
+}
+
+function wireLoopState(sidebar) {
     const chip = document.getElementById('system-state');
     const text = document.getElementById('system-state-text');
     if (!chip || !text) return;
 
-    // The equality check above is what ends the loop: writing the same words
-    // again is not a change, so the observer hears it once and then goes quiet.
-    new MutationObserver(() => syncLoopState(chip, text))
-        .observe(text, { childList: true, characterData: true, subtree: true });
+    // The equality checks above are what end the loops: writing the same words
+    // again is not a change, so each observer hears it once and then goes quiet.
+    // The chip is watched as a whole because dashboard.js writes its action and
+    // its tooltip too, and a title that someone else rewrote has to be put back.
+    new MutationObserver(() => {
+        syncLoopState(chip, text);
+        syncStateLabel(sidebar, chip);
+    }).observe(chip, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['title'] });
     document.addEventListener('health:updated', () => syncLoopState(chip, text));
     document.addEventListener('connection:changed', () => syncLoopState(chip, text));
     syncLoopState(chip, text);
+    syncStateLabel(sidebar, chip);
 }
 
 /** Puts the sidebar in its starting state and wires its collapse button. */
@@ -116,11 +189,13 @@ export function wireSidebar() {
 
     const narrow = window.matchMedia(NARROW_QUERY).matches;
     setCollapsed(sidebar, button, startsCollapsed(readStored(), narrow));
-    wireLoopState();
+    wireLoopState(sidebar);
 
     button.addEventListener('click', () => {
         const collapsed = !sidebar.classList.contains('is-collapsed');
         setCollapsed(sidebar, button, collapsed);
+        const chip = document.getElementById('system-state');
+        if (chip) syncStateLabel(sidebar, chip);
         store(collapsed ? 'collapsed' : 'expanded');
     });
 }
