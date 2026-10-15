@@ -1274,6 +1274,107 @@ def get_irrigations(grow_id: int, limit: int = 100) -> List[Dict]:
         return []
 
 
+def get_logbook(since_ts: int, limit: int, grow_id: Optional[int] = None) -> List[Dict]:
+    """
+    Relay changes, waterings and stage changes since `since_ts`, newest first.
+
+    Each entry carries a `source` ("control", "irrigation" or "stage") and the
+    raw fields of that source; turning them into sentences is the route's job.
+
+    Waterings and stage changes are scoped to `grow_id` (the active grow): last
+    month's grow is not what today's log is about. Control events are global,
+    because the relays do not know which grow is in the tent.
+
+    `is_start` is computed over the whole grow, not the window, so a stage
+    change inside the window still reads "Pasó a" when the grow began before it.
+    """
+    entries: List[Dict] = []
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        try:
+            for row in conn.execute(
+                """
+                SELECT timestamp, event_type, value
+                FROM control_events
+                WHERE timestamp >= ?
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+                """,
+                (int(since_ts), int(limit)),
+            ).fetchall():
+                entries.append({
+                    "source": "control",
+                    "timestamp": row["timestamp"],
+                    "event_type": row["event_type"],
+                    "value": row["value"],
+                })
+
+            if grow_id is not None:
+                irrigation_rows = conn.execute(
+                    """
+                    SELECT id, timestamp, litres, ph, ec
+                    FROM irrigations
+                    WHERE grow_id = ? AND timestamp >= ?
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (int(grow_id), int(since_ts), int(limit)),
+                ).fetchall()
+                products: Dict[int, List[Dict]] = {}
+                if irrigation_rows:
+                    marks = ",".join("?" * len(irrigation_rows))
+                    for item in conn.execute(
+                        f"""
+                        SELECT irrigation_id, name, unit, dose
+                        FROM irrigation_items
+                        WHERE irrigation_id IN ({marks})
+                        ORDER BY id ASC
+                        """,
+                        [r["id"] for r in irrigation_rows],
+                    ).fetchall():
+                        products.setdefault(item["irrigation_id"], []).append(
+                            {"name": item["name"], "unit": item["unit"], "dose": item["dose"]}
+                        )
+                for row in irrigation_rows:
+                    entries.append({
+                        "source": "irrigation",
+                        "timestamp": row["timestamp"],
+                        "litres": row["litres"],
+                        "ph": row["ph"],
+                        "ec": row["ec"],
+                        "items": products.get(row["id"], []),
+                    })
+
+                stage_rows = conn.execute(
+                    """
+                    SELECT id, stage, started_at
+                    FROM stage_events
+                    WHERE grow_id = ?
+                    ORDER BY started_at ASC, id ASC
+                    """,
+                    (int(grow_id),),
+                ).fetchall()
+                first_id = stage_rows[0]["id"] if stage_rows else None
+                for row in stage_rows:
+                    if row["started_at"] < since_ts:
+                        continue
+                    entries.append({
+                        "source": "stage",
+                        "timestamp": row["started_at"],
+                        "stage": row["stage"],
+                        "is_start": row["id"] == first_id,
+                    })
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"Error getting logbook: {e}")
+        return []
+
+    entries.sort(key=lambda entry: entry["timestamp"], reverse=True)
+    return entries[: int(limit)]
+
+
 def delete_irrigation(irrigation_id: int) -> bool:
     """Remove a watering and everything that was in it."""
     try:

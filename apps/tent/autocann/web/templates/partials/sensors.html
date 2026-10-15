@@ -1,46 +1,57 @@
-        <!-- Indoor Sensors - one card per physical sensor -->
-        <!--
-             La pregunta que contesta esta sección no es "cuánto mide cada
-             sensor" sino "¿anda?". Antes había que deducirlo: el badge de
-             arriba venía del lazo de control, cada tarjeta de la antigüedad de
-             su propia lectura, y el cartel rojo de anomalías de la base de
-             datos — y los tres podían decir cosas distintas al mismo tiempo.
-             Ahora todo esto sale de /api/health, que es un solo veredicto, y
-             cada tarjeta dice en castellano qué le pasa y qué mirar.
+                    <!-- Sensores: lo que postea cada uno, y la corrección que se le suma -->
+                    <!--
+                         La pregunta que contesta esta sección no es "cuánto mide cada
+                         sensor" sino "¿anda?" — y el veredicto ya está arriba, en Estado.
+                         Acá está la evidencia por sensor: la lectura cruda que postea el
+                         nodo, su rol, lo que le pasa y, en la misma fila, la corrección
+                         que el lazo le suma. Son una sola tabla porque se leen juntas: un
+                         offset sin la lectura que corrige no dice nada.
 
-             Vive en Sistema, no en el Panel. Son seis tarjetas de diagnóstico —
-             lectura cruda, rol, antigüedad, deriva — y estaban ocupando la
-             mitad de la pantalla que se mira de lejos para saber cómo está la
-             carpa, repitiendo en chico los números que el Ambiente muestra en
-             grande. Lo que el Panel necesita de todo esto es una línea: si los
-             sensores están posteando o no. Eso quedó allá; esto es la pantalla
-             a la que se viene cuando esa línea dice que algo anda mal, al lado
-             de la calibración, la conectividad y el log del nodo.
+                         Vive en Sistema, no en el Panel. El Panel muestra el primario ya
+                         filtrado y calibrado, que es el número sobre el que se controla;
+                         acá se ve lo que cada sensor posteó de verdad, que es la única
+                         forma de ver al testigo.
+                    -->
+                    <section id="sys-sensores" class="sys-section" aria-labelledby="sys-sensores-title">
+                        <div class="sys-section-head">
+                            <h2 class="sys-h2" id="sys-sensores-title">Sensores</h2>
+                            <span class="sensor-badge" id="sensors-badge">{{ icon("hourglass") }}</span>
+                            <span class="sensor-badge" id="calibration-badge">{{ icon("hourglass") }}</span>
+                        </div>
+                        <p class="sys-lede">
+                            Lecturas crudas, tal como las posteó el nodo: sin filtro de mediana
+                            ni calibración. Pueden diferir unas décimas de las tarjetas del Panel.
+                        </p>
 
-             El Ambiente muestra el primario después del filtro de mediana y de
-             la calibración, que es el número sobre el que se controla. Acá se
-             ve lo que cada sensor posteó de verdad, que es la única forma de
-             ver al testigo — y de notar que los dos se están contradiciendo
-             antes de que el detector de deriva junte muestras suficientes para
-             decirlo.
-        -->
-        <div class="section-header section-header-row">
-            <h2 class="section-title">
-                <span class="section-title-icon">📍</span>
-                Sensores
-            </h2>
-            <span class="sensor-badge" id="sensors-badge">⏳</span>
-        </div>
+                        <div class="sys-table-wrap">
+                            <table class="ac-table sensors-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Sensor</th>
+                                        <th scope="col">Rol</th>
+                                        <th scope="col">Temp.</th>
+                                        <th scope="col">Humedad</th>
+                                        <th scope="col">Última</th>
+                                        <th scope="col">Corrección °C</th>
+                                        <th scope="col">Corrección %</th>
+                                        <th scope="col">Nota</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="indoor-sensors-grid">
+                                    <tr class="sensors-empty"><td colspan="8">Cargando sensores…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
 
-        <div class="sensors-grid" id="indoor-sensors-grid">
-            <div class="sensor-card">
-                <div class="sensor-card-header">
-                    <div class="sensor-card-name">Cargando...</div>
-                </div>
-            </div>
-        </div>
+                        <div class="sensors-drift" id="drift-line" hidden></div>
 
-        <div class="sensors-note">
-            Lecturas crudas, tal como las posteó el nodo: sin filtro de mediana
-            ni calibración. Pueden diferir unas décimas de las tarjetas del Panel.
-        </div>
+                        <div class="sensors-actions">
+                            <button type="button" class="ac-btn ac-btn--primary" id="calibration-save">Guardar correcciones</button>
+                            <span class="sys-note-inline" id="calibration-msg" aria-live="polite"></span>
+                        </div>
+                        <p class="sys-note">
+                            El offset se suma a lo que postea el sensor antes de que el lazo lo
+                            use. Se aplica recién cuando reinicia el lazo de control
+                            (<code>make restart</code>), no al guardar.
+                        </p>
+                    </section>

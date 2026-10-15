@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
+from markupsafe import Markup, escape
 
 from autocann import __version__
 from autocann.config import (
@@ -35,10 +36,12 @@ from autocann.control.feeding import (
 from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
 from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import (
+    LEAF_TEMP_OFFSET_C,
     STAGE_EXPECTED_DAYS,
     STAGES,
     VPD_RANGES,
     calculate_vpd,
+    humidity_range_bounds_for_stage,
     humidity_range_for_stage,
 )
 from autocann.db import (
@@ -55,6 +58,7 @@ from autocann.db import (
     get_feed_plan,
     get_irrigations,
     get_latest_sensor_data,
+    get_logbook,
     get_period_summary,
     get_sensor_data_range,
     get_setting,
@@ -95,6 +99,105 @@ MANUAL_OVERRIDE_MAX_SECONDS = 2 * 60 * 60
 #: How often the control loop writes a sample. Used to tell a real outage from
 #: the normal spacing between points.
 SAMPLE_INTERVAL_SECONDS = 300
+
+#: Spanish display names of the stages, served by /api/config and used in the
+#: logbook. One dict so the two cannot disagree about what a stage is called.
+STAGE_NAMES = {
+    "seedling": "Plántula",
+    "early_veg": "Vegetativo Temprano",
+    "late_veg": "Vegetativo Tardío",
+    "flowering": "Floración",
+    "dry": "Secado",
+}
+
+#: Air temperature span of the VPD chart. Wide enough to show every band the
+#: dashboard can draw; 0.5 °C steps match the resolution of the sensors.
+BAND_TEMP_MIN = 18.0
+BAND_TEMP_MAX = 32.0
+BAND_TEMP_STEP = 0.5
+
+#: Logbook window and size, in days and entries. Anything outside these is clamped
+#: rather than refused: the dashboard asks for "a bit more" and should still get it.
+LOGBOOK_DAYS_DEFAULT = 7
+LOGBOOK_DAYS_MAX = 90
+LOGBOOK_LIMIT_DEFAULT = 80
+LOGBOOK_LIMIT_MAX = 500
+
+#: Spanish article and noun for each relay, for the logbook sentences.
+RELAY_LABELS = {
+    "humidity_up": ("el", "humidificador"),
+    "humidity_down": ("el", "deshumidificador"),
+    "ventilation": ("la", "extracción"),
+}
+
+#: Control-loop mode changes, which the logbook files under "sistema".
+CONTROL_MODE_TEXT = {
+    "pause": "Se pausó el control",
+    "monitor": "Pasó a monitoreo: se registra, pero no se controla",
+    "resume": "Volvió el control automático",
+}
+
+
+def _es_number(value: float, decimals: int = 0) -> str:
+    """A number with a decimal comma, as the dashboard writes them."""
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+def _es_amount(value: float) -> str:
+    """Litres and doses: no decimals when they are whole, one otherwise."""
+    return _es_number(value) if float(value).is_integer() else _es_number(value, 1)
+
+
+def _local_datetime(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _logbook_entry(entry: dict, grow_name: str) -> dict:
+    """
+    One logbook row, as the dashboard shows it: a kind, a sentence and a detail.
+
+    Unknown relay events do not crash the endpoint: a new event_type written by
+    a newer loop still shows up, as a readable line, until someone maps it.
+    """
+    source = entry["source"]
+    if source == "control":
+        event_type, value = entry["event_type"], entry["value"]
+        if event_type in RELAY_LABELS and value in ("on", "off"):
+            article, noun = RELAY_LABELS[event_type]
+            verb = "Se prendió" if value == "on" else "Se apagó"
+            kind, text, detail = "salida", f"{verb} {article} {noun}", ""
+        elif event_type in CONTROL_MODE_TEXT:
+            kind, text, detail = "sistema", CONTROL_MODE_TEXT[event_type], ""
+        else:
+            kind, text, detail = "sistema", f"Evento de control: {event_type} {value}", ""
+    elif source == "irrigation":
+        kind = "riego"
+        text = f"Riego · {_es_amount(entry['litres'])} L"
+        parts = [
+            f"{item['name']} {_es_amount(item['dose'])} {item['unit']}"
+            for item in entry["items"]
+        ] or ["Solo agua"]
+        if entry["ph"] is not None:
+            parts.append(f"pH {_es_number(entry['ph'], 1)}")
+        if entry["ec"] is not None:
+            parts.append(f"EC {_es_number(entry['ec'], 1)}")
+        detail = " · ".join(parts)
+    else:
+        kind = "cultivo"
+        stage_name = STAGE_NAMES.get(entry["stage"], entry["stage"])
+        if entry["is_start"]:
+            text = f"Empezó {grow_name} en {stage_name}"
+        else:
+            text = f"Pasó a {stage_name}"
+        detail = ""
+
+    return {
+        "timestamp": entry["timestamp"],
+        "datetime": _local_datetime(entry["timestamp"]),
+        "kind": kind,
+        "text": text,
+        "detail": detail,
+    }
 
 
 def _with_gaps(points, expected_interval_seconds):
@@ -219,6 +322,20 @@ def static_asset_version() -> str:
         return __version__
     return f"{__version__}-{int(newest):x}" if newest else __version__
 
+def icon(name: str, extra_class: str = "") -> Markup:
+    """
+    An icon from the sprite in partials/icons.svg, for the templates.
+
+    The same markup icon() in static/js/util.js builds, so an icon rendered by
+    the server and one rendered by a poller look the same.
+    """
+    classes = f"icon {extra_class}".strip()
+    return Markup(
+        f'<svg class="{escape(classes)}" aria-hidden="true" focusable="false">'
+        f'<use href="#i-{escape(name)}"></use></svg>'
+    )
+
+
 def create_app() -> Flask:
     app = Flask(
         __name__,
@@ -236,7 +353,7 @@ def create_app() -> Flask:
     def inject_version():
         # Appended to static URLs so a deploy busts the browser cache without
         # having to serve the assets with no-cache.
-        return {"asset_version": asset_version}
+        return {"asset_version": asset_version, "icon": icon}
     redis_cfg = redis_config_from_env()
     # One client for the life of the process, with a bounded pool and a socket
     # that gives up: see autocann/redis_pool.py for what the defaults cost.
@@ -268,15 +385,67 @@ def create_app() -> Flask:
                     for stage in STAGES
                     for band in [humidity_range_for_stage(stage)]
                 },
-                "stage_names": {
-                    "seedling": "Plántula",
-                    "early_veg": "Vegetativo Temprano",
-                    "late_veg": "Vegetativo Tardío",
-                    "flowering": "Floración",
-                    "dry": "Secado",
-                },
+                "stage_names": STAGE_NAMES,
+                # Grounds the stage proportions bar in Cultivo. The page used to
+                # read it from this payload and get nothing, so the bar had no
+                # expected lengths to draw against.
+                "stage_expected_days": STAGE_EXPECTED_DAYS,
             }
         )
+
+    @app.route("/api/vpd-band", methods=["GET"])
+    def get_vpd_band():
+        """
+        The humidity band a stage allows, at each air temperature of the chart.
+
+        Computed here, with the controller's own functions and leaf offset, and
+        not in the browser: a chart that re-implemented the Tetens math would
+        drift from what the loop actually does, and the operator would be
+        reading a band the tent is not held to. Each point is what
+        `resolve_setpoint` gets for that air temperature.
+        """
+        stage = (request.args.get("stage") or "").strip()
+        if not stage:
+            grow = get_active_grow()
+            if not grow:
+                return jsonify({"error": "No active grow found"}), 404
+            stage = grow["stage"]
+        if stage not in STAGES:
+            return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
+
+        explicit = humidity_range_for_stage(stage)
+        point_count = round((BAND_TEMP_MAX - BAND_TEMP_MIN) / BAND_TEMP_STEP) + 1
+        points = []
+        for step in range(point_count):
+            temperature = round(BAND_TEMP_MIN + step * BAND_TEMP_STEP, 1)
+            if explicit is not None:
+                low, high = explicit
+            else:
+                low, high = sorted(
+                    humidity_range_bounds_for_stage(
+                        stage, round(temperature - LEAF_TEMP_OFFSET_C, 1)
+                    )
+                )
+            points.append({
+                "temperature": temperature,
+                "humidity_low": round(low, 1),
+                "humidity_high": round(high, 1),
+            })
+
+        vpd_min = vpd_max = None
+        if explicit is None:
+            vpd_min, vpd_max = VPD_RANGES[stage]
+
+        return jsonify({
+            "stage": stage,
+            "kind": "humidity" if explicit is not None else "vpd",
+            "vpd_min": vpd_min,
+            "vpd_max": vpd_max,
+            "leaf_offset_c": LEAF_TEMP_OFFSET_C,
+            "temp_min": BAND_TEMP_MIN,
+            "temp_max": BAND_TEMP_MAX,
+            "points": points,
+        })
 
     @app.route("/api/current-data", methods=["GET"])
     def get_current_data():
@@ -1547,6 +1716,33 @@ def create_app() -> Flask:
             if delete_irrigation(irrigation_id):
                 return jsonify({"success": True})
             return jsonify({"error": "No existe ese riego"}), 404
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/logbook", methods=["GET"])
+    def get_logbook_entries():
+        """
+        What happened in the tent, newest first: relays, waterings and stages.
+
+        The sentences are built here so the dashboard shows the same words
+        everywhere and does not need to know the event types. The database layer
+        returns raw rows; `_logbook_entry` turns each into a line.
+        """
+        try:
+            days = min(max(request.args.get("days", default=LOGBOOK_DAYS_DEFAULT, type=int), 1),
+                       LOGBOOK_DAYS_MAX)
+            limit = min(max(request.args.get("limit", default=LOGBOOK_LIMIT_DEFAULT, type=int), 1),
+                        LOGBOOK_LIMIT_MAX)
+            since_ts = int(datetime.now(ARGENTINA_TZ).timestamp()) - days * 86400
+
+            grow = get_active_grow()
+            grow_id = int(grow["id"]) if grow else None
+            grow_name = grow["name"] if grow else ""
+
+            entries = get_logbook(since_ts, limit, grow_id=grow_id)
+            return jsonify({
+                "items": [_logbook_entry(entry, grow_name) for entry in entries],
+            })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 

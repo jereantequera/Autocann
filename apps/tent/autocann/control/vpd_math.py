@@ -48,6 +48,11 @@ STAGE_EXPECTED_DAYS: Dict[str, int] = {
     "dry": 10,
 }
 
+#: Leaves run cooler than the air; VPD is judged at leaf temperature.
+#: Lives here, next to the bands, because the control loop and the dashboard's
+#: VPD chart must subtract the same offset or the chart disagrees with the loop.
+LEAF_TEMP_OFFSET_C = 1.5
+
 # Kept for backwards compatibility with older imports.
 EARLY_VEG_VPD_RANGE: Tuple[float, float] = VPD_RANGES["early_veg"]
 LATE_VEG_VPD_RANGE: Tuple[float, float] = VPD_RANGES["late_veg"]

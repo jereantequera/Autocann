@@ -12,10 +12,16 @@
  * Todo lo que esta pantalla dice sobre si algo anda sale ahora de /api/health,
  * que lo calcula una vez mirando todas las fuentes juntas. Dos elementos de la
  * pantalla no pueden discrepar si leen del mismo objeto.
+ *
+ * Este módulo también decide qué cartel de arriba se muestra: el de "roto" y el
+ * de anomalías son uno solo, para que no haya dos cajas rojas pegadas diciendo
+ * lo mismo.
  */
 
-import { apiGet } from './api.js';
-import { escapeHtml, fmtNum, fmtSigned, formatAge } from './util.js';
+import { apiGet, connection } from './api.js';
+import {
+    escapeHtml, fmtNum, fmtSigned, formatAge, icon, iconText, stampLastUpdate,
+} from './util.js';
 
 // ===============================
 // Vocabulario
@@ -26,12 +32,12 @@ import { escapeHtml, fmtNum, fmtSigned, formatAge } from './util.js';
 // can see it - which is what this section is.
 
 const SENSOR_ROLES = {
-    primary: { icon: '🎯', label: 'Primario · controla' },
-    witness: { icon: '👁️', label: 'Testigo · sólo vigila' },
+    primary: { icon: 'crosshair', label: 'Primario, controla' },
+    witness: { icon: 'eye', label: 'Testigo, sólo vigila' },
     // Shown and nothing else. The sensor above the lamp is worth reading and
     // useless as a witness: its offset against the primary moves with the
     // photoperiod, not with the sensors' health.
-    observer: { icon: '📈', label: 'Observación · sólo informa' },
+    observer: { icon: 'chart-line', label: 'Observación, sólo informa' },
 };
 
 /** Same wording the control loop logs, so the two are recognisably the same fault. */
@@ -49,22 +55,17 @@ const DRIFT_FLAG_LABELS = {
  * "postea pero el detector lo marcó" es el que más esconde un badge verde.
  */
 const SENSOR_STATES = {
-    posting: { icon: '✅', css: 'is-ok', badge: 'ok' },
-    suspect: { icon: '⚠️', css: 'is-suspect', badge: 'stale' },
-    stale: { icon: '⏱️', css: 'is-stale', badge: 'error' },
-    missing: { icon: '❌', css: 'is-missing', badge: 'error' },
+    posting: { dot: 'ac-dot--ok', badge: 'ok' },
+    suspect: { dot: 'ac-dot--warn', badge: 'stale' },
+    stale: { dot: 'ac-dot--alert', badge: 'error' },
+    missing: { dot: 'ac-dot--alert', badge: 'error' },
 };
-
-const LEVEL_ICONS = { ok: '✅', warn: '⚠️', error: '❌' };
-
-// `monitor` is its own icon, not the pause's: the two are different answers to
-// "¿por qué no está controlando?" and the strip is the one line on the panel
-// that says which.
-const LOOP_ICONS = { running: '✅', monitor: '◍', paused: '⏸️', down: '❌' };
-const HISTORY_ICONS = { writing: '✅', paused: '⏸️', stalled: '❌', empty: '⏳' };
 
 /** El último estado conocido, para que otros módulos no vuelvan a pedirlo. */
 let snapshot = null;
+/** Anomalías de la última consulta de analytics.js, y si el usuario las descartó. */
+let anomalyItems = [];
+let anomaliesDismissed = false;
 
 const latestHealth = () => snapshot;
 
@@ -73,113 +74,265 @@ const latestHealth = () => snapshot;
 // ===============================
 
 /**
- * El badge del hero, que está sobre la tarjeta de VPD.
- *
- * Reporta lo que esa tarjeta puede mostrar, no sólo si el sensor contesta. Con
- * el lazo en pausa no hay VPD que mostrar, y un "✅ OK" al lado de un "--" es
- * exactamente la contradicción que hizo falta arreglar.
- *
- * @returns {{text: string, state: string}}
- */
-function heroBadge(health) {
-    if (!health) return { text: '⏳', state: '' };
-
-    const loop = health.loop || {};
-    if (loop.state === 'down') return { text: '❌ lazo caído', state: 'error' };
-    if (loop.state === 'paused') return { text: '⏸️ en pausa', state: 'stale' };
-    // Monitoring says the same thing this badge is for - there is no VPD on
-    // this card because nothing is aiming at one - and says which of the two
-    // reasons it is, so the card is not read as broken.
-    if (loop.state === 'monitor') return { text: '◍ monitoreo', state: 'stale' };
-
-    // Sólo el lazo y el sensor que controla: son los dos de los que depende el
-    // número que esta tarjeta muestra. Un hueco en el histórico es un problema
-    // real y no es de esta tarjeta, y pintarla de rojo por eso es volver a lo
-    // de antes al revés — un badge que no se corresponde con lo que tiene al lado.
-    const primary = (health.sensors || []).find(sensor => sensor.controls);
-    if (!primary) return { text: '⚠️ sin primario', state: 'stale' };
-    if (primary.state === 'missing') return { text: '❌ sin sensor', state: 'error' };
-    if (primary.state === 'stale') return { text: '❌ sin datos', state: 'error' };
-    if (primary.state === 'suspect') return { text: '⚠️ revisar', state: 'stale' };
-    return { text: '✅ OK', state: 'ok' };
-}
-
-/**
  * El badge de la sección: cuántos sensores están posteando, de cuántos.
  *
- * Un número, no un ✅: "2 de 2 posteando" sigue siendo verdad cuando alguien
+ * Un número, no un tilde: "2 de 2 posteando" sigue siendo verdad cuando alguien
  * agrega un tercer sensor y se olvida de configurarlo, y un tilde verde no.
  */
 function sensorsBadge(sensors) {
     if (!sensors || !sensors.length) return { text: 'sin sensores', state: '' };
     const live = sensors.filter(s => s.state === 'posting' || s.state === 'suspect').length;
-    const icon = live === sensors.length ? '✅' : live ? '⚠️' : '❌';
     return {
-        text: `${icon} ${live} de ${sensors.length} posteando`,
+        icon: live === sensors.length ? 'circle-check' : live ? 'triangle-alert' : 'circle-x',
+        text: `${live} de ${sensors.length} posteando`,
         state: live === sensors.length ? 'ok' : live ? 'stale' : 'error',
     };
 }
 
+/**
+ * Los cuatro chequeos de la sección Estado, cada uno con su nivel.
+ *
+ * Backend viene del propio cliente HTTP, no de /api/health: si el backend no
+ * contesta, el veredicto tampoco puede llegar, y el chequeo tiene que decirlo.
+ */
+function healthChecks(health, { offline = false } = {}) {
+    const sensors = health?.sensors || [];
+    const sensorsSummary = sensorsBadge(sensors);
+    return [
+        {
+            name: 'Backend',
+            level: offline ? 'error' : 'ok',
+            detail: offline ? 'sin respuesta' : 'responde',
+        },
+        {
+            name: 'Lazo de control',
+            level: health?.loop?.level || 'idle',
+            detail: health?.loop?.label || 'sin datos',
+        },
+        {
+            name: 'Sensores',
+            level: sensorsSummary.state === 'ok' ? 'ok' : sensorsSummary.state === 'stale' ? 'warn'
+                : sensorsSummary.state === 'error' ? 'error' : 'idle',
+            detail: sensorsSummary.text,
+        },
+        {
+            name: 'Histórico',
+            level: health?.history?.level || 'idle',
+            detail: health?.history?.label || 'sin datos',
+        },
+    ];
+}
+
+/**
+ * La frase grande de arriba de Sistema.
+ *
+ * "Todo anda" sólo cuando los cuatro chequeos están en ok. Si no, lo que dice
+ * el backend sobre lo peor que está pasando: nombrarlo, no contar problemas.
+ */
+function verdictFor(health, checks) {
+    if (!health) return 'Consultando el estado';
+    if (health.error) return 'No se pudo calcular el estado';
+    if (checks.every(check => check.level === 'ok')) return 'Todo anda';
+    return health.headline || 'Hay algo para revisar';
+}
+
+/**
+ * Si el cartel de "roto" tiene que estar arriba de todo.
+ *
+ * Sólo lo que está roto ahora y es del lazo o del sensor que controla. Una
+ * pausa es intencional y la anuncia el header; un hueco en el histórico lo
+ * cuentan las anomalías. Un cartel que aparece por algo que alguien hizo a
+ * propósito es el que enseña a ignorar los carteles.
+ */
+function isBroken(health) {
+    if (!health || health.error) return false;
+    if (health.loop?.state === 'down' || health.loop?.level === 'error') return true;
+    return (health.sensors || []).some(
+        sensor => sensor.role === 'primary' && (sensor.state === 'missing' || sensor.state === 'stale'));
+}
+
+/**
+ * Qué cartel de arriba se muestra, dados el veredicto y las anomalías.
+ *
+ * - Roto: sólo el cartel de roto. Las anomalías no tienen caja propia: se
+ *   suman como una línea "+N advertencias", para que el que lee vea que hay
+ *   más sin tener dos carteles pegados.
+ * - Sano con anomalías: el cartel de advertencia, más calmo, con hasta tres.
+ * - Nada: ningún cartel.
+ *
+ * Pura, así que lo que se ve queda probado sin el DOM.
+ */
+function alertDecision({ health, anomalies = [], dismissed = false }) {
+    const issues = dismissed ? [] : anomalies;
+    if (isBroken(health)) {
+        return {
+            mode: 'broken',
+            title: health.headline || 'Problema con sensores',
+            text: health.detail || '',
+            more: issues.length,
+        };
+    }
+    if (issues.length) {
+        return {
+            mode: 'warnings',
+            total: issues.length,
+            critical: issues.some(issue => issue.severity === 'critical'),
+            items: issues.slice(0, 3),
+            hidden: Math.max(0, issues.length - 3),
+        };
+    }
+    return { mode: 'none' };
+}
+
 // ===============================
-// Tarjetas
+// Tabla de sensores
 // ===============================
 
-function sensorCardHtml(sensor) {
-    const role = SENSOR_ROLES[sensor.role] || { icon: '📍', label: sensor.role || '' };
+/**
+ * Celdas de lectura de una fila de sensor, sin las de calibración.
+ *
+ * Compartidas con system.js, que agrega las celdas de corrección a las mismas
+ * filas: así la tabla tiene una sola forma aunque la escriban dos módulos.
+ */
+const SENSOR_READ_CELLS = `
+    <td class="sensor-name">
+        <span class="sensor-name-line"><span class="ac-dot" data-f="dot"></span><span data-f="name"></span></span>
+    </td>
+    <td data-f="role"></td>
+    <td class="ac-num" data-f="temp"></td>
+    <td class="ac-num" data-f="hum"></td>
+    <td class="ac-num" data-f="age"></td>`;
+
+function fillCells(row, values) {
+    for (const [field, value] of Object.entries(values)) {
+        const cell = row.querySelector(`[data-f="${field}"]`);
+        if (!cell) continue;
+        if (field === 'dot') {
+            cell.className = `ac-dot ${value || ''}`.trim();
+        } else {
+            cell.textContent = value ?? '';
+        }
+    }
+}
+
+/**
+ * El diagnóstico de un sensor, para su fila de abajo: qué pasa y qué hacer.
+ *
+ * Va en una fila aparte y no en la celda del nombre porque el texto largo
+ * estiraba cada fila y apretaba las columnas de lecturas. Vacío cuando no hay
+ * nada que decir, que es lo normal con un sensor que posta sin deriva.
+ */
+function sensorWhyHtml(sensor) {
+    const flags = (sensor.flags || []).map(flag => DRIFT_FLAG_LABELS[flag] || flag);
+    const parts = [];
+    if (sensor.state !== 'posting') {
+        parts.push(`<span>${escapeHtml(sensor.state_label || '')}</span>`);
+        if (sensor.state_detail) parts.push(`<span>${escapeHtml(sensor.state_detail)}</span>`);
+    }
+    if (flags.length) parts.push(`<span>${escapeHtml(flags.join(' · '))}</span>`);
+    if (sensor.action) parts.push(`<span class="sensor-why-action">→ ${escapeHtml(sensor.action)}</span>`);
+    return parts.join('');
+}
+
+function sensorRowValues(sensor) {
     const look = SENSOR_STATES[sensor.state] || SENSOR_STATES.missing;
-    // Una lectura vieja se muestra apagada. Mostrar 21.6 °C en naranja fuerte
+    const role = SENSOR_ROLES[sensor.role] || { label: sensor.role || '' };
+    // Una lectura vieja se muestra apagada. Mostrar 21.6 °C en tono fuerte
     // cuando es de hace cuatro horas es, en sí mismo, decir algo falso.
-    const cold = sensor.state === 'stale' || sensor.state === 'missing';
-
-    const flags = (sensor.flags || [])
-        .map(flag => `<div class="sensor-flag">⚠️ ${escapeHtml(DRIFT_FLAG_LABELS[flag] || flag)}</div>`)
-        .join('');
-
-    return `
-        <div class="sensor-card ${look.css}">
-            <div class="sensor-card-header">
-                <div class="sensor-card-name">${escapeHtml(sensor.label || 'Sensor')}</div>
-                <span class="sensor-badge ${look.badge}">${look.icon} ${escapeHtml(sensor.state_label || '')}</span>
-            </div>
-            <div class="sensor-card-role">${role.icon} ${escapeHtml(role.label)}</div>
-            <div class="sensor-card-readings${cold ? ' is-cold' : ''}">
-                <div>
-                    <div class="metric-label">Temperatura</div>
-                    <div class="metric-value sensor-temp">${fmtNum(sensor.temperature, 1)}<span class="metric-unit">°C</span></div>
-                </div>
-                <div>
-                    <div class="metric-label">Humedad</div>
-                    <div class="metric-value sensor-humidity">${fmtNum(sensor.humidity, 1)}<span class="metric-unit">%</span></div>
-                </div>
-            </div>
-            <div class="sensor-card-footer">
-                <span title="VPD del aire a la temperatura del sensor, no de la hoja">VPD aire ${fmtNum(sensor.vpd, 2)} kPa</span>
-                <span>${escapeHtml(formatAge(sensor.age_seconds))}</span>
-            </div>
-            ${flags}
-            ${sensor.state === 'posting' ? '' : `
-                <div class="sensor-why">${escapeHtml(sensor.state_detail || '')}</div>`}
-            ${sensor.action ? `<div class="sensor-action">→ ${escapeHtml(sensor.action)}</div>` : ''}
-        </div>
-    `;
+    return {
+        dot: look.dot,
+        name: sensor.label || 'Sensor',
+        role: role.label,
+        temp: fmtNum(sensor.temperature, 1),
+        hum: fmtNum(sensor.humidity, 1),
+        age: formatAge(sensor.age_seconds),
+    };
 }
 
-function driftVerdictHtml(drift) {
-    if (!drift) {
-        // sensor_status expires with the rest of the dashboard keys, so no
-        // verdict means the control loop is not publishing one.
-        return '<div class="sensor-flag">⏳ El lazo de control no publicó un veredicto</div>';
-    }
-    if (drift.ok) {
-        return '<div class="drift-verdict ok">✅ Sin deriva</div>';
-    }
-    const messages = (drift.messages || [])
-        .map(message => `<div class="sensor-flag">⚠️ ${escapeHtml(message)}</div>`)
-        .join('');
-    return messages || '<div class="sensor-flag">⚠️ Revisar los sensores</div>';
+function rowFor(tbody, key) {
+    return [...tbody.rows].find(row => row.dataset.sensorRow === key) || null;
 }
 
-function comparisonCardHtml(payload) {
+function whyRowFor(tbody, key) {
+    return [...tbody.rows].find(row => row.classList.contains('sensor-why-row')
+        && row.dataset.whyFor === key) || null;
+}
+
+/**
+ * La fila de diagnóstico debajo de `row`, o ninguna si `html` está vacío.
+ *
+ * Se crea y se quita según haga falta: un sensor que vuelve a postear pierde
+ * su fila de diagnóstico y no deja un renglón vacío atrás.
+ */
+function setWhyRow(tbody, row, html) {
+    const key = row.dataset.sensorRow;
+    let why = whyRowFor(tbody, key);
+    if (!html) {
+        if (why) why.remove();
+        return;
+    }
+    if (!why) {
+        why = document.createElement('tr');
+        why.className = 'sensor-why-row';
+        why.dataset.whyFor = key;
+        why.innerHTML = `<td colspan="${row.cells.length}"><div class="sensor-why"></div></td>`;
+        row.after(why);
+    }
+    why.querySelector('.sensor-why').innerHTML = html;
+}
+
+/**
+ * Una fila por sensor, actualizada en su lugar.
+ *
+ * Las celdas de lectura se reescriben cada consulta, pero las de corrección
+ * no se tocan: system.js las llena una vez y las deja, porque reescribirlas
+ * cada diez segundos borraría lo que alguien está tipeando.
+ */
+function renderSensorRows(tbody, sensors) {
+    const wanted = new Set(sensors.map(sensor => sensor.sensor_id));
+    // The loading placeholder has no id, and goes the first time there is an answer.
+    // The diagnostic rows have none either, and are handled with their sensor below.
+    [...tbody.rows].forEach(row => {
+        if (!row.dataset.sensorRow && !row.classList.contains('sensor-why-row')) row.remove();
+    });
+    // Sólo las filas que esta pantalla creó. Las de corrección sin sensor
+    // (data-orphan) las marca system.js y no las borra nadie más.
+    [...tbody.rows].forEach(row => {
+        if (row.dataset.sensorRow && !row.hasAttribute('data-orphan')
+            && row.dataset.sensorRow !== 'outdoor' && !wanted.has(row.dataset.sensorRow)) {
+            row.remove();
+        }
+    });
+    // A diagnostic row whose sensor row went away goes with it.
+    [...tbody.rows].forEach(row => {
+        if (row.classList.contains('sensor-why-row') && !rowFor(tbody, row.dataset.whyFor)) row.remove();
+    });
+
+    for (const sensor of sensors) {
+        let row = rowFor(tbody, sensor.sensor_id);
+        if (!row) {
+            row = document.createElement('tr');
+            row.dataset.sensorRow = sensor.sensor_id;
+            row.innerHTML = SENSOR_READ_CELLS + CALIB_CELLS;
+            const orphan = [...tbody.rows].find(other => other.hasAttribute('data-orphan'));
+            tbody.insertBefore(row, orphan || null);
+        }
+        row.removeAttribute('data-orphan');
+        fillCells(row, sensorRowValues(sensor));
+        // Only a sensor that is not posting (or has a drift flag) has anything to say under it.
+        const why = sensor.state !== 'posting' || (sensor.flags || []).length;
+        setWhyRow(tbody, row, why ? sensorWhyHtml(sensor) : '');
+    }
+}
+
+/** Las tres celdas de corrección; system.js las llena. Acá sólo existen. */
+const CALIB_CELLS = `
+    <td class="ac-num" data-calib-cell="temperature"></td>
+    <td class="ac-num" data-calib-cell="humidity"></td>
+    <td data-calib-cell="notes"></td>`;
+
+/** La línea de deriva bajo la tabla: sólo cuando hay testigo que comparar. */
+function driftLineHtml(payload) {
     const delta = payload.delta;
     const drift = payload.drift || null;
     const baseline = drift && drift.baseline;
@@ -187,28 +340,26 @@ function comparisonCardHtml(payload) {
     // The offset between two sensors in the same tent proves nothing on its own
     // - position and airflow are real. It is the *change* from the learned
     // baseline that means something, so the baseline is shown next to it.
-    const baselineText = baseline
-        ? `Base: ${fmtSigned(baseline.temperature, 2)} °C / ${fmtSigned(baseline.humidity, 2)} %`
-        : 'Base: aprendiendo (~200 muestras)';
-
-    // Styled as a value only when it is one: "sin par de lecturas frescas" set
-    // in the big lime numerals reads as a measurement at a glance.
     const deltaText = delta
-        ? `${fmtSigned(delta.temperature, 1)} °C · ${fmtSigned(delta.humidity, 1)} %`
-        : 'sin par de lecturas frescas';
-    const deltaClass = delta ? 'metric-value sensor-delta' : 'sensor-delta-absent';
+        ? `Testigo − primario: ${fmtSigned(delta.temperature, 1)} °C · ${fmtSigned(delta.humidity, 1)} %`
+        : 'Testigo − primario: sin par de lecturas frescas';
+    const baselineText = baseline
+        ? `base ${fmtSigned(baseline.temperature, 2)} °C / ${fmtSigned(baseline.humidity, 2)} %`
+        : 'base: aprendiendo (~200 muestras)';
 
-    return `
-        <div class="sensor-card sensor-card-compare">
-            <div class="sensor-card-header">
-                <div class="sensor-card-name">Diferencia</div>
-            </div>
-            <div class="sensor-card-role">↔️ testigo − primario</div>
-            <div class="${deltaClass}">${escapeHtml(deltaText)}</div>
-            <div class="sensor-card-footer"><span>${escapeHtml(baselineText)}</span></div>
-            ${driftVerdictHtml(drift)}
-        </div>
-    `;
+    let verdict;
+    if (!drift) {
+        // sensor_status expires with the rest of the dashboard keys, so no
+        // verdict means the control loop is not publishing one.
+        verdict = `${icon('hourglass')}El lazo de control no publicó un veredicto`;
+    } else if (drift.ok) {
+        verdict = `${icon('circle-check')}Sin deriva`;
+    } else {
+        const messages = (drift.messages || []).map(message => escapeHtml(message));
+        verdict = `${icon('triangle-alert')}${messages.join(' · ') || 'Revisar los sensores'}`;
+    }
+    return `<span>${escapeHtml(deltaText)}</span><span>${escapeHtml(baselineText)}</span>`
+        + `<span class="sensors-drift-verdict">${verdict}</span>`;
 }
 
 // ===============================
@@ -219,103 +370,198 @@ function setBadge(id, badge) {
     const el = document.getElementById(id);
     if (!el) return;
     el.className = `sensor-badge ${badge.state}`.trim();
-    el.textContent = badge.text;
-}
-
-function renderRow(prefix, verdict, icons) {
-    const row = document.getElementById(`health-${prefix}`);
-    const state = document.getElementById(`health-${prefix}-state`);
-    const detail = document.getElementById(`health-${prefix}-detail`);
-    if (!row || !verdict) return;
-
-    row.className = `health-row is-${verdict.level}`;
-    state.textContent = `${icons[verdict.state] || '⏳'} ${verdict.label || ''}`;
-    detail.textContent = verdict.detail || '';
+    el.innerHTML = iconText(badge);
 }
 
 function renderSensors(health) {
-    const grid = document.getElementById('indoor-sensors-grid');
-    if (!grid) return;
+    const tbody = document.getElementById('indoor-sensors-grid');
+    if (!tbody) return;
 
     const sensors = health.sensors || [];
     if (!sensors.length) {
-        grid.innerHTML = `
-            <div class="sensor-card is-missing">
-                <div class="sensor-card-header">
-                    <div class="sensor-card-name">Sin sensores configurados</div>
-                </div>
-                <div class="sensor-why">${escapeHtml(health.detail || '')}</div>
-            </div>
-        `;
-        return;
+        // Nothing configured is a state of its own, not an empty table.
+        tbody.innerHTML = `<tr class="sensors-empty"><td colspan="8">Sin sensores configurados. ${escapeHtml(health.detail || '')}</td></tr>`;
+    } else {
+        renderSensorRows(tbody, sensors);
     }
 
-    const cards = sensors.map(sensorCardHtml);
-    // Gated on a witness existing, not on the number of sensors: an observer is
-    // not something to compare against, and a difference card next to one would
-    // claim a cross-check the installation does not have.
-    if (health.has_witness) cards.push(comparisonCardHtml(health));
-    grid.innerHTML = cards.join('');
+    const drift = document.getElementById('drift-line');
+    if (drift) {
+        // Gated on a witness existing, not on the number of sensors: an observer is
+        // not something to compare against, and a difference line next to one would
+        // claim a cross-check the installation does not have.
+        drift.hidden = !health.has_witness;
+        if (health.has_witness) drift.innerHTML = driftLineHtml(health);
+    }
+}
+
+function renderChecks(health) {
+    const row = document.getElementById('health-checks');
+    const verdict = document.getElementById('health-verdict');
+    const age = document.getElementById('health-age');
+    const checks = healthChecks(health, { offline: connection.offline });
+
+    if (row) {
+        row.innerHTML = checks.map(check => `
+            <div class="health-check is-${check.level}">
+                <div class="health-check-name">
+                    <span class="ac-dot ${check.level === 'ok' ? 'ac-dot--ok' : check.level === 'warn' ? 'ac-dot--warn'
+                        : check.level === 'error' ? 'ac-dot--alert' : 'ac-dot--idle'}"></span>
+                    ${escapeHtml(check.name)}
+                </div>
+                <div class="health-check-detail">${escapeHtml(check.detail)}</div>
+            </div>`).join('');
+    }
+    if (verdict) verdict.textContent = verdictFor(health, checks);
+    if (age) {
+        age.textContent = health?.generated_at
+            ? `Revisado ${formatAge(Math.max(0, Date.now() / 1000 - health.generated_at))}`
+            : '';
+    }
 }
 
 /**
- * El cartel rojo de arriba de todo.
+ * Los carteles de arriba de todo, decididos en un solo lugar.
  *
- * Sólo para lo que está roto de verdad y ahora: una pausa es intencional y ya
- * la anuncia el header, así que acá no entra. Un cartel que aparece por algo
- * que alguien hizo a propósito es el que enseña a ignorar los carteles.
+ * El de conexión lo maneja api.js; éste es el de sensores y el de anomalías,
+ * y los dos salen de alertDecision para que nunca se muestren juntos diciendo
+ * lo mismo.
  */
-function renderAlert(health) {
-    const alert = document.getElementById('sensor-alert');
-    const message = document.getElementById('sensor-alert-message');
-    if (!alert || !message) return;
+function renderAlerts() {
+    const decision = alertDecision({
+        health: snapshot,
+        anomalies: anomalyItems,
+        dismissed: anomaliesDismissed,
+    });
 
-    // Sólo lo que está roto ahora y es de los sensores o del lazo. Un hueco en
-    // el histórico ya lo cuenta el cartel de anomalías, y decir lo mismo dos
-    // veces, en dos cajas rojas pegadas, es la forma más rápida de que alguien
-    // deje de leer las dos.
-    const broken = (health.sensors || []).some(sensor => sensor.level === 'error')
-        || health.loop?.level === 'error';
-
+    const broken = document.getElementById('sensor-alert');
+    const brokenMessage = document.getElementById('sensor-alert-message');
+    const brokenTitle = document.getElementById('sensor-alert-title');
+    const brokenMore = document.getElementById('sensor-alert-more');
     if (broken) {
-        message.textContent = `${health.headline}. ${health.detail}`;
-        alert.style.display = 'flex';
-    } else {
-        alert.style.display = 'none';
+        const show = decision.mode === 'broken';
+        broken.classList.toggle('show', show);
+        if (show) {
+            if (brokenTitle) brokenTitle.textContent = decision.title;
+            if (brokenMessage) brokenMessage.textContent = decision.text;
+            if (brokenMore) {
+                brokenMore.hidden = !decision.more;
+                brokenMore.textContent = decision.more ? `+${decision.more} advertencias` : '';
+            }
+        }
     }
+
+    const warnings = document.getElementById('anomalies-alert');
+    const list = document.getElementById('anomalies-list');
+    const title = document.getElementById('anomalies-title-text');
+    const iconEl = document.getElementById('anomalies-icon');
+    const showWarnings = decision.mode === 'warnings';
+    if (warnings) warnings.classList.toggle('show', showWarnings);
+    if (showWarnings) {
+        if (title) {
+            title.textContent = decision.critical
+                ? 'Problemas críticos detectados' : 'Advertencias detectadas';
+        }
+        if (iconEl) iconEl.innerHTML = icon(decision.critical ? 'siren' : 'triangle-alert');
+        if (list) {
+            list.innerHTML = decision.items.map(issue => `
+                <div class="anomaly-item ${escapeHtml(issue.severity || 'warning')}">
+                    ${icon(issue.severity === 'critical' ? 'circle-alert' : 'triangle-alert', 'anomaly-icon')}
+                    <span class="anomaly-text">${escapeHtml(issue.message)}</span>
+                    <span class="anomaly-time">${escapeHtml(issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '')}</span>
+                </div>`).join('')
+                + (decision.hidden ? `<div class="anomaly-more">+ ${decision.hidden} más</div>` : '');
+        }
+    }
+}
+
+/**
+ * Lo que analytics.js trae de /api/anomalies, para decidir junto con la salud.
+ *
+ * `dismissed` llega de analytics.js, que es quien sabe si el usuario lo
+ * descartó y hasta cuándo.
+ */
+function setAnomalies(items, { dismissed = false } = {}) {
+    anomalyItems = Array.isArray(items) ? items : [];
+    anomaliesDismissed = !!dismissed;
+    renderAlerts();
 }
 
 function renderHealth(health) {
     snapshot = health;
 
     renderSensors(health);
-    renderRow('loop', health.loop, LOOP_ICONS);
-    renderRow('history', health.history, HISTORY_ICONS);
+    renderChecks(health);
 
-    // Two places, one computation: the section badge over the cards in Sistema
-    // and the Sensores row of the panel's Estado strip. The cards moved off the
-    // panel, so that row is all it says about them - it must not be able to say
-    // something the cards contradict.
-    const sensors = sensorsBadge(health.sensors);
-    setBadge('sensors-badge', sensors);
-    const strip = document.getElementById('health-sensors-state');
-    if (strip) strip.textContent = sensors.text;
-
-    setBadge('sensor-status-indoor', heroBadge(health));
+    // The section badge over the cards in Sistema, the only place sensors are
+    // shown now that the panel reads the loop and the sensors from its status.
+    setBadge('sensors-badge', sensorsBadge(health.sensors));
 
     const outdoor = health.outdoor || {};
+    setOutdoorRow(outdoor);
     setBadge('sensor-status-outdoor',
-        outdoor.ok === true ? { text: '✅ OK', state: 'ok' }
-            : outdoor.ok === false ? { text: '❌ Error', state: 'error' }
-                : { text: '⏳', state: '' });
+        outdoor.ok === true ? { icon: 'circle-check', text: 'OK', state: 'ok' }
+            : outdoor.ok === false ? { icon: 'circle-x', text: 'Error', state: 'error' }
+                : { icon: 'hourglass', text: '', state: '' });
 
-    renderAlert(health);
+    renderAlerts();
+
+    // The panel's status line reads the loop's state from this same answer,
+    // so it is told when a new one lands rather than polling for it.
+    document.dispatchEvent(new CustomEvent('health:updated'));
+}
+
+/**
+ * El exterior no tiene lectura en /api/health, sólo si su DHT responde: la
+ * fila dice eso y nada más, para no inventar un número que no llegó.
+ */
+function setOutdoorRow(outdoor) {
+    const tbody = document.getElementById('indoor-sensors-grid');
+    if (!tbody) return;
+    let row = rowFor(tbody, 'outdoor');
+    if (!row) {
+        row = document.createElement('tr');
+        row.dataset.sensorRow = 'outdoor';
+        row.innerHTML = SENSOR_READ_CELLS + CALIB_CELLS;
+        tbody.appendChild(row);
+    }
+    const ok = outdoor.ok;
+    fillCells(row, {
+        dot: ok === true ? 'ac-dot--ok' : ok === false ? 'ac-dot--alert' : 'ac-dot--idle',
+        name: 'Exterior',
+        role: 'Afuera, sólo se grafica',
+        temp: '—',
+        hum: '—',
+        age: '—',
+    });
+    setWhyRow(tbody, row, ok === false && outdoor.error
+        ? `<span>${escapeHtml(outdoor.error)}</span>` : '');
+    row.querySelectorAll('[data-calib-cell]').forEach(cell => { cell.textContent = '—'; });
 }
 
 function fetchHealth() {
     apiGet('/api/health', { key: 'health' }).then(data => {
-        if (data && !data.error) renderHealth(data);
+        if (!data || data.error) return;
+        renderHealth(data);
+        // This poller runs on every view, so it is the one that keeps the
+        // sidebar's "última actualización" honest where current data does not run.
+        stampLastUpdate();
     });
 }
 
-export { fetchHealth, latestHealth, heroBadge, sensorsBadge, SENSOR_ROLES, DRIFT_FLAG_LABELS };
+// The header of Sistema says whether the backend answers; the checks have to
+// change with it, not on the next health poll ten seconds later.
+// Guarded because the unit tests import this module into Node, which has no
+// document; in the page there always is one.
+if (typeof document !== 'undefined') {
+    document.addEventListener('connection:changed', () => {
+        renderChecks(snapshot);
+        renderAlerts();
+    });
+}
+
+export {
+    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, renderAlerts,
+    sensorsBadge, setAnomalies, verdictFor, SENSOR_READ_CELLS, CALIB_CELLS,
+    SENSOR_ROLES, DRIFT_FLAG_LABELS,
+};

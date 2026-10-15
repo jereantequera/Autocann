@@ -11,8 +11,8 @@ import { test } from 'node:test';
 
 import {
     doseAmount, escapeHtml, fmtDose, fmtNum, fmtSigned, formatAge, formatDate,
-    formatDuration, getScoreClass, getScoreLabel, growParam, humidityDiffLabel,
-    lastWateringLabel, outputPinLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
+    formatDuration, getScoreClass, getScoreLabel, growParam, icon, iconText,
+    lastWateringLabel, parseLocalDatetime, relaySourceLabel, waterOnlyNote,
     withGrow,
 } from '../../autocann/web/static/js/util.js';
 
@@ -87,8 +87,8 @@ test('score bands are contiguous and cover the whole 0-100 range', () => {
     assert.ok(bands.every(Boolean), 'todo score debe tener una clase');
     assert.equal(getScoreClass(100), getScoreClass(95));
     assert.notEqual(getScoreClass(0), getScoreClass(100));
-    assert.ok(getScoreLabel(90).length > 0);
-    assert.ok(getScoreLabel(10).length > 0);
+    assert.equal(getScoreLabel(90).text, 'Excelente');
+    assert.equal(getScoreLabel(10).text, 'Necesita mejorar');
 });
 
 test('formatAge speaks in units a grower reads at a glance', () => {
@@ -131,32 +131,6 @@ test('formatDuration shows a dash rather than a countdown already past', () => {
     for (const value of [0, -5, null, undefined, NaN, 'pronto']) {
         assert.equal(formatDuration(value), '--', `para ${String(value)}`);
     }
-});
-
-test('humidityDiffLabel names the three states a grower acts on', () => {
-    assert.deepEqual(humidityDiffLabel(60, 60), { state: 'on-target', text: '✓ En objetivo' });
-    assert.deepEqual(humidityDiffLabel(63, 60), { state: 'on-target', text: '✓ En objetivo' });
-    assert.deepEqual(humidityDiffLabel(50, 60), { state: 'too-low', text: '↓ 10.0% por debajo' });
-    assert.deepEqual(humidityDiffLabel(70.5, 60), { state: 'too-high', text: '↑ 10.5% por encima' });
-});
-
-test('humidityDiffLabel returns nothing when a payload carries no readings', () => {
-    // /api/current-data answers 404 with `{"error": "No current data available"}`,
-    // and apiGet only throws on 5xx, so the dashboard renders that body: every
-    // field is `undefined`. A guard written `humidity !== null` let it through
-    // and the card announced "NaN% por encima".
-    const empty = {};  // the 404 body, as far as updateCurrentData can tell
-    assert.equal(humidityDiffLabel(empty.humidity, empty.target_humidity), null);
-
-    for (const value of [null, undefined, NaN, Infinity, '60', {}]) {
-        assert.equal(humidityDiffLabel(value, 60), null, `humedad ${String(value)}`);
-        assert.equal(humidityDiffLabel(60, value), null, `objetivo ${String(value)}`);
-    }
-});
-
-test('humidityDiffLabel keeps a real zero as a reading, not as a missing one', () => {
-    assert.equal(humidityDiffLabel(0, 60).state, 'too-low');
-    assert.equal(humidityDiffLabel(60, 0).state, 'too-high');
 });
 
 // ---------------------------------------------------------------------------
@@ -282,36 +256,6 @@ test('withGrow appends with whichever separator the url already needs', () => {
     assert.equal(withGrow('/api/weekly-report', null), '/api/weekly-report');
 });
 
-test('outputPinLabel names the node when the node is what switches the relay', () => {
-    // El defecto: con los relés en el nodo, la pantalla decía "BCM 25" para la
-    // ventilación. El 25 existe en las dos placas y en el ESP32 es el
-    // humidificador, así que mandaba a medir el header correcto con la etiqueta
-    // equivocada.
-    const label = outputPinLabel({ scope: 'remote', node: 'ESP32 relés', number: 27 });
-    assert.equal(label.text, 'GPIO 27');
-    assert.match(label.title, /ESP32 relés/);
-    assert.match(label.title, /no la Raspberry/);
-});
-
-test('outputPinLabel keeps saying BCM when the Raspberry is the one switching', () => {
-    assert.equal(outputPinLabel({ scope: 'local', node: null, number: 7 }).text, 'BCM 7');
-});
-
-test('outputPinLabel shows nothing rather than a pin it was not given', () => {
-    // Un "BCM NaN" o un "GPIO undefined" en la tarjeta es peor que el hueco:
-    // parece un dato.
-    for (const source of [null, undefined, {}, { scope: 'remote' },
-                          { scope: 'local', number: null }, { scope: 'remote', number: 'IN1' }]) {
-        assert.deepEqual(outputPinLabel(source), { text: '', title: '' }, JSON.stringify(source));
-    }
-});
-
-test('outputPinLabel still names a remote pin when nobody named the node', () => {
-    const label = outputPinLabel({ scope: 'remote', node: '', number: 25 });
-    assert.equal(label.text, 'GPIO 25');
-    assert.match(label.title, /nodo remoto/);
-});
-
 test('relaySourceLabel says which board the panel is talking about', () => {
     assert.equal(relaySourceLabel({ scope: 'remote', node: 'ESP32 relés', number: 25 }).text,
                  'ESP32 relés');
@@ -320,4 +264,15 @@ test('relaySourceLabel says which board the panel is talking about', () => {
     // Sin payload el encabezado queda vacío: inventar una placa es el defecto.
     assert.deepEqual(relaySourceLabel(undefined), { text: '', title: '' });
     assert.deepEqual(relaySourceLabel({ scope: 'otra' }), { text: '', title: '' });
+});
+
+test('icon() points at a symbol in the sprite and hides it from screen readers', () => {
+    const svg = icon('droplets');
+    assert.match(svg, /<use href="#i-droplets"><\/use>/);
+    assert.match(svg, /aria-hidden="true"/);
+});
+
+test('iconText() escapes the words it is given', () => {
+    assert.equal(iconText({ text: '<b>' }), '&lt;b&gt;');
+    assert.match(iconText({ icon: 'check', text: 'OK' }), /<\/svg>OK$/);
 });

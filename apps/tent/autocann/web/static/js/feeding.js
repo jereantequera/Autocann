@@ -2,6 +2,8 @@ import { apiGet } from './api.js';
 import { alertDialog, confirmDialog, toast } from './modals.js';
 import { config } from './state.js';
 import { doseAmount, escapeHtml, fmtDose, lastWateringLabel, waterOnlyNote } from './util.js';
+import { formatShortDate } from './grow-model.js';
+import { currentColumnIndex, stageGroups, stageLabel } from './feed-grid.js';
 
 /**
  * Feeding: today's doses, the irrigation log, and the editor for the chart.
@@ -22,19 +24,10 @@ let formTouched = false;
 
 const UNITS = ['ml/L', 'g/L'];
 
-/**
- * La letra que va arriba de cada columna de la grilla.
- *
- * Una tabla y no una cadena de ternarios con un `else` final: ese `else` daba
- * 'S' a cualquier etapa nueva, y plántula y secado habrían compartido letra.
- */
-const STAGE_INITIALS = {
-    seedling: 'P',
-    early_veg: 'V',
-    late_veg: 'L',
-    flowering: 'F',
-    dry: 'S',
-};
+const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+    + 'stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ADD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+    + 'stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
 function el(id) {
     return document.getElementById(id);
@@ -60,44 +53,43 @@ function stageName(stage) {
 // Today
 // ---------------------------------------------------------------------------
 
+/**
+ * The subtitle under the heading, and a notice only when there is nothing to
+ * pour. The doses themselves are the product rows: the form already multiplies
+ * them by the litres, so a second list here would just say it twice.
+ */
 function renderToday() {
-    const doses = el('feed-doses');
+    const notice = el('feed-doses');
     const week = el('feed-week');
-    if (!doses) return;
+    if (!notice || !week) return;
 
     if (!today) {
-        doses.innerHTML = '<div class="loading">Cargando plan</div>';
+        notice.hidden = true;
         return;
     }
 
+    const count = today.items.length;
     week.textContent = today.week
         ? `${stageName(today.stage)} · semana ${today.week} de ${today.weeks_in_stage}`
         : stageName(today.stage);
+    if (count) {
+        week.textContent += ` · el plan lleva ${count} ${count === 1 ? 'producto' : 'productos'}`;
+    }
 
     const waterOnly = waterOnlyNote(today.water_only);
     if (waterOnly) {
-        doses.innerHTML = `
-            <div class="feed-flush">${escapeHtml(waterOnly.text)}</div>`;
+        notice.hidden = false;
+        notice.textContent = waterOnly.text;
         return;
     }
-    if (!today.items.length) {
-        doses.innerHTML = `
-            <div class="feed-flush">
-                No hay nada cargado en el plan para esta semana.
-                Abrí «Plan» y completá la grilla.
-            </div>`;
+    if (!count) {
+        notice.hidden = false;
+        notice.textContent = 'No hay nada cargado en el plan para esta semana. '
+            + 'Abrí «Plan por semana» y completá la grilla.';
         return;
     }
-
-    const litres = Number(el('feed-litres').value) || today.litres;
-    doses.innerHTML = today.items.map(item => `
-        <div class="feed-dose-row">
-            <span class="feed-dose-name">${escapeHtml(item.name)}</span>
-            <span class="feed-dose-amount">
-                ${escapeHtml(doseAmount(item, litres))}
-                <small>${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}</small>
-            </span>
-        </div>`).join('');
+    notice.hidden = true;
+    notice.textContent = '';
 }
 
 // ---------------------------------------------------------------------------
@@ -123,22 +115,28 @@ function renderForm() {
         return;
     }
 
+    // A product outside this week's plan stays usable, but its row is dimmed:
+    // an unplanned addition should look like one at a glance.
     box.innerHTML = ordered.map(product => {
         const planned = due.get(product.id);
         const id = Number(product.id);
+        const name = escapeHtml(product.name);
         return `
-        <label class="feed-product${planned ? ' on' : ''}" data-product-id="${id}">
-            <input type="checkbox" ${planned ? 'checked' : ''}
-                   aria-label="${escapeHtml(product.name)}">
-            <span class="feed-product-name">
-                ${escapeHtml(product.name)}
-                <small>${planned ? `plan ${escapeHtml(fmtDose(planned))} ${escapeHtml(product.unit)}`
-                                 : escapeHtml(product.unit)}</small>
+        <label class="ac-product${planned ? '' : ' is-off'}" data-product-id="${id}">
+            <input class="ac-check" type="checkbox" ${planned ? 'checked' : ''}
+                   aria-label="${name}">
+            <span class="ac-product__name">
+                ${name}
+                <span class="ac-product__note">${planned ? 'en el plan' : 'no está en el plan esta semana'}</span>
             </span>
-            <input type="number" class="feed-product-dose" min="0" step="0.5"
-                   inputmode="decimal" value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
-                   aria-label="Dosis de ${escapeHtml(product.name)}">
-            <span class="feed-product-total"></span>
+            <span class="ac-product__dose">
+                <input type="number" class="ac-field__input ac-field__input--num feed-product-dose"
+                       min="0" step="0.5" inputmode="decimal"
+                       value="${planned ? fmtDose(planned).replace(',', '.') : ''}"
+                       aria-label="Dosis de ${name}">
+                <small>${escapeHtml(product.unit)}</small>
+            </span>
+            <span class="ac-product__total"></span>
         </label>`;
     }).join('');
 
@@ -147,15 +145,14 @@ function renderForm() {
 
 function refreshTotals() {
     const litres = Number(el('feed-litres').value) || 0;
-    document.querySelectorAll('#feed-products .feed-product').forEach(row => {
+    document.querySelectorAll('#feed-products .ac-product').forEach(row => {
         const checkbox = row.querySelector('input[type=checkbox]');
         const input = row.querySelector('.feed-product-dose');
-        const total = row.querySelector('.feed-product-total');
+        const total = row.querySelector('.ac-product__total');
         const value = Number(input.value) || 0;
         const active = checkbox.checked && value > 0;
         const product = plan.products.find(p => p.id === Number(row.dataset.productId));
 
-        row.classList.toggle('on', active);
         total.textContent = active && product
             ? doseAmount({ dose: value, unit: product.unit }, litres)
             : '--';
@@ -165,7 +162,7 @@ function refreshTotals() {
 function readForm() {
     const planned = new Set((today?.items || []).map(item => item.product_id));
     const items = [];
-    document.querySelectorAll('#feed-products .feed-product').forEach(row => {
+    document.querySelectorAll('#feed-products .ac-product').forEach(row => {
         const checkbox = row.querySelector('input[type=checkbox]');
         const value = Number(row.querySelector('.feed-product-dose').value) || 0;
         if (!checkbox.checked || value <= 0) return;
@@ -187,6 +184,10 @@ function readForm() {
 // History
 // ---------------------------------------------------------------------------
 
+/**
+ * The irrigation log as a day-by-day list: what was poured, the measures taken
+ * with it, and the note, with the delete control at the foot of each entry.
+ */
 function renderHistory() {
     const box = el('feed-history');
     const badge = el('feed-last-badge');
@@ -194,8 +195,9 @@ function renderHistory() {
 
     if (!history.length) {
         box.innerHTML = `
-            <div class="feed-empty">
-                Todavía no hay riegos registrados para este cultivo.
+            <div class="ac-empty">
+                Todavía no hay riegos en este cultivo. El primero que guardes
+                aparece acá y en el calendario.
             </div>`;
         if (badge) badge.textContent = 'sin riegos';
         return;
@@ -214,29 +216,27 @@ function renderHistory() {
     box.innerHTML = history.map(entry => {
         const id = Number(entry.id);
         const items = (entry.items || []).map(item => `
-            <span class="feed-pill${item.on_plan ? '' : ' off'}">
-                ${escapeHtml(item.name)}
-                ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
-                · ${escapeHtml(doseAmount(item, entry.litres))}
-            </span>`).join('') || '<span class="feed-pill">Solo agua</span>';
+            <span class="ac-log__text${item.on_plan ? '' : ' is-off'}">
+                ${escapeHtml(item.name)} ${escapeHtml(fmtDose(item.dose))} ${escapeHtml(item.unit)}
+                · ${escapeHtml(doseAmount(item, entry.litres))}${item.on_plan ? '' : ' · fuera del plan'}
+            </span>`).join('') || '<span class="ac-log__text">Solo agua</span>';
 
         const measures = [
             entry.stage ? `${escapeHtml(stageName(entry.stage))} S${Number(entry.week) || '?'}` : '',
             Number.isFinite(entry.ph) ? `pH ${escapeHtml(fmtDose(entry.ph))}` : '',
             Number.isFinite(entry.ec) ? `EC ${escapeHtml(fmtDose(entry.ec))}` : '',
-        ].filter(Boolean).map(text => `<span class="feed-tag">${text}</span>`).join('');
+        ].filter(Boolean).join(' · ');
 
         return `
-        <div class="feed-entry">
-            <div class="feed-entry-head">
-                <span class="feed-entry-date">${escapeHtml(entry.date)}</span>
-                <span class="feed-entry-litres">${escapeHtml(fmtDose(entry.litres))} L</span>
-            </div>
-            <div class="feed-entry-tags">${measures}</div>
-            <div class="feed-entry-items">${items}</div>
-            ${entry.notes ? `<div class="feed-entry-note">${escapeHtml(entry.notes)}</div>` : ''}
-            <div class="feed-entry-foot">
-                <button class="btn btn-ghost btn-mini feed-delete" data-irrigation-id="${id}"
+        <div class="ac-log__day">${escapeHtml(formatShortDate(entry.date))}</div>
+        <div class="ac-log__item">
+            <span class="ac-log__time">${escapeHtml(fmtDose(entry.litres))} L</span>
+            <span class="ac-dot ac-dot--info" aria-hidden="true"></span>
+            <div>
+                ${items}
+                ${measures ? `<div class="ac-log__detail">${measures}</div>` : ''}
+                ${entry.notes ? `<div class="ac-log__detail">${escapeHtml(entry.notes)}</div>` : ''}
+                <button class="ac-btn ac-btn--ghost feed-delete" data-irrigation-id="${id}"
                         data-irrigation-date="${escapeHtml(entry.date)}">
                     Borrar
                 </button>
@@ -264,53 +264,112 @@ function renderPlanEditor() {
     if (!planDraft) planDraft = cloneplan();
 
     const columns = plan.columns;
-    const header = columns.map((column, index) => {
-        const first = index === 0 || columns[index - 1].stage !== column.stage;
-        const initial = STAGE_INITIALS[column.stage]
-            || (column.stage || '?').charAt(0).toUpperCase();
-        return `<th class="feed-col ${escapeHtml(column.stage)}${first ? ' stage-start' : ''}"
-                    title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
-                >${initial}${column.week}</th>`;
+    const groups = stageGroups(columns);
+    // A stage starts a new group: that is where the hairline goes.
+    const starts = new Set(groups.map(group => group.start));
+
+    // The header and the body must have the same cells in the same order, or
+    // the weeks drift off their columns. So the product block is one cell in
+    // each header row, and <col> fixes every week to the same width.
+    const cols = `<colgroup><col class="feed-col-product">${columns.map(() => '<col class="feed-col-week">').join('')}</colgroup>`;
+    const stageRow = groups.map(group => {
+        const full = stageName(group.stage);
+        return `<th scope="colgroup" colspan="${group.span}" class="feed-stage${starts.has(group.start) ? ' stage-start' : ''}"
+            title="${escapeHtml(full)}">${escapeHtml(stageLabel(group.stage, group.span, full))}</th>`;
     }).join('');
+    const weekRow = columns.map((column, position) => `
+        <th scope="col" class="feed-week${starts.has(position) ? ' stage-start' : ''}"
+            data-col="${position}" title="${escapeHtml(stageName(column.stage))} semana ${column.week}"
+            >${column.week}</th>`).join('');
 
     const rows = planDraft.map((product, index) => {
+        const name = escapeHtml(product.name);
         const cells = columns.map((column, position) => {
             const value = product.doses?.[column.stage]?.[column.week] ?? '';
-            const first = position === 0 || columns[position - 1].stage !== column.stage;
             return `
-            <td class="feed-cell${value ? ' has' : ''}${first ? ' stage-start' : ''}">
-                <input type="number" min="0" step="0.5" inputmode="decimal"
+            <td class="feed-cell${value ? ' has' : ''}${starts.has(position) ? ' stage-start' : ''}"
+                data-col="${position}">
+                <input type="number" min="0" step="0.5" inputmode="decimal" placeholder="—"
                        value="${value === '' ? '' : Number(value)}"
                        data-row="${index}" data-stage="${escapeHtml(column.stage)}"
                        data-week="${column.week}"
-                       aria-label="${escapeHtml(product.name)} — ${escapeHtml(stageName(column.stage))} semana ${column.week}">
+                       aria-label="${name} — ${escapeHtml(stageName(column.stage))} semana ${column.week}">
             </td>`;
         }).join('');
 
         return `
         <tr>
-            <th class="feed-rowh">
-                <input type="text" class="feed-plan-name" data-row="${index}"
-                       value="${escapeHtml(product.name)}" aria-label="Nombre del producto">
-                <select class="feed-plan-unit" data-row="${index}"
-                        aria-label="Unidad de ${escapeHtml(product.name)}">
-                    ${UNITS.map(unit => `<option value="${unit}"
-                        ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
-                </select>
-                <button class="feed-plan-del" data-row="${index}" type="button"
-                        aria-label="Quitar ${escapeHtml(product.name)}">×</button>
+            <th scope="row" class="feed-rowh">
+                <div class="feed-plan-line">
+                    <input type="text" class="feed-plan-name" data-row="${index}"
+                           value="${name}" aria-label="Nombre del producto">
+                    <select class="feed-plan-unit" data-row="${index}"
+                            aria-label="Unidad de ${name}">
+                        ${UNITS.map(unit => `<option value="${unit}"
+                            ${product.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}
+                    </select>
+                    <button class="ac-btn ac-btn--ghost ac-btn--icon feed-plan-del" data-row="${index}"
+                            type="button" aria-label="Quitar ${name}" title="Quitar producto">${REMOVE_ICON}</button>
+                </div>
             </th>
             ${cells}
         </tr>`;
     }).join('');
 
     table.innerHTML = `
-        <thead><tr><th class="feed-rowh">Producto</th>${header}</tr></thead>
+        ${cols}
+        <thead>
+            <tr><th class="feed-rowh feed-rowh-head"></th>${stageRow}</tr>
+            <tr><th scope="col" class="feed-rowh feed-rowh-head">Producto</th>${weekRow}</tr>
+        </thead>
         <tbody>${rows}</tbody>`;
 
     if (!planDraft.length) {
         table.innerHTML += '<caption class="feed-plan-empty">No hay productos. Tocá «Agregar producto».</caption>';
     }
+    markCurrentWeek();
+}
+
+/**
+ * Mark the column the grow is in now, and say so in the caption above the grid.
+ *
+ * Separate from renderPlanEditor on purpose: the today poll runs while the
+ * grid may hold unsaved edits, and re-rendering would throw them away. This
+ * only moves two classes and a line of text.
+ */
+function markCurrentWeek() {
+    const table = el('feed-plan-table');
+    const caption = el('feed-plan-current');
+    if (!table || !plan) return;
+
+    const current = currentColumnIndex(plan.columns, today?.stage, today?.week);
+    table.querySelectorAll('.is-current').forEach(node => node.classList.remove('is-current'));
+    if (current >= 0) {
+        table.querySelectorAll(`[data-col="${current}"]`)
+            .forEach(node => node.classList.add('is-current'));
+    }
+
+    if (caption) {
+        caption.hidden = current < 0;
+        caption.textContent = current >= 0
+            ? `Semana actual: ${stageName(plan.columns[current].stage)} · semana ${plan.columns[current].week}`
+            : '';
+    }
+}
+
+/**
+ * Bring the current week into view. The product column is sticky and covers
+ * the left edge, so the week lands just past it rather than under it.
+ */
+function scrollToCurrentWeek() {
+    const scroller = document.querySelector('#feed-plan-editor .feed-plan-scroll');
+    const marked = document.querySelector('#feed-plan-table .feed-week.is-current');
+    const name = document.querySelector('#feed-plan-table .feed-rowh');
+    if (!scroller || !marked || !name) return;
+
+    const offset = marked.getBoundingClientRect().left
+        - scroller.getBoundingClientRect().left;
+    scroller.scrollLeft += offset - name.getBoundingClientRect().width - 8;
 }
 
 /** One delegated listener for the whole grid, re-rendered on every change. */
@@ -357,17 +416,32 @@ function wirePlanEditor() {
     });
 }
 
-function togglePlanEditor() {
+/**
+ * Switch between today's form and the weekly plan. The button that was pressed
+ * says which one (`data-mode`); without one, it flips.
+ */
+function togglePlanEditor(trigger) {
     const editor = el('feed-plan-editor');
-    const toggle = el('feed-plan-toggle');
-    if (!editor) return;
+    const form = el('feed-form');
+    if (!editor || !form) return;
 
-    editor.hidden = !editor.hidden;
-    toggle.textContent = editor.hidden ? 'Plan' : 'Cerrar';
-    if (!editor.hidden) {
+    const mode = trigger?.dataset?.mode;
+    const showPlan = mode ? mode === 'plan' : editor.hidden;
+    // Re-pressing "Plan por semana" must not throw away unsaved grid edits.
+    if (showPlan && !editor.hidden) return;
+
+    editor.hidden = !showPlan;
+    form.hidden = showPlan;
+    // The plan needs the whole width of the view, so the CSS drops the calendar
+    // column while it is on screen; the class is the switch.
+    document.querySelector('.view[data-view="riego"]')?.classList.toggle('is-plan-mode', showPlan);
+    el('feed-mode-today').setAttribute('aria-selected', String(!showPlan));
+    el('feed-mode-plan').setAttribute('aria-selected', String(showPlan));
+    if (showPlan) {
         planDraft = cloneplan();
         el('feed-plan-state').textContent = '';
         renderPlanEditor();
+        scrollToCurrentWeek();
     }
 }
 
@@ -422,6 +496,7 @@ function fetchFeedingToday() {
     apiGet(url, { key: 'feeding-today' }).then(data => {
         if (!data || data.error) return;
         today = data;
+        markCurrentWeek();
 
         // Only adopt the server's volume while the grower has not typed one.
         const field = el('feed-litres');

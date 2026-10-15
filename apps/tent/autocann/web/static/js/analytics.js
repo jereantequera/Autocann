@@ -1,76 +1,30 @@
 import { apiGet } from './api.js';
+import { setAnomalies } from './health.js';
 import { navigate } from './views.js';
-import { state } from './state.js';
-import { escapeHtml, getScoreClass, getScoreLabel, withGrow } from './util.js';
+import { fetchTimeInRange } from './dashboard.js';
+import {
+    dayName, hourBar, hourlySlots, parseIsoDay, scoreTone, trendText, weekLabel,
+} from './stats-math.js';
+import { escapeHtml, fmtComma, icon } from './util.js';
 
-/** VPD score, anomaly banner and the weekly report. */
+/** The anomaly banner, the time-in-range entry point and the weekly report. */
 
-function updateVpdScore(data) {
-    const scoreEl = document.getElementById('vpd-score-value');
-    const labelEl = document.getElementById('vpd-score-label');
-    const rangeEl = document.getElementById('vpd-score-range');
-    const barEl = document.getElementById('vpd-score-bar');
-    const labelsEl = document.getElementById('vpd-score-days-labels');
-
-    if (data.error) {
-        // Said on screen, not only in the console. The one error a person can
-        // actually reach is asking for every grow at once: the score is a
-        // percentage of time inside *a stage's* band, so there is no single
-        // answer across grows that were in different stages.
-        console.error('VPD Score error:', data.error);
-        scoreEl.textContent = '--%';
-        scoreEl.className = 'vpd-score-value';
-        labelEl.textContent = data.error;
-        barEl.innerHTML = '';
-        labelsEl.innerHTML = '';
-        return;
-    }
-
-    const score = data.overall_score;
-    if (score !== null && score !== undefined) {
-        scoreEl.textContent = `${score}%`;
-        scoreEl.className = `vpd-score-value ${getScoreClass(score)}`;
-        labelEl.textContent = getScoreLabel(score);
-    } else {
-        scoreEl.textContent = '--%';
-        labelEl.textContent = 'Sin datos suficientes';
-    }
-
-    if (data.vpd_range) {
-        rangeEl.textContent = `${data.vpd_range.min}-${data.vpd_range.max} kPa`;
-    }
-
-    // Render daily bars
-    if (data.daily_scores && data.daily_scores.length > 0) {
-        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-        
-        barEl.innerHTML = data.daily_scores.map(day => {
-            const height = day.score != null ? day.score : 0;
-            const dayDate = new Date(day.date + 'T12:00:00');
-            const dayName = dayNames[dayDate.getDay()];
-            return `
-                <div class="vpd-score-day" title="${day.date}: ${day.score !== null ? day.score + '%' : 'Sin datos'}">
-                    <div class="vpd-score-day-fill" style="height: ${height}%;"></div>
-                </div>
-            `;
-        }).join('');
-
-        labelsEl.innerHTML = data.daily_scores.map(day => {
-            const dayDate = new Date(day.date + 'T12:00:00');
-            const dayName = dayNames[dayDate.getDay()];
-            return `<span>${dayName}</span>`;
-        }).join('');
-    }
-}
-
+/**
+ * The VPD score card is gone: the readout that answers the same question for
+ * the selected period lives in the stats header now, and it is computed in
+ * dashboard.js. Kept as an entry point because the timers and the grow filter
+ * still ask for it by name.
+ */
 function fetchVpdScore() {
-    apiGet(withGrow('/api/vpd-score?days=7', state.growId), { key: 'vpd-score' })
-        .then(data => { if (data) updateVpdScore(data); });
+    fetchTimeInRange();
 }
 
 const ANOMALIES_DISMISS_KEY = 'anomalies_dismissed_until';
 
 const ANOMALIES_DISMISS_DURATION = 5 * 60 * 1000; // 5 minutes
+
+/** The last list the server sent, kept so a dismiss can re-decide without refetching. */
+let anomalyItems = [];
 
 function isAnomaliesDismissed() {
     try {
@@ -86,51 +40,20 @@ function isAnomaliesDismissed() {
     }
 }
 
+/**
+ * The anomalies are drawn by health.js, not here: when the installation is
+ * broken they fold into that one alert as a count, and only when it is fine do
+ * they get their own box. This module only fetches them and remembers the
+ * dismissal.
+ */
 function updateAnomalies(data) {
-    if (data.error || isAnomaliesDismissed()) return;
+    if (data.error) return;
 
-    const alertEl = document.getElementById('anomalies-alert');
-    const listEl = document.getElementById('anomalies-list');
-    const iconEl = document.getElementById('anomalies-icon');
-    const titleEl = document.getElementById('anomalies-title-text');
-
-    const allIssues = [
+    anomalyItems = [
         ...(data.anomalies || []).map(a => ({...a, severity: 'critical'})),
-        ...(data.warnings || []).map(w => ({...w, severity: w.severity || 'warning'}))
+        ...(data.warnings || []).map(w => ({...w, severity: w.severity || 'warning'})),
     ];
-
-    if (allIssues.length === 0) {
-        alertEl.classList.remove('show', 'critical');
-        return;
-    }
-
-    alertEl.classList.add('show');
-    
-    if (data.status === 'critical') {
-        alertEl.classList.add('critical');
-        iconEl.textContent = '🚨';
-        titleEl.textContent = 'Problemas Críticos Detectados';
-    } else {
-        alertEl.classList.remove('critical');
-        iconEl.textContent = '⚠️';
-        titleEl.textContent = 'Advertencias Detectadas';
-    }
-
-    listEl.innerHTML = allIssues.slice(0, 5).map(issue => `
-        <div class="anomaly-item ${issue.severity}">
-            <span>${issue.severity === 'critical' ? '🔴' : '🟡'}</span>
-            <span style="flex: 1;">${escapeHtml(issue.message)}</span>
-            <span class="anomaly-time">${escapeHtml(issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '')}</span>
-        </div>
-    `).join('');
-
-    if (allIssues.length > 5) {
-        listEl.innerHTML += `
-            <div style="text-align: center; color: var(--text-muted); font-size: 0.85em; padding: 8px;">
-                + ${allIssues.length - 5} más...
-            </div>
-        `;
-    }
+    setAnomalies(anomalyItems, { dismissed: isAnomaliesDismissed() });
 }
 
 function dismissAnomalies() {
@@ -141,13 +64,15 @@ function dismissAnomalies() {
     } catch (e) {
         // Not persistable here; hiding it for this page view is enough.
     }
-    const alertEl = document.getElementById('anomalies-alert');
-    alertEl.classList.remove('show');
+    setAnomalies(anomalyItems, { dismissed: true });
 }
 
 function fetchAnomalies() {
-    if (isAnomaliesDismissed()) return;
-    
+    if (isAnomaliesDismissed()) {
+        setAnomalies(anomalyItems, { dismissed: true });
+        return;
+    }
+
     apiGet('/api/anomalies?hours=24').then(data => { if (data) updateAnomalies(data); });
 }
 
@@ -164,130 +89,124 @@ function showWeeklyReport() {
     fetchWeeklyReport();
 }
 
+/**
+ * The report's state: one of the three is on screen, the others are hidden.
+ *
+ * The loading state is the skeleton, not a line of text, and an error keeps a
+ * sentence on screen rather than an empty box.
+ */
+function showReportState(which, message = '') {
+    document.getElementById('report-loading').hidden = which !== 'loading';
+    document.getElementById('report-content').hidden = which !== 'content';
+    const error = document.getElementById('report-error');
+    error.hidden = which !== 'error';
+    if (which === 'error') error.textContent = message;
+}
+
+/** "58 %" for a score, or "--" when there is none. */
+function scoreText(score) {
+    return Number.isFinite(score) ? `${Math.round(score)} %` : '--';
+}
+
+/** "14:00 · 58 %" for an insight, or the dash when the hour is unknown. */
+function hourScoreText(hour, score) {
+    if (!Number.isInteger(hour)) return '--';
+    const when = `${String(hour).padStart(2, '0')}:00`;
+    return Number.isFinite(score) ? `${when} · ${scoreText(score)}` : when;
+}
+
 function updateWeeklyReport(data) {
     if (data.error) {
         console.error('Weekly report error:', data.error);
+        showReportState('error', 'No se pudo generar el reporte. Probá de nuevo.');
         return;
     }
+    showReportState('content');
 
-    document.getElementById('report-loading').hidden = true;
-    document.getElementById('report-content').hidden = false;
+    // The heading says which week it is, in the words the grower reads.
+    document.getElementById('report-title').textContent =
+        weekLabel(data.report_period?.start, data.report_period?.end) || 'Reporte semanal';
+    document.getElementById('report-samples').textContent =
+        data.summary?.sample_count?.toLocaleString('es-AR') || '--';
 
-    // Period
-    if (data.report_period) {
-        document.getElementById('report-period').textContent = 
-            `${data.report_period.start} → ${data.report_period.end}`;
-    }
+    // The VPD score is the share of time in range: the same number the period
+    // readout calls that, relabelled to say what it truthfully measures.
+    const overall = data.vpd_score?.overall;
+    const vpdEl = document.getElementById('report-vpd-score');
+    vpdEl.innerHTML = `${Number.isFinite(overall) ? Math.round(overall) : '--'}`
+        + '<span class="ac-readout__unit"> %</span>';
+    // Coloured by the same thresholds as the hourly bars, so the number and the
+    // bars cannot disagree about what is good.
+    const tone = scoreTone(overall) === 'good' ? 'is-ok' : 'is-warn';
+    vpdEl.className = `ac-readout__value ${Number.isFinite(overall) ? tone : 'is-empty'}`;
+    updateTrend('report-vpd-trend', data.trends?.vpd_score, ' pts', true);
 
-    // VPD Score
-    const vpdScore = data.vpd_score?.overall;
-    document.getElementById('report-vpd-score').textContent = 
-        vpdScore != null ? `${vpdScore}%` : '--%';
-    
-    // Trends
-    updateTrend('report-vpd-trend', data.trends?.vpd_score, '%', true);
-    updateTrend('report-temp-trend', data.trends?.temperature, '°C');
-    updateTrend('report-humidity-trend', data.trends?.humidity, '%');
+    const temp = data.summary?.temperature?.avg;
+    document.getElementById('report-temp-avg').innerHTML =
+        `${Number.isFinite(temp) ? fmtComma(temp, 1) : '--'}<span class="ac-readout__unit"> °C</span>`;
+    updateTrend('report-temp-trend', data.trends?.temperature, ' °C');
 
-    // Summary stats
-    document.getElementById('report-temp-avg').textContent = 
-        data.summary?.temperature?.avg != null ? `${data.summary.temperature.avg}°C` : '--°C';
-    document.getElementById('report-humidity-avg').textContent = 
-        data.summary?.humidity?.avg != null ? `${data.summary.humidity.avg}%` : '--%';
+    const humidity = data.summary?.humidity?.avg;
+    document.getElementById('report-humidity-avg').innerHTML =
+        `${Number.isFinite(humidity) ? fmtComma(humidity, 1) : '--'}<span class="ac-readout__unit"> %</span>`;
+    updateTrend('report-humidity-trend', data.trends?.humidity, ' %');
 
-    // Insights
     const insights = data.insights || {};
-    document.getElementById('report-best-hour').textContent = 
-        insights.best_hour != null ? `${String(insights.best_hour).padStart(2, '0')}:00` : '--:00';
-    document.getElementById('report-best-score').textContent = 
-        insights.best_hour_score != null ? `${insights.best_hour_score}% score` : '-- score';
-    document.getElementById('report-worst-hour').textContent = 
-        insights.worst_hour != null ? `${String(insights.worst_hour).padStart(2, '0')}:00` : '--:00';
-    document.getElementById('report-worst-score').textContent = 
-        insights.worst_hour_score != null ? `${insights.worst_hour_score}% score` : '-- score';
+    document.getElementById('report-best').textContent =
+        hourScoreText(insights.best_hour, insights.best_hour_score);
+    document.getElementById('report-worst').textContent =
+        hourScoreText(insights.worst_hour, insights.worst_hour_score);
 
-    // Hourly chart
-    const hourlyData = data.hourly_distribution || [];
-    const chartEl = document.getElementById('report-hourly-chart');
-    const labelsEl = document.getElementById('report-hourly-labels');
-    
-    if (hourlyData.length > 0) {
-        chartEl.innerHTML = hourlyData.map(h => {
-            const height = h.vpd_score || 0;
-            return `<div class="hourly-bar" style="height: ${height}%;" title="${h.hour_label}: ${h.vpd_score}%"></div>`;
-        }).join('');
-
-        labelsEl.innerHTML = hourlyData.map((h, i) => {
-            // Only show every 3rd label to avoid crowding
-            return `<span>${i % 3 === 0 ? h.hour : ''}</span>`;
-        }).join('');
-    }
-
-    // Daily scores
-    const dailyScores = data.vpd_score?.daily || [];
-    const dailyEl = document.getElementById('report-daily-scores');
-    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    
-    // Styled by class, not by a style attribute built per row: the colour of a
-    // score is a rule the stylesheet already states for the VPD score card, and
-    // stating it twice is how the two drift apart.
-    dailyEl.innerHTML = dailyScores.map(day => {
-        const dayDate = new Date(day.date + 'T12:00:00');
-        const dayName = dayNames[dayDate.getDay()];
-        const score = day.score;
-        const barWidth = score != null ? score : 0;
-
-        return `
-            <div class="report-day">
-                <span class="report-day-name">${escapeHtml(dayName)}</span>
-                <div class="report-day-bar">
-                    <div class="report-day-fill" style="width: ${barWidth}%"></div>
-                </div>
-                <span class="report-day-score ${score == null ? 'empty' : getScoreClass(score)}">
-                    ${score != null ? `${score}%` : '--'}
-                </span>
-            </div>`;
+    // Twenty-four columns, one per hour: an hour with no samples is an empty
+    // column, not a missing one, so the hours stay where a person looks for them.
+    const hours = hourlySlots(data.hourly_distribution);
+    document.getElementById('report-hourly-chart').innerHTML = hours.map(({ hour, score }) => {
+        const bar = hourBar(score);
+        const when = `${String(hour).padStart(2, '0')}:00`;
+        const text = bar.tone === 'empty' ? `${when} · sin muestras` : `${when} · ${scoreText(score)}`;
+        return `<div class="rpt-hour is-${bar.tone}" style="height: ${bar.height}%"`
+            + ` title="${escapeHtml(text)}"></div>`;
     }).join('');
 
-    // Sample count
-    document.getElementById('report-samples').textContent = 
-        data.summary?.sample_count?.toLocaleString('es-AR') || '--';
+    // Styled by tone class: the colour of a score is one rule in the stylesheet,
+    // stated once, not a colour per row built here.
+    const daily = data.vpd_score?.daily || [];
+    document.getElementById('report-daily-scores').innerHTML = daily.map(day => {
+        const bar = hourBar(day.score);
+        const parsed = parseIsoDay(day.date);
+        const label = parsed ? `${dayName(day.date)} ${parsed.day}` : day.date;
+        return `
+            <div class="rpt-day">
+                <span class="rpt-day__name">${escapeHtml(label)}</span>
+                <span class="rpt-day__track">
+                    <span class="rpt-day__fill is-${bar.tone}" style="width: ${bar.height}%"></span>
+                </span>
+                <span class="rpt-day__value">${escapeHtml(scoreText(day.score))}</span>
+            </div>`;
+    }).join('');
 }
 
+/**
+ * The change against last week, as a chip under the number.
+ *
+ * Only the VPD trend is coloured, and only because more time in range is good;
+ * a temperature that moved is not good or bad by itself.
+ */
 function updateTrend(elementId, value, unit, invertColors = false) {
     const el = document.getElementById(elementId);
-    if (value === null || value === undefined) {
-        el.className = 'report-trend neutral';
-        el.textContent = '= sin cambio';
-        return;
-    }
-
-    const isUp = value > 0;
-    const isDown = value < 0;
-    
-    if (invertColors) {
-        // For VPD score, up is good (green), down is bad (red)
-        el.className = `report-trend ${isUp ? 'down' : isDown ? 'up' : 'neutral'}`;
-    } else {
-        el.className = `report-trend ${isUp ? 'up' : isDown ? 'down' : 'neutral'}`;
-    }
-    
-    const arrow = isUp ? '↑' : isDown ? '↓' : '=';
-    el.textContent = `${arrow} ${Math.abs(value)}${unit} vs semana ant.`;
+    const trend = trendText(value, unit, { invertColors });
+    el.className = `rpt-trend is-${trend.tone}`;
+    el.textContent = trend.text;
 }
 
 function fetchWeeklyReport() {
-    const loading = document.getElementById('report-loading');
-    const content = document.getElementById('report-content');
-    if (loading && content.hidden) loading.hidden = false;
+    // A report already on screen stays until its replacement lands; the
+    // skeleton is for the first one only.
+    if (document.getElementById('report-content').hidden) showReportState('loading');
 
     apiGet('/api/weekly-report', { key: 'weekly-report' }).then(data => {
-        if (data) {
-            updateWeeklyReport(data);
-        } else {
-            loading.hidden = false;
-            loading.textContent = 'No se pudo generar el reporte. Probá de nuevo.';
-        }
+        if (data) updateWeeklyReport(data);
+        else showReportState('error', 'No se pudo generar el reporte. Probá de nuevo.');
     });
 }
 

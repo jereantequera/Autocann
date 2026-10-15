@@ -6,77 +6,60 @@
              a modal cannot be linked to or left open on a second screen.
         -->
         <section class="view view-report" data-view="reportes" aria-label="Reportes">
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">📋</span>
-                    Reporte semanal
-                    <span class="section-subtitle" id="report-period"></span>
-                </h2>
-                <button class="btn btn-ghost" data-action="weekly-report">🔄 Recalcular</button>
+            <header class="rpt-head">
+                <div class="rpt-head__text">
+                    <h1 class="rpt-title" id="report-title">Reporte semanal</h1>
+                    <p class="rpt-sub">Basado en <span id="report-samples">--</span> muestras</p>
+                </div>
+                <button type="button" class="ac-btn ac-btn--secondary" data-action="weekly-report">Recalcular</button>
+            </header>
+
+            <!-- Shown until the first answer; the words stay for a screen reader. -->
+            <div id="report-loading" class="rpt-skeleton">
+                <span class="ac-skeleton rpt-skeleton__row" aria-hidden="true"></span>
+                <span class="ac-skeleton rpt-skeleton__chart" aria-hidden="true"></span>
+                <span class="rpt-skeleton__label">Generando reporte</span>
             </div>
 
-            <div id="report-loading" class="loading">Generando reporte</div>
+            <p id="report-error" class="ac-empty" hidden></p>
 
-            <div id="report-content" class="report-body" hidden>
-                <!-- Summary Stats -->
-                <div class="report-grid">
-                    <div class="report-stat">
-                        <div class="report-stat-value report-stat-vpd" id="report-vpd-score">--%</div>
-                        <div class="report-stat-label">VPD Score</div>
-                        <div class="report-trend neutral" id="report-vpd-trend">--</div>
+            <div id="report-content" class="rpt-body" hidden>
+                <div class="ac-readout-row rpt-readouts">
+                    <div class="ac-readout ac-readout--lg rpt-readouts__main">
+                        <span class="ac-readout__label">Tiempo con el VPD en rango</span>
+                        <span class="ac-readout__value" id="report-vpd-score">--<span class="ac-readout__unit"> %</span></span>
+                        <span class="ac-readout__sub"><span class="rpt-trend" id="report-vpd-trend">--</span></span>
                     </div>
-                    <div class="report-stat">
-                        <div class="report-stat-value report-stat-temp" id="report-temp-avg">--°C</div>
-                        <div class="report-stat-label">Temp. Promedio</div>
-                        <div class="report-trend neutral" id="report-temp-trend">--</div>
+                    <div class="ac-readout ac-readout--md">
+                        <span class="ac-readout__label">Temperatura prom.</span>
+                        <span class="ac-readout__value" id="report-temp-avg">--<span class="ac-readout__unit"> °C</span></span>
+                        <span class="ac-readout__sub"><span class="rpt-trend" id="report-temp-trend">--</span></span>
                     </div>
-                    <div class="report-stat">
-                        <div class="report-stat-value report-stat-humidity" id="report-humidity-avg">--%</div>
-                        <div class="report-stat-label">Hum. Promedio</div>
-                        <div class="report-trend neutral" id="report-humidity-trend">--</div>
+                    <div class="ac-readout ac-readout--md">
+                        <span class="ac-readout__label">Humedad prom.</span>
+                        <span class="ac-readout__value" id="report-humidity-avg">--<span class="ac-readout__unit"> %</span></span>
+                        <span class="ac-readout__sub"><span class="rpt-trend" id="report-humidity-trend">--</span></span>
                     </div>
                 </div>
 
-                <!-- Insights -->
-                <div class="report-section">
-                    <div class="report-section-title">💡 Insights</div>
-                    <div class="insights-grid">
-                        <div class="insight-card">
-                            <div class="insight-icon">🌟</div>
-                            <div class="insight-label">Mejor hora</div>
-                            <div class="insight-value" id="report-best-hour">--:00</div>
-                            <div class="insight-score good" id="report-best-score">-- score</div>
+                <div class="rpt-columns">
+                    <section class="rpt-block">
+                        <h2 class="rpt-block__title">En rango, por hora del día</h2>
+                        <p class="rpt-block__sub">Promedio del período. Lo bajo al mediodía suele ser de las luces a pleno.</p>
+                        <div class="rpt-hours" id="report-hourly-chart" role="img" aria-label="Porcentaje de tiempo en rango para cada hora del día"></div>
+                        <div class="rpt-hours-labels" aria-hidden="true">
+                            <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
                         </div>
-                        <div class="insight-card">
-                            <div class="insight-icon">⚠️</div>
-                            <div class="insight-label">Peor hora</div>
-                            <div class="insight-value" id="report-worst-hour">--:00</div>
-                            <div class="insight-score bad" id="report-worst-score">-- score</div>
+                        <div class="rpt-extremes">
+                            <div><span class="rpt-extremes__key">Mejor hora</span> <span class="rpt-extremes__val" id="report-best">--</span></div>
+                            <div><span class="rpt-extremes__key">Peor hora</span> <span class="rpt-extremes__val is-low" id="report-worst">--</span></div>
                         </div>
-                    </div>
-                </div>
+                    </section>
 
-                <!-- Hourly Distribution -->
-                <div class="report-section">
-                    <div class="report-section-title">📈 VPD Score por hora</div>
-                    <div class="hourly-chart" id="report-hourly-chart">
-                        <!-- Bars will be inserted here -->
-                    </div>
-                    <div class="hourly-labels" id="report-hourly-labels">
-                        <!-- Labels will be inserted here -->
-                    </div>
-                </div>
-
-                <!-- Daily Scores -->
-                <div class="report-section">
-                    <div class="report-section-title">📅 Score diario</div>
-                    <div class="report-daily" id="report-daily-scores">
-                        <!-- Daily scores will be inserted here -->
-                    </div>
-                </div>
-
-                <div class="report-samples">
-                    Basado en <strong id="report-samples">--</strong> muestras
+                    <section class="rpt-block">
+                        <h2 class="rpt-block__title">Por día</h2>
+                        <div class="rpt-daily" id="report-daily-scores"></div>
+                    </section>
                 </div>
             </div>
         </section>

@@ -1,4 +1,4 @@
-import { apiGet } from './api.js';
+import { apiGet, whenSettled } from './api.js';
 import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } from './analytics.js';
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
@@ -17,16 +17,24 @@ import {
     showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
 import { closeModal, initModals } from './modals.js';
+import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
+import { wireSidebar } from './sidebar.js';
+import { applyTheme, readTheme } from './theme.js';
 import { applyConfig, state } from './state.js';
 import { fetchNodeLog, fetchNodes, wireNodes } from './nodes.js';
 import { wireSystem } from './system.js';
-import { currentView, initViews } from './views.js';
+import { currentView, initViews, showInitialView } from './views.js';
 
 /**
  * Entry point: configuration, event wiring and the polling schedule.
  */
+
+// The theme is applied before anything is drawn: the tokens swap on the root
+// element, so doing it here, at module evaluation, is the earliest a file of
+// ours can run (index.html has no inline script for it, by design).
+applyTheme(readTheme());
 
 // ---------------------------------------------------------------------------
 // Polling
@@ -45,10 +53,16 @@ const POLLERS = [
     // One call for the whole verdict - sensores, lazo e histórico - en vez de
     // dos que podían contestar cosas distintas. The node posts each sensor
     // every 10 s, so polling faster buys nothing but load on the Raspberry.
-    // Panel y Sistema: las tarjetas de sensores viven allá y el renglón que las
-    // resume, acá. Las dos salen de esta misma respuesta.
-    { fn: fetchHealth, every: 10000, views: ['panel', 'sistema'] },
+    // Sin `views` a propósito: esta respuesta alimenta el estado de la barra
+    // lateral ("Lazo caído") y el cartel de arriba, que se ven en todas las
+    // vistas. Si sólo corriera en Panel y Sistema, el cartel de "roto" tardaría
+    // en aparecer o quedaría viejo en Cultivo y Riego, justo donde se está
+    // mirando otra cosa.
+    { fn: fetchHealth, every: 10000 },
     { fn: fetchPanelHistory, every: 60000, views: ['panel'] },
+    // The bitácora is a week of entries that change a few times a day: a
+    // minute is plenty, and the tab also fetches when it is opened.
+    { fn: fetchLogbook, every: 60000, views: ['panel'] },
     { fn: () => { fetchHistoricalData(state.period, state.interval, state.hours); fetchPeriodSummary(); },
       every: 30000, views: ['stats'] },
     { fn: fetchVpdScore, every: 5 * 60 * 1000, views: ['stats'] },
@@ -95,6 +109,33 @@ function stopPolling() {
  */
 function refreshAll() {
     POLLERS.forEach(p => { if (isPollerActive(p)) p.fn(); });
+}
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+// One loading state, designed, instead of whatever each placeholder happened to
+// say: "Cargando...", "--", an hourglass, a chart with made-up axes, and then
+// the alerts landing last and pushing the whole panel down 110 px. Until the
+// first answers are in, the page shows skeletons (app.css, LOADING); then it
+// is revealed once, saying everything it is going to say.
+
+/** Views whose first round of data has arrived; a later visit shows the last numbers. */
+const loadedViews = new Set();
+
+async function revealWhenSettled(target, className, view) {
+    await whenSettled();
+    target.classList.remove(className);
+    loadedViews.add(view);
+}
+
+/** The first visit to a view gets the same skeletons the first page load does. */
+function loadView(view) {
+    if (loadedViews.has(view)) return;
+    const section = document.querySelector(`.view[data-view="${view}"]`);
+    if (!section) return;
+    section.classList.add('is-loading');
+    revealWhenSettled(section, 'is-loading', view);
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +242,7 @@ function wireActions() {
         // runs; refreshing twice would just be two requests the de-duplication
         // has to throw away.
         if (event.detail?.initial) return;
+        loadView(event.detail.view);
         refreshAll();
         // A canvas built inside a hidden section has no size until something
         // asks it to measure itself again.
@@ -213,6 +255,9 @@ function wireActions() {
 // ---------------------------------------------------------------------------
 
 async function start() {
+    // First, so the bar is in its starting state before the skeleton comes off.
+    wireSidebar();
+    showInitialView();
     // Stage ranges and names come from the server so they are not a second copy
     // of what lives in vpd_math.py.
     applyConfig(await apiGet('/api/config'));
@@ -237,12 +282,27 @@ async function start() {
     refreshAll();
     resizeCharts();
     startPolling();
+    await revealWhenSettled(document.body, 'is-booting', currentView());
+    // Measured while hidden behind the skeleton, so measure again now.
+    resizeCharts();
+}
+
+/**
+ * Startup, and the skeleton comes off whatever happens to it: a startup that
+ * throws halfway must not leave a page of grey bars that looks like it is
+ * still loading forever.
+ */
+function boot() {
+    start().catch(error => {
+        console.error('Startup failed:', error);
+        document.body.classList.remove('is-booting');
+    });
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
+    document.addEventListener('DOMContentLoaded', boot);
 } else {
-    start();
+    boot();
 }
 
 // The grow list renders its own buttons and needs these; everything else is

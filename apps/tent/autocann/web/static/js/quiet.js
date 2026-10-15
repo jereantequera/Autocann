@@ -11,7 +11,7 @@
  */
 
 import { apiGet } from './api.js';
-import { escapeHtml, fmtNum } from './util.js';
+import { escapeHtml, fmtNum, icon, iconText } from './util.js';
 
 /** Last payload of /api/quiet-hours, and the copy the form edits. */
 let served = null;
@@ -47,16 +47,21 @@ function windowFor(name) {
 function inertCardHtml(output) {
     return `
         <div class="quiet-card is-inert">
-            <div class="quiet-head">
+            <div class="quiet-toggle">
                 <span class="quiet-name">${escapeHtml(output.label || output.name)}</span>
             </div>
-            <div class="quiet-inert-note">
+            <div class="quiet-inert-note quiet-sentence">
                 Nada la enciende automáticamente, así que una franja acá no
                 silenciaría nada. Sólo se mueve a mano.
             </div>
         </div>`;
 }
 
+/**
+ * One row per output: the toggle and the name, the window, the humidity
+ * exception, and the sentence that says what the window does. The sentence is
+ * last so it can be read across the row, which is the question it answers.
+ */
 function cardHtml(output) {
     const name = escapeHtml(output.name);
     const w = windowFor(output.name);
@@ -72,41 +77,44 @@ function cardHtml(output) {
     return `
         <div class="quiet-card${on ? ' is-on' : ''}${silencing ? ' is-silencing' : ''}"
              data-quiet-output="${name}">
-            <div class="quiet-head">
-                <label class="quiet-toggle">
-                    <input type="checkbox" data-quiet-field="enabled" ${on ? 'checked' : ''}>
-                    <span class="quiet-name">${escapeHtml(output.label || output.name)}</span>
-                </label>
-                ${silencing ? '<span class="sensor-badge ok">🔕 silenciando ahora</span>' : ''}
+            <label class="quiet-toggle">
+                <input type="checkbox" class="ac-check" data-quiet-field="enabled" ${on ? 'checked' : ''}>
+                <span class="quiet-name">${escapeHtml(output.label || output.name)}</span>
+            </label>
+            <label class="quiet-field">
+                <span class="ac-field__label">Desde</span>
+                <input class="ac-field__input" type="time" data-quiet-field="start" value="${escapeHtml(w.start || '')}">
+            </label>
+            <label class="quiet-field">
+                <span class="ac-field__label">Hasta</span>
+                <input class="ac-field__input" type="time" data-quiet-field="end" value="${escapeHtml(w.end || '')}">
+            </label>
+            <label class="quiet-field">
+                <span class="ac-field__label">Salvo humedad ≥</span>
+                <input class="ac-field__input ac-field__input--num" type="number" min="0" max="100" step="1" inputmode="decimal"
+                       placeholder="sin tope"
+                       data-quiet-field="max_humidity" value="${escapeHtml(cap)}">
+            </label>
+            <div class="quiet-sentence">
+                ${silencing ? `<span class="quiet-silencing">${icon('bell-off')}silenciando ahora</span>` : ''}
+                ${action ? `<div class="quiet-action">El lazo no va a elegir
+                    «${escapeHtml(action)}» dentro de la franja.</div>` : ''}
+                <div class="quiet-hint" data-quiet-hint></div>
             </div>
-            ${action ? `<div class="quiet-action">El lazo no va a elegir
-                «${escapeHtml(action)}» dentro de la franja.</div>` : ''}
-
-            <div class="quiet-fields">
-                <label>
-                    Desde
-                    <input type="time" data-quiet-field="start" value="${escapeHtml(w.start || '')}">
-                </label>
-                <label>
-                    Hasta
-                    <input type="time" data-quiet-field="end" value="${escapeHtml(w.end || '')}">
-                </label>
-                <label>
-                    Salvo humedad ≥
-                    <input type="number" min="0" max="100" step="1" inputmode="decimal"
-                           placeholder="sin tope"
-                           data-quiet-field="max_humidity" value="${escapeHtml(cap)}">
-                </label>
-            </div>
-            <div class="quiet-hint" data-quiet-hint></div>
         </div>`;
 }
 
-/** Said in words, because "23:00 → 07:00" is two intervals on a clock face. */
+/**
+ * Said in words, because "23:00 → 07:00" is two intervals on a clock face.
+ *
+ * @returns {{icon?: string, text: string}}  an icon only when it is a warning
+ */
 function describe(w) {
-    if (!w.enabled) return 'Sin franja: el lazo decide a cualquier hora.';
-    if (!w.start || !w.end) return '⚠️ Falta la hora de inicio o de fin; así no se aplica.';
-    if (w.start === w.end) return '⚠️ Una franja de ancho cero no silencia nada.';
+    if (!w.enabled) return { text: 'Sin franja: el lazo decide a cualquier hora.' };
+    if (!w.start || !w.end) {
+        return { icon: 'triangle-alert', text: 'Falta la hora de inicio o de fin; así no se aplica.' };
+    }
+    if (w.start === w.end) return { icon: 'triangle-alert', text: 'Una franja de ancho cero no silencia nada.' };
 
     const crosses = w.start > w.end ? ' (cruza la medianoche)' : '';
     const cap = (typeof w.max_humidity === 'number' && Number.isFinite(w.max_humidity))
@@ -114,13 +122,13 @@ function describe(w) {
         // Said every time it is empty: a hard block is choosing quiet over the
         // plants, which is allowed, but not by accident.
         : ', sin excepción por humedad';
-    return `De ${w.start} a ${w.end}${crosses}${cap}.`;
+    return { text: `De ${w.start} a ${w.end}${crosses}${cap}.` };
 }
 
 function renderHints() {
     document.querySelectorAll('[data-quiet-output]').forEach(card => {
         const hint = card.querySelector('[data-quiet-hint]');
-        if (hint) hint.textContent = describe(windowFor(card.dataset.quietOutput));
+        if (hint) hint.innerHTML = iconText(describe(windowFor(card.dataset.quietOutput)));
     });
 }
 

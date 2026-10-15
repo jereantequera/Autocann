@@ -6,35 +6,50 @@
              to read dates off. Here it is written out.
         -->
         <section class="view view-grow" data-view="cultivo" aria-label="Cultivo">
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">🌱</span>
-                    Cultivo activo
-                    <span class="section-subtitle" id="grow-detail-name">--</span>
-                </h2>
-                <div class="grow-actions">
-                    <button class="btn btn-secondary" data-action="show-stage">🔄 Cambiar etapa</button>
-                    <button class="btn btn-primary" data-action="new-grow">➕ Nuevo cultivo</button>
+            <header class="grow-head">
+                <div class="grow-head-text">
+                    <div class="grow-kicker" id="grow-since">Cultivo activo</div>
+                    <h1 class="grow-name" id="grow-detail-name">--</h1>
+                    <p class="grow-line" id="grow-line">--</p>
                 </div>
-            </div>
+                <div class="grow-actions">
+                    <!-- Names the stage that comes next; the stage dialog opens on it. -->
+                    <button class="ac-btn ac-btn--primary" id="grow-next-stage"
+                            data-action="show-stage" hidden>Pasar a</button>
+                    <button class="ac-btn ac-btn--secondary" data-action="show-stage">Más acciones</button>
+                </div>
+            </header>
 
             <!--
                  Each stage with the days it actually lasted next to the days it
                  was supposed to: the only place that says whether this grow is
                  running long, and by how much.
             -->
-            <div class="timeline" id="grow-timeline">
-                <div class="loading">Cargando etapas</div>
-            </div>
+            <section class="grow-stages" aria-label="Etapas">
+                <div class="ac-stagebar" id="grow-timeline">
+                    <div class="ac-skeleton grow-stages-loading"></div>
+                </div>
+                <p class="ac-field__hint">
+                    Los días son estimados de la etapa, no un calendario: el cambio
+                    de etapa lo decidís vos, y el sistema ajusta el VPD objetivo en
+                    el momento.
+                </p>
+            </section>
 
-            <div class="section-header">
-                <h2 class="section-title">
-                    <span class="section-title-icon">📋</span>
-                    Todos los cultivos
-                </h2>
-                <span class="sensor-badge" id="grow-count-badge">⏳</span>
-            </div>
-            <div class="grow-list" id="growList">
-                <div class="loading">Cargando cultivos</div>
-            </div>
+            <section class="grow-all" aria-label="Todos los cultivos">
+                <div class="grow-all-head">
+                    <h2 class="grow-all-title">Todos los cultivos</h2>
+                    <span class="ac-field__hint" id="grow-count-badge"></span>
+                    <button class="ac-btn ac-btn--secondary" data-action="new-grow">
+                        {{ icon("plus") }}Nuevo cultivo
+                    </button>
+                </div>
+                <div id="growList">
+                    <div class="loading">Cargando cultivos</div>
+                </div>
+                <p class="ac-field__hint">
+                    Al terminar un cultivo queda acá con su historial, sus riegos y su
+                    reporte, para comparar el próximo.
+                </p>
+            </section>
         </section>

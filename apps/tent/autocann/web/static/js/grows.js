@@ -4,7 +4,12 @@ import { getVpdChart, renderStageMarkers } from './charts.js';
 import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './dashboard.js';
 import { fetchVpdScore } from './analytics.js';
 import { config, state } from './state.js';
-import { escapeHtml } from './util.js';
+import { escapeHtml, icon } from './util.js';
+import { paintTent } from './sidebar.js';
+import {
+    durationLabel, formatLongDate, formatShortDate, growDays, growLine, nextStage,
+    stageBarModel,
+} from './grow-model.js';
 
 /**
  * Grow lifecycle: the active grow, its stage history, and the list of all of
@@ -22,9 +27,45 @@ function showNewGrowModal() {
     showModal('newGrowModal');
 }
 
-function showStageModal() {
+/**
+ * Open the stage dialog, preselected: on the next stage when the primary button
+ * asked for it, otherwise on the current one.
+ */
+function showStageModal(trigger) {
+    const select = document.getElementById('newStage');
+    const wanted = trigger?.dataset?.stage || state.stage;
+    if (select && wanted && [...select.options].some(option => option.value === wanted)) {
+        select.value = wanted;
+    }
     showModal('stageModal');
 }
+
+/** The stage order and expected lengths the server defines; fetched once. */
+let stageConfig = null;
+let stageConfigRequest = null;
+
+function loadStageConfig() {
+    if (stageConfig) return Promise.resolve(stageConfig);
+    if (!stageConfigRequest) {
+        stageConfigRequest = apiGet('/api/config').then(data => {
+            if (!data || !Array.isArray(data.stages)) {
+                // Not cached on failure: the next render asks again.
+                stageConfigRequest = null;
+                return null;
+            }
+            stageConfig = {
+                order: data.stages,
+                expected: data.stage_expected_days || null,
+            };
+            return stageConfig;
+        });
+    }
+    return stageConfigRequest;
+}
+
+/** The active grow and its stage history, as the Cultivo header and bar draw them. */
+let activeGrow = null;
+let timelineData = null;
 
 // Grow management
 
@@ -43,6 +84,16 @@ function updateActiveGrow(grow) {
     stageElement.className = `grow-stage ${grow.stage}`;
     
     renderDayCounters(grow);
+    // The collapsed bar shows the tent as a monogram, and its title and
+    // accessible name carry the same words as the expanded block.
+    paintTent({
+        name: grow.name,
+        stage: stageNames[grow.stage] || grow.stage,
+        day: grow.day_in_stage,
+        expected: grow.stage_expected_days,
+    });
+    activeGrow = grow;
+    renderCultivo();
 
     // Update VPD chart optimal zone
     const vpdChart = getVpdChart();
@@ -52,6 +103,44 @@ function updateActiveGrow(grow) {
         vpdChart.options.plugins.annotation.annotations.optimalZone.yMax = range.max;
         vpdChart.update();
     }
+}
+
+/**
+ * The Cultivo header: which grow, since when, where it is in its stage, and
+ * what the primary button will do next.
+ */
+function renderCultivo() {
+    const grow = activeGrow;
+    if (!grow) return;
+
+    const kicker = document.getElementById('grow-since');
+    const line = document.getElementById('grow-line');
+    if (kicker) kicker.textContent = `Cultivo activo · desde el ${formatLongDate(grow.start_date)}`;
+    if (line) {
+        line.textContent = growLine({
+            stageName: config.stageNames[grow.stage] || grow.stage,
+            day: grow.day_in_stage,
+            expected: grow.stage_expected_days,
+            vpd: config.vpdRanges[grow.stage],
+        });
+    }
+
+    // The stage order arrives with /api/config; until then the bar and the
+    // next-stage button have nothing to draw from.
+    loadStageConfig().then(stages => {
+        if (!stages) return;
+        const next = nextStage(stages.order, grow.stage);
+        const button = document.getElementById('grow-next-stage');
+        if (button) {
+            button.hidden = !next;
+            if (next) {
+                button.dataset.stage = next;
+                const name = config.stageNames[next] || next;
+                button.textContent = `Pasar a ${name.toLocaleLowerCase('es-AR')}`;
+            }
+        }
+        drawStageBar();
+    });
 }
 
 /**
@@ -116,61 +205,49 @@ function fetchActiveGrow() {
     });
 }
 
-/** Stage history for the active grow: the chart markers and the Cultivo list. */
+/** Stage history for the active grow: the chart markers and the stage bar. */
 function fetchStageTimeline(growId) {
     if (!Number.isFinite(growId)) return;
     apiGet(`/api/grows/${growId}/timeline`, { key: 'timeline' }).then(data => {
         if (!data || !data.timeline) return;
         state.timeline = data.timeline;
+        timelineData = data.timeline;
         renderStageMarkers(data.timeline);
-        renderStageTimeline(data.timeline);
+        drawStageBar();
     });
 }
 
 /**
- * Each stage with the days it lasted next to the days it was meant to.
+ * The stage bar: every stage of the cycle, its real days where the grow went
+ * through it, and how far the current one has got.
  *
- * This was already being fetched to draw dashed lines on the charts. Written
- * out it answers the question the markers only hint at: is this grow running
- * long, and which stage is where it went.
+ * Drawn from whatever has arrived; it redraws when the timeline or the stage
+ * order lands, so a late answer only fills in cells that were waiting.
  */
-function renderStageTimeline(timeline) {
+function drawStageBar() {
     const box = document.getElementById('grow-timeline');
-    if (!box) return;
+    if (!box || !activeGrow || !stageConfig) return;
 
-    if (!timeline || !timeline.length) {
-        box.innerHTML = '<div class="feed-empty">Este cultivo todavía no '
-            + 'registró ningún cambio de etapa.</div>';
-        return;
+    const expected = { ...(stageConfig.expected || {}) };
+    if (Number.isFinite(activeGrow.stage_expected_days)) {
+        expected[activeGrow.stage] = activeGrow.stage_expected_days;
     }
+    const cells = stageBarModel({
+        order: stageConfig.order,
+        current: activeGrow.stage,
+        dayInStage: activeGrow.day_in_stage,
+        expected,
+        timeline: timelineData,
+        names: config.stageNames,
+    });
 
-    box.innerHTML = timeline.map(period => {
-        const expected = Number.isFinite(period.expected_days) ? period.expected_days : null;
-        const days = Number.isFinite(period.days) ? period.days : null;
-        const overdue = days !== null && expected !== null && days > expected;
-        const pct = days !== null && expected
-            ? Math.min((days / expected) * 100, 100) : 0;
-
-        const span = period.ended_date
-            ? `${period.started_date} → ${period.ended_date}`
-            : `${period.started_date} → en curso`;
-
-        return `
-            <div class="timeline-item ${escapeHtml(period.stage)}${period.is_current ? ' is-current' : ''}">
-                <div class="timeline-head">
-                    <span class="grow-stage ${escapeHtml(period.stage)}">
-                        ${escapeHtml(config.stageNames[period.stage] || period.stage)}
-                    </span>
-                    <span class="timeline-days${overdue ? ' overdue' : ''}">
-                        ${days !== null ? `${days} d` : '--'}${expected ? ` de ~${expected}` : ''}
-                    </span>
-                </div>
-                <div class="timeline-bar">
-                    <div class="timeline-fill${overdue ? ' overdue' : ''}" style="width: ${pct}%"></div>
-                </div>
-                <div class="timeline-span">${escapeHtml(span)}</div>
-            </div>`;
-    }).join('');
+    box.style.gridTemplateColumns = cells.map(cell => `${cell.flex}fr`).join(' ');
+    box.innerHTML = cells.map(cell => `
+        <div class="ac-stage is-${cell.state}">
+            <div class="ac-stage__bar"><div class="ac-stage__fill" style="width: ${cell.fill.toFixed(1)}%"></div></div>
+            <div class="ac-stage__name">${escapeHtml(cell.name)}</div>
+            <div class="ac-stage__meta">${escapeHtml(cell.meta)}</div>
+        </div>`).join('');
 }
 
 // Modal functions
@@ -262,8 +339,8 @@ async function updateStage() {
 
 /** The grow's name, for a dialog that has to say which one it is about. */
 function growName(growId) {
-    const item = document.querySelector(`.grow-item[data-grow-id="${growId}"]`);
-    return item?.querySelector('.grow-item-name')?.textContent.trim() || 'este cultivo';
+    const row = document.querySelector(`#growList tr[data-grow-id="${growId}"]`);
+    return row?.querySelector('.grow-name-cell')?.textContent.trim() || 'este cultivo';
 }
 
 async function activateGrow(growId) {
@@ -355,49 +432,66 @@ async function loadGrowsList() {
             const stageNames = config.stageNames;
 
             if (badge) {
-                badge.className = 'sensor-badge';
                 badge.textContent = `${data.grows.length} `
                     + `${data.grows.length === 1 ? 'cultivo' : 'cultivos'}`;
             }
 
             // Every interpolated value is escaped: names, dates and the
-            // stage come straight from the database.
-            growListElement.innerHTML = data.grows.map(grow => {
+            // stage come straight from the database. Riegos is not in the
+            // grow list, so the table has no column for it.
+            const rows = data.grows.map(grow => {
                 const id = Number(grow.id);
-                const stage = escapeHtml(grow.stage);
                 const samples = Number.isFinite(grow.sample_count)
-                    ? `• ${grow.sample_count.toLocaleString('es-AR')} muestras` : '';
+                    ? grow.sample_count.toLocaleString('es-AR') : '--';
+                const days = growDays(grow.start_date, grow.end_date);
+                // The row is the same control as its "Activar" button, so a
+                // click anywhere on an inactive grow still activates it.
                 return `
-                <div class="grow-item ${grow.is_active ? 'active' : ''}"
-                     data-grow-id="${id}"
-                     data-action="${grow.is_active ? '' : 'activate'}">
-                    <div class="grow-item-name">
-                        ${escapeHtml(grow.name)}
-                        ${grow.is_active ? '<span style="color: var(--accent-green);">✅ ACTIVO</span>' : ''}
-                    </div>
-                    <span class="grow-stage ${stage}">${escapeHtml(stageNames[grow.stage] || grow.stage)}</span>
-                    <div class="grow-item-date">
-                        Inicio: ${escapeHtml(grow.start_date)}<br>
-                        ${grow.end_date ? `Fin: ${escapeHtml(grow.end_date)}` : ''}
-                        ${samples}
-                    </div>
-                    ${!grow.end_date && !grow.is_active ? `
-                        <button class="btn btn-ghost" data-action="end" data-grow-id="${id}"
-                                style="margin-top: 10px; color: #ef4444; border-color: #ef4444;">
-                            Finalizar
-                        </button>
-                    ` : ''}
-                </div>`;
+                <tr class="${grow.is_active ? 'is-active' : ''}"
+                    data-grow-id="${id}"
+                    ${grow.is_active ? '' : 'data-action="activate"'}>
+                    <td>
+                        <span class="grow-name-cell">
+                            <span class="ac-dot ${grow.is_active ? 'ac-dot--ok' : 'ac-dot--idle'}"></span>
+                            ${escapeHtml(grow.name)}
+                        </span>
+                    </td>
+                    <td>${escapeHtml(stageNames[grow.stage] || grow.stage)}</td>
+                    <td class="ac-num">${escapeHtml(formatShortDate(grow.start_date))}</td>
+                    <td class="ac-num">${escapeHtml(durationLabel(days))}</td>
+                    <td class="ac-num">${escapeHtml(samples)}</td>
+                    <td class="grow-row-actions">
+                        ${grow.is_active
+                            ? '<span class="ac-field__hint">activo</span>'
+                            : `<button class="ac-btn ac-btn--ghost" data-action="activate"
+                                       data-grow-id="${id}">Activar</button>`}
+                        ${!grow.end_date && !grow.is_active ? `
+                            <button class="ac-btn ac-btn--ghost grow-end" data-action="end"
+                                    data-grow-id="${id}">Finalizar</button>
+                        ` : ''}
+                    </td>
+                </tr>`;
             }).join('');
+
+            growListElement.innerHTML = `
+                <table class="ac-table grow-table">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th><th>Etapa</th><th>Inicio</th>
+                            <th>Duración</th><th>Muestras</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
         } else {
-            if (badge) { badge.className = 'sensor-badge'; badge.textContent = 'ninguno'; }
+            if (badge) badge.textContent = 'ninguno';
             growListElement.innerHTML =
-                '<div class="feed-empty">No hay cultivos registrados.</div>';
+                '<div class="ac-empty">No hay cultivos registrados.</div>';
         }
     } catch (error) {
         console.error('Error loading grows:', error);
         growListElement.innerHTML =
-            '<div class="feed-empty is-error">No se pudieron cargar los cultivos.</div>';
+            '<div class="ac-empty">No se pudieron cargar los cultivos.</div>';
     }
 }
 

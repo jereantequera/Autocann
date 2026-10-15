@@ -6,39 +6,77 @@
  * the parts.
  */
 
+/*
+ * Fonts, served from here: the page must not wait on the internet, and a tent
+ * network may have none. Latin subset only - it covers Spanish. Sans is one
+ * variable file for 400-600; mono ships a file per weight. Sizes and weights
+ * are in tokens.css and components.css.
+ */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('../vendor/fonts/ibm-plex-sans-latin.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../vendor/fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../vendor/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+}
+
+/*
+ * The legacy names below are kept so the rules further down still read as
+ * they did, but every value is now a token from tokens.css. Change a colour
+ * in tokens.css, not here.
+ */
 :root {
-    --bg-primary: #0a0f0d;
-    --bg-secondary: #111916;
-    --bg-card: #151d19;
-    --bg-card-hover: #1a2420;
-    --border-color: #243028;
-    --border-accent: #2d4035;
-    
-    --text-primary: #e8f0eb;
-    --text-secondary: #8fa396;
-    --text-muted: #5a6b5f;
-    
-    --accent-green: #22c55e;
-    --accent-green-dim: #166534;
-    --accent-lime: #84cc16;
-    --accent-emerald: #10b981;
-    --accent-teal: #14b8a6;
-    
-    --temp-hot: #f97316;
-    --temp-warm: #fbbf24;
-    --temp-cool: #38bdf8;
-    
-    --humidity-high: #3b82f6;
-    --humidity-low: #f472b6;
-    
-    --vpd-optimal: #22c55e;
-    --vpd-adjusting: #f59e0b;
-    --vpd-danger: #ef4444;
-    
-    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
-    --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
-    --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
-    --shadow-glow: 0 0 30px rgba(34, 197, 94, 0.15);
+    --bg-primary: var(--surface-0);
+    --bg-secondary: var(--surface-raised);
+    --bg-card: var(--surface-0);
+    --bg-card-hover: var(--surface-active);
+    --border-color: var(--hairline);
+    --border-accent: var(--border-control);
+
+    --text-primary: var(--fg);
+    --text-secondary: var(--fg-muted);
+    --text-muted: var(--fg-subtle);
+
+    --accent-green: var(--state-ok);
+    --accent-green-dim: var(--state-ok);
+    --accent-lime: var(--state-ok);
+    --accent-emerald: var(--state-ok);
+    --accent-teal: var(--data-water);
+
+    --temp-hot: var(--data-temp);
+    --temp-warm: var(--state-warn);
+    --temp-cool: var(--data-water);
+
+    --humidity-high: var(--data-water);
+    --humidity-low: var(--data-water);
+
+    --vpd-optimal: var(--state-ok);
+    --vpd-adjusting: var(--state-warn);
+    --vpd-danger: var(--state-alert);
+
+    /* No shadows and no glows: the design has one shadow, for what floats. */
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: var(--shadow-overlay);
+    --shadow-glow: none;
+
+    --skeleton: var(--surface-active);
 }
 
 * {
@@ -48,7 +86,7 @@
 }
 
 body {
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg-primary);
     color: var(--text-primary);
     min-height: 100vh;
@@ -63,89 +101,74 @@ body {
     padding: 16px 20px;
 }
 
-/* Header */
-.header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 0;
-    margin-bottom: 18px;
-    border-bottom: 1px solid var(--border-color);
+/* Icons: Lucide symbols from the sprite in partials/icons.svg. They take the
+   colour of the text they sit in and a size relative to it, so an icon inside
+   a red badge is red without anyone saying so. */
+.icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
 }
 
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 15px;
+.icon {
+    width: 1.15em;
+    height: 1.15em;
+    flex-shrink: 0;
+    vertical-align: -0.2em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
+/* A badge or a status line is icon + words; the gap is the badge's, not a
+   space character's, so it is the same width in every font. */
+.sensor-badge,
+.health-row-state,
+.drift-verdict,
+.sensor-flag,
+.sensor-card-role,
+.output-held,
+.calib-orphan,
+.score-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sensor-badge .icon { width: 1em; height: 1em; }
+
+/* The logo mark: the login screen still shows it. The header that used to
+   carry it is the sidebar now (partials/sidebar.html). */
 .logo-icon {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, var(--accent-green), var(--accent-emerald));
-    border-radius: 12px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
-    box-shadow: var(--shadow-glow);
+    color: var(--text-primary);
 }
 
-.logo h1 {
-    font-size: 1.8em;
-    font-weight: 600;
-    letter-spacing: -0.5px;
+.logo-icon .icon {
+    width: 24px;
+    height: 24px;
 }
 
-.logo h1 span {
-    color: var(--accent-green);
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    /* Shrinkable, not fixed: on a phone this group wraps onto its own lines,
-       and `0 0 auto` pinned it at the width of the chip plus the button side
-       by side, which then hung off both edges of the screen. */
-    flex: 0 1 auto;
-    min-width: 0;
-    gap: 20px;
-}
-
-/* The logo does not shrink, and does not need to: the thing with slack in this
-   row is the grow name, which has an ellipsis. */
-.logo {
-    flex: 0 0 auto;
-}
-
-.status-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: var(--bg-card);
-    border-radius: 8px;
-    font-size: 0.85em;
-    border: 1px solid var(--border-color);
-}
-
+/* Not pulsing: a blinking light is for something that just happened. */
 .status-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--accent-green);
-    animation: pulse 2s infinite;
 }
 
 .status-dot.offline {
-    background: #ef4444;
-    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
-    animation: none;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    background: var(--vpd-danger);
 }
 
 .last-update {
@@ -153,43 +176,92 @@ body {
     font-size: 0.85em;
 }
 
-/* Sensor Alert */
-.sensor-alert {
-    background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
-    padding: 16px 24px;
-    border-radius: 12px;
-    margin-bottom: 24px;
+/* Alerts: one slot above the content, every box on the component .ac-alert.
+   Hidden until its owner says otherwise with .show: api.js for the connection,
+   health.js for the other two (which one it is is decided there, once). */
+.alert-box {
     display: none;
-    align-items: center;
-    gap: 16px;
-    border: 1px solid #dc2626;
-    animation: alert-pulse 2s ease-in-out infinite;
+    margin-bottom: 24px;
 }
 
-@keyframes alert-pulse {
-    0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); }
-    50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); }
+.alert-box.show {
+    display: flex;
 }
 
-.sensor-alert-icon { font-size: 2em; }
-.sensor-alert-content { flex: 1; }
-.sensor-alert-title { font-weight: 600; font-size: 1.1em; margin-bottom: 4px; }
-.sensor-alert-message { opacity: 0.9; font-size: 0.95em; }
+.alert-box .alert-icon {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--state-alert);
+}
+
+.alert-box .alert-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* The quieter variant: a warning about the record, not about the tent now. */
+.alert-box--warn {
+    border-color: var(--state-warn);
+    align-items: flex-start;
+}
+
+.alert-box--warn .alert-icon {
+    color: var(--state-warn);
+}
+
+.alert-more {
+    margin-top: 4px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.anomalies-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.anomaly-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+}
+
+.anomaly-item .anomaly-icon {
+    color: var(--state-warn);
+    flex-shrink: 0;
+}
+
+.anomaly-item.critical .anomaly-icon {
+    color: var(--state-alert);
+}
+
+.anomaly-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.anomaly-time {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-subtle);
+}
+
+.anomaly-more {
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+
 
 /* Grow Control Bar */
-/* In the header now, so it is a strip rather than a card: no background, no
-   border, no row of its own. It was never navigation and never a control -
-   it is the sentence the rest of the screen is read inside - and a full-width
-   card was a lot of room for a sentence. */
-.grow-bar {
-    display: flex;
-    align-items: center;
-    flex: 1 1 auto;
-    min-width: 0;
-    gap: 16px;
-    padding: 0 24px;
-}
-
 .grow-info {
     display: flex;
     align-items: center;
@@ -207,18 +279,23 @@ body {
 
 .grow-stage {
     padding: 6px 14px;
-    border-radius: 20px;
+    border-radius: var(--radius-md);
     font-size: 0.8em;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
-.grow-stage.seedling { background: rgba(20, 184, 166, 0.2); color: var(--accent-teal); }
-.grow-stage.early_veg { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
-.grow-stage.late_veg { background: rgba(132, 204, 22, 0.2); color: var(--accent-lime); }
-.grow-stage.flowering { background: rgba(244, 114, 182, 0.2); color: #f472b6; }
-.grow-stage.dry { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+/* A stage is an identity, not a state, so its chip stays neutral. Its colour
+   lives in the feed grid and the charts, which is where the stage is compared. */
+.grow-stage.seedling,
+.grow-stage.early_veg,
+.grow-stage.late_veg,
+.grow-stage.flowering,
+.grow-stage.dry {
+    background: var(--surface-active);
+    color: var(--fg-secondary);
+}
 
 .grow-actions {
     display: flex;
@@ -228,7 +305,7 @@ body {
 .btn {
     padding: 10px 18px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-size: 0.9em;
     font-weight: 500;
     cursor: pointer;
@@ -237,16 +314,18 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Some buttons are links - "Agregar riego" goes to a view - and an
+       underline on a filled green button reads as a broken style. */
+    text-decoration: none;
 }
 
 .btn-primary {
-    background: var(--accent-green);
-    color: var(--bg-primary);
+    background: var(--fill-inverse);
+    color: var(--fg-inverse);
 }
 
 .btn-primary:hover {
-    background: var(--accent-emerald);
-    transform: translateY(-1px);
+    opacity: 0.88;
 }
 
 .btn-secondary {
@@ -276,12 +355,11 @@ body {
    that means "yes, go on" everywhere else. */
 .btn-danger {
     background: var(--vpd-danger);
-    color: #fff;
+    color: var(--fg-inverse);
 }
 
 .btn-danger:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
+    opacity: 0.88;
 }
 
 /* Main Grid Layout */
@@ -316,7 +394,7 @@ body {
 .hero-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-md);
     padding: 28px;
     position: relative;
     overflow: hidden;
@@ -335,7 +413,7 @@ body {
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--accent-green), var(--accent-emerald));
+    background: var(--border-control);
     opacity: 0;
     transition: opacity 0.3s ease;
 }
@@ -358,7 +436,7 @@ body {
 }
 
 .hero-card.vpd-adjusting::before {
-    background: linear-gradient(90deg, var(--vpd-adjusting), var(--temp-warm));
+    background: var(--state-warn);
     opacity: 1;
 }
 
@@ -379,7 +457,7 @@ body {
 
 .sensor-badge {
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 0.75em;
     font-weight: 500;
 }
@@ -391,11 +469,11 @@ body {
 
 .sensor-badge.error {
     background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
+    color: var(--state-alert);
 }
 
 .hero-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 3.2em;
     font-weight: 700;
     line-height: 1;
@@ -431,7 +509,7 @@ body {
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    border-radius: 20px;
+    border-radius: var(--radius-md);
     font-size: 0.85em;
     font-weight: 600;
 }
@@ -487,7 +565,6 @@ body {
     background: var(--text-primary);
     border-radius: 2px;
     transform: translateX(-50%);
-    box-shadow: 0 0 10px rgba(255,255,255,0.5);
     transition: left 0.5s ease;
 }
 
@@ -497,7 +574,7 @@ body {
     margin-top: 8px;
     font-size: 0.75em;
     color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* Hero Card Variants */
@@ -528,7 +605,7 @@ body {
 
 .humidity-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--humidity-high), var(--accent-teal));
+    background: var(--data-water);
     border-radius: 4px;
     transition: width 0.5s ease;
 }
@@ -541,7 +618,6 @@ body {
     background: var(--accent-green);
     border-radius: 2px;
     transform: translateX(-50%);
-    box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
     transition: left 0.5s ease;
 }
 
@@ -551,7 +627,7 @@ body {
     margin-top: 8px;
     font-size: 0.75em;
     color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* Humidity Difference Indicator */
@@ -560,10 +636,10 @@ body {
     align-items: center;
     gap: 4px;
     padding: 4px 10px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     font-size: 0.85em;
     font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .humidity-diff.on-target {
@@ -573,7 +649,7 @@ body {
 
 .humidity-diff.too-low {
     background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
+    color: var(--state-alert);
 }
 
 .humidity-diff.too-high {
@@ -591,7 +667,7 @@ body {
 .metric-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 20px;
     transition: all 0.2s ease;
 }
@@ -609,7 +685,7 @@ body {
 }
 
 .metric-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 2em;
     font-weight: 600;
     line-height: 1.2;
@@ -642,11 +718,11 @@ body {
     width: 32px;
     height: 32px;
     background: var(--bg-card);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    color: var(--accent-green);
 }
 
 /* Summary Stats */
@@ -660,7 +736,7 @@ body {
 .summary-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 24px;
 }
 
@@ -681,11 +757,11 @@ body {
 }
 
 .summary-card-title .icon {
-    font-size: 1.2em;
+    color: var(--accent-green);
 }
 
 .summary-avg {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 2.5em;
     font-weight: 700;
     line-height: 1;
@@ -711,7 +787,7 @@ body {
 }
 
 .summary-stat-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.2em;
     font-weight: 500;
 }
@@ -723,8 +799,8 @@ body {
    Inside and outside are read in one glance - the second is usually the reason
    the first is drifting - and they used to be two stops apart on the page. */
 .hero-card.hero-outdoor {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.08) 100%);
-    border-color: rgba(20, 184, 166, 0.45);
+    background: var(--bg-card);
+    border-color: var(--border-color);
 }
 
 .outdoor-pair {
@@ -749,7 +825,7 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--border-accent);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 20px;
 }
 
@@ -796,7 +872,7 @@ body {
     border-top: 1px solid var(--border-color);
     color: var(--text-muted);
     font-size: 0.78em;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .sensor-flag {
@@ -807,7 +883,7 @@ body {
 }
 
 .sensor-card-compare {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(132, 204, 22, 0.06) 100%);
+    background: var(--bg-card);
     border-left-color: var(--accent-lime);
 }
 
@@ -845,7 +921,7 @@ body {
 .output-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 20px;
 }
 
@@ -864,14 +940,14 @@ body {
 .output-pin {
     font-size: 0.75em;
     color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .output-state {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.3em;
     font-weight: 600;
 }
@@ -893,14 +969,12 @@ body {
 .output-state.unknown { color: var(--text-muted); }
 
 .output-state.on::before {
-    box-shadow: 0 0 12px var(--accent-green);
-    animation: pulse 2s infinite;
 }
 
 /* Off is not a fault, so it is not red any more - it is simply quiet, and the
    card recedes. Only the running ones are lit. */
 .output-card.is-on {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.12) 100%);
+    background: var(--bg-card);
     border-color: var(--accent-green-dim);
 }
 
@@ -926,7 +1000,7 @@ body {
 .btn-output {
     flex: 1;
     padding: 8px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-secondary);
@@ -970,7 +1044,7 @@ body {
 .chart-container {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-md);
     padding: 24px;
     margin-bottom: 24px;
 }
@@ -995,7 +1069,7 @@ body {
     flex-wrap: wrap;
     background: var(--bg-secondary);
     padding: 4px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
 }
 
 .time-btn {
@@ -1003,7 +1077,7 @@ body {
     border: none;
     background: transparent;
     color: var(--text-secondary);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease;
@@ -1049,7 +1123,7 @@ body {
     padding: 10px 14px;
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--accent-lime);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     color: var(--text-secondary);
     font-size: 0.9em;
@@ -1083,7 +1157,7 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     padding: 32px;
-    border-radius: 16px;
+    border-radius: var(--radius-md);
     max-width: 500px;
     width: 90%;
     max-height: 90vh;
@@ -1113,7 +1187,7 @@ body {
     padding: 12px 16px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-size: 1em;
     color: var(--text-primary);
     font-family: inherit;
@@ -1147,7 +1221,7 @@ body {
 /* The focus ring is the whole point of trapping the focus: without something
    visible, "where am I" has no answer. */
 .modal-content :focus-visible {
-    outline: 2px solid var(--accent-green);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
 }
 
@@ -1174,7 +1248,7 @@ body {
 .toast {
     max-width: min(90vw, 420px);
     padding: 12px 18px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-accent);
     background: var(--bg-card);
     color: var(--text-primary);
@@ -1203,7 +1277,7 @@ body {
 .grow-item {
     padding: 16px;
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     margin-bottom: 10px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1239,19 +1313,16 @@ body {
 }
 
 @media (max-width: 768px) {
-    .header {
-        flex-direction: column;
-        gap: 16px;
-        text-align: center;
+    /* The subtitle of a section - which board drives the relays - takes its
+       own line rather than running under the badge beside it. */
+    .section-title {
+        flex-wrap: wrap;
+        row-gap: 2px;
     }
 
-    .header-right {
-        flex-direction: column;
-    }
-
-    .grow-bar {
-        flex-direction: column;
-        text-align: center;
+    .section-title .section-subtitle {
+        flex-basis: 100%;
+        padding-left: 42px;
     }
 
     .hero-value {
@@ -1289,9 +1360,9 @@ body {
 
 /* VPD Score Card */
 .vpd-score-card {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(168, 85, 247, 0.1) 100%);
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    border-radius: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     padding: 24px;
     position: relative;
     overflow: hidden;
@@ -1313,17 +1384,17 @@ body {
 }
 
 .vpd-score-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 3em;
     font-weight: 700;
-    color: #a855f7;
+    color: var(--data-water);
     line-height: 1;
 }
 
-.vpd-score-value.excellent { color: #22c55e; }
-.vpd-score-value.good { color: #84cc16; }
-.vpd-score-value.fair { color: #fbbf24; }
-.vpd-score-value.poor { color: #ef4444; }
+.vpd-score-value.excellent { color: var(--state-ok); }
+.vpd-score-value.good { color: var(--state-ok); }
+.vpd-score-value.fair { color: var(--state-warn); }
+.vpd-score-value.poor { color: var(--state-alert); }
 
 .vpd-score-label {
     color: var(--text-secondary);
@@ -1357,7 +1428,7 @@ body {
     bottom: 0;
     left: 0;
     right: 0;
-    background: linear-gradient(to top, #a855f7, #c084fc);
+    background: var(--data-water);
     transition: height 0.5s ease;
 }
 
@@ -1383,60 +1454,7 @@ body {
     color: var(--text-muted);
 }
 
-/* Anomalies Alert */
-.anomalies-alert {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(245, 158, 11, 0.1) 100%);
-    border: 1px solid var(--vpd-adjusting);
-    border-radius: 12px;
-    padding: 16px 24px;
-    margin-bottom: 24px;
-    display: none;
-}
-
-.anomalies-alert.show { display: block; }
-.anomalies-alert.critical {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(239, 68, 68, 0.1) 100%);
-    border-color: #ef4444;
-}
-
-.anomalies-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.anomalies-title {
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.anomalies-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.anomaly-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
-    font-size: 0.9em;
-}
-
-.anomaly-item.critical { border-left: 3px solid #ef4444; }
-.anomaly-item.warning { border-left: 3px solid var(--vpd-adjusting); }
-
-.anomaly-time {
-    color: var(--text-muted);
-    font-size: 0.85em;
-    font-family: 'JetBrains Mono', monospace;
-}
+/* (Anomaly rows: see "Alerts" above.) */
 
 /* Weekly Report Modal */
 .report-grid {
@@ -1454,13 +1472,13 @@ body {
 
 .report-stat {
     background: var(--bg-secondary);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 16px;
     text-align: center;
 }
 
 .report-stat-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.8em;
     font-weight: 700;
     line-height: 1;
@@ -1479,15 +1497,15 @@ body {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     font-size: 0.75em;
     font-weight: 600;
     margin-top: 8px;
 }
 
-.report-trend.up { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-.report-trend.down { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-.report-trend.neutral { background: rgba(156, 163, 175, 0.2); color: #9ca3af; }
+.report-trend.up { background: rgba(239, 68, 68, 0.2); color: var(--state-alert); }
+.report-trend.down { background: rgba(34, 197, 94, 0.2); color: var(--state-ok); }
+.report-trend.neutral { background: rgba(156, 163, 175, 0.2); color: var(--fg-muted); }
 
 .report-section {
     margin-bottom: 24px;
@@ -1511,7 +1529,7 @@ body {
 
 .hourly-bar {
     flex: 1;
-    background: linear-gradient(to top, #a855f7, #c084fc);
+    background: var(--data-water);
     border-radius: 2px 2px 0 0;
     min-height: 4px;
     transition: height 0.3s ease;
@@ -1543,14 +1561,17 @@ body {
 
 .insight-card {
     background: var(--bg-secondary);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     padding: 14px;
 }
 
 .insight-icon {
-    font-size: 1.5em;
     margin-bottom: 8px;
 }
+
+.insight-icon .icon { width: 24px; height: 24px; }
+.insight-icon.good { color: var(--vpd-optimal); }
+.insight-icon.bad { color: var(--vpd-adjusting); }
 
 .insight-label {
     font-size: 0.8em;
@@ -1558,26 +1579,27 @@ body {
 }
 
 .insight-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.2em;
     font-weight: 600;
 }
 
 /* Loading State */
+/* A list still on its way: three grey lines, not the words "Cargando...".
+   The words stay in the markup, transparent, for a screen reader. */
 .loading {
-    text-align: center;
-    padding: 40px;
-    color: var(--text-muted);
-}
-
-.loading::after {
-    content: '...';
-    animation: loading 1.5s infinite;
-}
-
-@keyframes loading {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
+    position: relative;
+    min-height: 96px;
+    margin: 4px 0;
+    color: transparent;
+    user-select: none;
+    background:
+        linear-gradient(var(--skeleton) 0 0) 0 8px / 70% 14px,
+        linear-gradient(var(--skeleton) 0 0) 0 40px / 90% 14px,
+        linear-gradient(var(--skeleton) 0 0) 0 72px / 55% 14px;
+    background-repeat: no-repeat;
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
 /* Scrollbar */
@@ -1603,24 +1625,24 @@ body {
 /* Stage day counter */
 .stage-day,
 .grow-day {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.78em;
     font-weight: 600;
     padding: 3px 9px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     white-space: nowrap;
 }
 
 .stage-day {
     background: rgba(168, 85, 247, 0.12);
-    color: #c084fc;
+    color: var(--data-water);
     border: 1px solid rgba(168, 85, 247, 0.25);
 }
 
 /* Past the typical length for the stage: a nudge, not an error. */
 .stage-day.overdue {
     background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
+    color: var(--state-warn);
     border-color: rgba(251, 191, 36, 0.3);
 }
 
@@ -1650,16 +1672,16 @@ body {
     height: 100%;
     width: 0;
     border-radius: 3px;
-    background: linear-gradient(90deg, #a855f7, #c084fc);
+    background: var(--fill-inverse);
     transition: width 0.6s ease;
 }
 
 .stage-progress-fill.overdue {
-    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+    background: var(--state-warn);
 }
 
 .stage-progress-label {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.75em;
     color: var(--text-muted);
     white-space: nowrap;
@@ -1698,7 +1720,7 @@ body {
 .feed-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 18px;
 }
 
@@ -1722,7 +1744,7 @@ body {
 }
 
 .feed-week {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.72em;
     color: var(--text-muted);
     text-align: right;
@@ -1776,10 +1798,10 @@ body {
 .feed-card textarea {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 8px 10px;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.9em;
     width: 100%;
     min-width: 0;
@@ -1811,7 +1833,7 @@ body {
     gap: 12px;
     padding: 9px 12px;
     background: var(--bg-secondary);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
 }
 
 .feed-dose-name {
@@ -1821,7 +1843,7 @@ body {
 }
 
 .feed-dose-amount {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     color: var(--accent-green);
     white-space: nowrap;
@@ -1838,7 +1860,7 @@ body {
 .feed-flush,
 .feed-empty {
     padding: 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     color: var(--text-secondary);
     font-size: 0.85em;
@@ -1866,7 +1888,7 @@ body {
     align-items: center;
     gap: 9px;
     padding: 7px 9px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     cursor: pointer;
 }
 
@@ -1905,7 +1927,7 @@ body {
 }
 
 .feed-product-total {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8em;
     text-align: right;
     color: var(--text-muted);
@@ -1925,7 +1947,7 @@ body {
 .feed-plan-editor {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 18px;
     margin-bottom: 16px;
 }
@@ -1971,7 +1993,7 @@ body {
     position: sticky;
     top: 0;
     background: var(--bg-card);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.82em;
     font-weight: 500;
     color: var(--text-muted);
@@ -1982,7 +2004,7 @@ body {
 
 .feed-col.seedling { color: var(--accent-teal); }
 .feed-col.early_veg, .feed-col.late_veg { color: var(--accent-lime); }
-.feed-col.flowering { color: #c084fc; }
+.feed-col.flowering { color: var(--data-water); }
 .feed-col.dry { color: var(--temp-warm); }
 
 .feed-cell.stage-start,
@@ -2010,7 +2032,7 @@ body {
     width: 64px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 0.85em;
     padding: 4px;
@@ -2041,9 +2063,9 @@ body {
     text-align: center;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.95em;
 }
 
@@ -2081,7 +2103,7 @@ body {
 .feed-entry {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     padding: 14px;
     margin-bottom: 10px;
 }
@@ -2099,7 +2121,7 @@ body {
 }
 
 .feed-entry-litres {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     color: var(--text-muted);
     font-size: 0.88em;
 }
@@ -2114,7 +2136,7 @@ body {
 .feed-tag {
     font-size: 0.72em;
     padding: 3px 9px;
-    border-radius: 999px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
 }
@@ -2127,10 +2149,10 @@ body {
 }
 
 .feed-pill {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.74em;
     background: var(--bg-secondary);
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     padding: 4px 9px;
 }
 
@@ -2175,52 +2197,231 @@ body {
     display: none !important;
 }
 
-/* View tabs */
-.view-nav {
+/* The shell: the sidebar is the header now. It holds which tent this is,
+   where to go, and whether the controller is in charge - the three things that
+   are true of every view - and the views sit in the column beside it. */
+.app-shell {
     display: flex;
-    gap: 4px;
-    margin-bottom: 24px;
-    padding: 6px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 14px;
-    overflow-x: auto;
+    align-items: stretch;
+    min-height: 100vh;
+}
+
+.app-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.app-shell > .ac-sidebar {
+    position: sticky;
+    top: 0;
+    flex: 0 0 var(--sidebar-open);
+    width: var(--sidebar-open);
+    height: 100vh;
+    align-self: flex-start;
+    overflow-y: auto;
     scrollbar-width: none;
 }
 
-.view-nav::-webkit-scrollbar {
+.app-shell > .ac-sidebar.is-collapsed {
+    flex-basis: var(--sidebar-closed);
+    width: var(--sidebar-closed);
+}
+
+.app-shell > .ac-sidebar::-webkit-scrollbar {
     display: none;
 }
 
-.nav-tab {
-    flex: 1 0 auto;
+.ac-sidebar__top {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+}
+
+.ac-sidebar__top .ac-sidebar__brand {
+    flex: 1 1 auto;
+}
+
+.ac-sidebar__toggle {
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 10px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
     color: var(--text-secondary);
-    text-decoration: none;
-    font-size: 0.92em;
+    cursor: pointer;
+}
+
+.ac-sidebar__toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+}
+
+/* The stroke is the bar's own 1.75, not the sprite's 2, so the expanded
+   glyph is the one it has always been. */
+.ac-sidebar__toggle-icon {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.75;
+}
+
+/* Two Lucide glyphs swapped by state: the one that closes the bar when it is
+   open, the one that opens it when it is shut. */
+.ac-sidebar__toggle .icon-collapsed {
+    display: none;
+}
+
+.ac-sidebar.is-collapsed .ac-sidebar__toggle .icon-expanded {
+    display: none;
+}
+
+.ac-sidebar.is-collapsed .ac-sidebar__toggle .icon-collapsed {
+    display: block;
+}
+
+/* The tent block is a plain surface, not a button: there is one tent, so
+   there is nothing to pick yet. */
+.ac-sidebar__tent {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* The monogram exists only when the bar is collapsed; expanded, the tent block
+   is its words. */
+.ac-sidebar__tent-mono {
+    display: none;
+}
+
+.ac-sidebar .grow-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.ac-sidebar .grow-name {
+    flex: 0 1 auto;
+    width: 100%;
+    font-size: 13px;
     font-weight: 500;
+    color: var(--text-primary);
+}
+
+.ac-sidebar .grow-stage {
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-secondary);
+}
+
+.ac-sidebar .stage-day,
+.ac-sidebar .grow-day {
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+
+/* Kept in the DOM because the day counter writes to it; not shown. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
     white-space: nowrap;
+}
+
+.ac-sidebar .stage-day.overdue {
+    color: var(--vpd-adjusting);
+}
+
+/* The tent block is a column, so the global `flex: 0 1 140px` on the progress
+   block is a 140 px HEIGHT here, and its `flex: 1` bar fills it: that was the
+   empty gap between the stage line and "día N de ~M". Its `display: flex` also
+   beat the `hidden` attribute, so an unshown bar still held the space. */
+.ac-sidebar .stage-progress {
+    display: flex;
+    flex: none;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ac-sidebar .stage-progress[hidden] {
+    display: none;
+}
+
+.ac-sidebar .stage-progress-bar {
+    flex: none;
+    height: 3px;
+}
+
+.ac-sidebar .stage-progress-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* The views: one link each, the current one filled. Plain anchors, so the
+   current view survives a reload - which is what the tablet on the tent wall
+   does every time the network blinks - and a view can be bookmarked. */
+.ac-sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+}
+
+.ac-sidebar .nav-tab {
+    flex: 0 0 auto;
+    justify-content: flex-start;
+    gap: 12px;
+    height: 40px;
+    padding: 0 10px;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 400;
     transition: background 0.18s ease, color 0.18s ease;
 }
 
-.nav-tab:hover {
-    background: var(--bg-card-hover);
+.ac-sidebar .nav-tab:hover {
     color: var(--text-primary);
 }
 
-.nav-tab.is-active {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(16, 185, 129, 0.10));
+.ac-sidebar .nav-tab.is-active {
+    background: var(--bg-card-hover);
     color: var(--text-primary);
-    box-shadow: inset 0 0 0 1px var(--border-accent);
+    font-weight: 500;
+}
+
+.ac-sidebar .nav-tab-icon .icon {
+    width: 18px;
+    height: 18px;
 }
 
 .nav-tab-icon {
-    font-size: 1.05em;
+    display: flex;
 }
 
 /* One view on screen at a time; the rest stay in the DOM so their charts and
@@ -2243,7 +2444,7 @@ body {
     color: var(--text-muted);
     font-size: 0.7em;
     font-weight: 400;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* The range selector has to stay reachable while scrolling three charts. */
@@ -2253,7 +2454,7 @@ body {
     z-index: 20;
     margin-top: 0;
     padding: 12px 0;
-    background: linear-gradient(var(--bg-primary) 70%, rgba(10, 15, 13, 0));
+    background: var(--bg-primary);
     /* Three controls live here now — title, grow and range — so they wrap
        instead of squeezing the select down to nothing on a phone. */
     flex-wrap: wrap;
@@ -2279,7 +2480,7 @@ body {
     padding: 8px 14px;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 0.85em;
@@ -2315,7 +2516,7 @@ body {
 }
 
 .system-state:hover:not(:disabled) .system-state-action {
-    color: var(--accent-green);
+    color: var(--text-primary);
 }
 
 /* Amber, and that is all it needs to be.
@@ -2331,8 +2532,8 @@ body {
    What still does the work is that nothing else in the header is this colour,
    it says how long it has been, and the verb to end it is right there. */
 .system-state.is-paused {
-    background: rgba(245, 158, 11, 0.09);
-    border-color: rgba(245, 158, 11, 0.5);
+    background: transparent;
+    border-color: var(--vpd-adjusting);
 }
 
 /* How long it has been - the one thing the banner said that a chip did not.
@@ -2340,7 +2541,7 @@ body {
    detail you read after the two words, not a second alarm beside them. */
 .system-state-since {
     color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.82em;
     white-space: nowrap;
 }
@@ -2371,8 +2572,8 @@ body {
    tent stopped with its hands in the works. Still lit, still pulsing - it is
    not a resting state and nothing but a person ends it. */
 .system-state.is-monitor {
-    background: rgba(20, 184, 166, 0.09);
-    border-color: rgba(20, 184, 166, 0.5);
+    background: transparent;
+    border-color: var(--accent-teal);
 }
 
 .system-state.is-monitor .system-state-text {
@@ -2411,7 +2612,7 @@ body {
     width: 100%;
     padding: 16px;
     text-align: left;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
     color: var(--text-primary);
@@ -2439,9 +2640,10 @@ body {
 
 .stop-mode-icon {
     flex: 0 0 auto;
-    font-size: 1.5em;
-    line-height: 1.2;
+    color: var(--accent-green);
 }
+
+.stop-mode-icon .icon { width: 26px; height: 26px; }
 
 .stop-mode-body {
     display: flex;
@@ -2468,9 +2670,152 @@ body {
     border-color: var(--vpd-danger);
 }
 
+/* The loop is down: the dot and the words say so, in the alert colour. A
+   paused or monitoring tent keeps its own look, so this only ever adds to the
+   plain "activo" state and never repaints the states that are intentional. */
+.ac-sidebar .system-state.is-loop-down {
+    border-color: var(--state-alert);
+}
+
+.ac-sidebar .system-state.is-loop-down .status-dot {
+    background: var(--state-alert);
+    box-shadow: none;
+    animation: none;
+}
+
+.ac-sidebar .system-state.is-loop-down .system-state-text {
+    color: var(--state-alert);
+    font-weight: 600;
+}
+
 .header-cta {
     position: relative;
     white-space: nowrap;
+}
+
+.ac-sidebar__status {
+    gap: 10px;
+}
+
+.ac-sidebar .header-cta,
+.ac-sidebar .system-state {
+    width: 100%;
+}
+
+/* The state is a full-width line: the dot and the words on the left, the verb
+   that changes it on the right. Wraps rather than being cut off. */
+.ac-sidebar .system-state {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+.ac-sidebar .system-state-action {
+    margin-left: auto;
+}
+
+.ac-sidebar__status .last-update {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+/* Collapsed to icons: the controls keep their place and lose their words. The
+   state dot and the watering droplets say what they do without them. */
+.ac-sidebar.is-collapsed .ac-sidebar__tent {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+}
+
+.ac-sidebar.is-collapsed .ac-sidebar__tent-name,
+.ac-sidebar.is-collapsed .grow-info,
+.ac-sidebar.is-collapsed .stage-progress,
+.ac-sidebar.is-collapsed .header-cta-label,
+.ac-sidebar.is-collapsed .system-state-text,
+.ac-sidebar.is-collapsed .system-state-since,
+.ac-sidebar.is-collapsed .system-state-action,
+.ac-sidebar.is-collapsed .last-update {
+    display: none;
+}
+
+.ac-sidebar.is-collapsed .nav-tab {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+}
+
+.ac-sidebar.is-collapsed .header-cta,
+.ac-sidebar.is-collapsed .system-state {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+}
+
+/* The collapsed bar is desktop only: on a phone the same markup is a top bar,
+   and a bar that was collapsed on the laptop must not reshape it there. */
+@media (min-width: 769px) {
+    .ac-sidebar.is-collapsed .ac-sidebar__tent {
+        overflow: hidden;
+    }
+
+    /* The tent is its monogram; every word of the block is hidden, the day
+       counter included - it was the line that spilled out of the block. */
+    .ac-sidebar.is-collapsed .ac-sidebar__tent-mono {
+        display: flex;
+        flex: none;
+        box-sizing: border-box;
+        width: 40px;
+        height: 40px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius-md);
+        background: var(--surface-raised);
+        color: var(--fg);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .ac-sidebar.is-collapsed .stage-day,
+    .ac-sidebar.is-collapsed .grow-day,
+    .ac-sidebar.is-collapsed .stage-progress-label {
+        display: none;
+    }
+
+    .ac-sidebar.is-collapsed .ac-sidebar__nav {
+        align-items: center;
+        gap: 4px;
+    }
+
+    .ac-sidebar.is-collapsed .nav-tab.is-active {
+        background: var(--surface-active);
+    }
+
+    /* Hidden, not shrunk: the Riego link above is the same place. */
+    .ac-sidebar.is-collapsed .header-cta {
+        display: none;
+    }
+
+    /* A 40 px square with the dot in it. The border is the control's own in
+       every state, so the loop-down red lives in the dot alone. */
+    .ac-sidebar.is-collapsed .system-state,
+    .ac-sidebar.is-collapsed .system-state.is-paused,
+    .ac-sidebar.is-collapsed .system-state.is-monitor,
+    .ac-sidebar.is-collapsed .system-state.is-offline,
+    .ac-sidebar.is-collapsed .system-state.is-loop-down {
+        border: 1px solid var(--border-control);
+    }
+
+    .ac-sidebar.is-collapsed .system-state .status-dot {
+        width: 10px;
+        height: 10px;
+    }
 }
 
 /* Only there when it has something to say - days since the last watering, once
@@ -2481,75 +2826,13 @@ body {
     right: -8px;
     min-width: 22px;
     padding: 2px 6px;
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     background: var(--vpd-adjusting);
-    color: #1a1205;
-    font-family: 'JetBrains Mono', monospace;
+    color: var(--fg-inverse);
+    font-family: var(--font-mono);
     font-size: 0.72em;
     font-weight: 700;
     text-align: center;
-}
-
-/* In the header the grow is a sentence, not a row of badges.
-   
-   It arrived here as four bordered boxes - a pill for the stage, a pill for the
-   day in the stage, a pill for the day of the grow, a progress bar with an
-   estimated end - next to a bordered chip, a button and a full timestamp. Seven
-   outlined things in one row, and the one piece that actually says which grow
-   this is was the piece getting truncated to "Blue ...". That is a header you
-   stop reading.
-   
-   So the boxes go and the words stay: name, stage in its own colour, day. The
-   day of the whole grow, the progress bar and the estimated end are not gone,
-   they are in Cultivo, which is the screen for how the grow is going. */
-.header .grow-stage {
-    padding: 0;
-    background: none;
-    border: 0;
-    border-radius: 0;
-}
-
-.header .stage-day {
-    padding: 0;
-    background: none;
-    border: 0;
-    color: var(--text-muted);
-    font-weight: 400;
-}
-
-.header .stage-day.overdue {
-    color: var(--vpd-adjusting);
-}
-
-.header .grow-day,
-.header .stage-progress {
-    display: none;
-}
-
-/* The name is the piece worth the room, so it is the last to give any up. */
-.header .grow-name {
-    flex: 0 1 auto;
-}
-
-@media (max-width: 1080px) {
-    .header .last-update {
-        display: none;
-    }
-}
-
-/* Below this the row cannot hold three groups, so the grow context takes a
-   line of its own under the logo and the controls rather than being squeezed
-   to an ellipsis and two chips. */
-@media (max-width: 920px) {
-    .header {
-        flex-wrap: wrap;
-    }
-
-    .header .grow-bar {
-        order: 3;
-        flex-basis: 100%;
-        padding: 10px 0 0 0;
-    }
 }
 
 /* ===============================
@@ -2647,7 +2930,7 @@ body {
 .chart-note {
     color: var(--text-muted);
     font-size: 0.78em;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* The watering tile: how long it has been, how much solution, and what goes
@@ -2659,7 +2942,7 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--humidity-high);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 16px;
 }
 
@@ -2679,7 +2962,7 @@ body {
 }
 
 .panel-feed-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.8em;
     font-weight: 700;
     line-height: 1;
@@ -2700,7 +2983,7 @@ body {
    instruction: "10 L, y en esos 10 L va esto". */
 .panel-feed-litres {
     flex: 0 0 auto;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1.8em;
     font-weight: 700;
     line-height: 1;
@@ -2759,13 +3042,13 @@ body {
 }
 
 .panel-feed-dose-total {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     color: var(--accent-lime);
 }
 
 .panel-feed-dose-rate {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.82em;
     color: var(--text-muted);
 }
@@ -2836,7 +3119,7 @@ body {
 .calendar {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 14px;
+    border-radius: var(--radius-md);
     padding: 16px;
 }
 
@@ -2866,7 +3149,7 @@ body {
     padding: 8px;
     background: var(--bg-secondary);
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-family: inherit;
     text-align: left;
@@ -2882,7 +3165,7 @@ body {
 }
 
 .cal-day-num {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.85em;
 }
 
@@ -2898,8 +3181,8 @@ body {
 /* A watered day is filled, not dotted: the shape of the month is the point,
    and a 6px dot does not make a shape at arm's length. */
 .cal-day.has-feed {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.08));
-    border-color: rgba(59, 130, 246, 0.35);
+    background: var(--surface-raised);
+    border-color: var(--border-color);
     color: var(--text-primary);
     cursor: pointer;
 }
@@ -2909,13 +3192,13 @@ body {
 }
 
 .cal-day.is-off-plan {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08));
-    border-color: rgba(245, 158, 11, 0.4);
+    background: var(--surface-raised);
+    border-color: var(--state-warn);
 }
 
 .cal-day.is-flush {
-    background: linear-gradient(135deg, rgba(20, 184, 166, 0.2), rgba(20, 184, 166, 0.06));
-    border-color: rgba(20, 184, 166, 0.35);
+    background: var(--surface-raised);
+    border-color: var(--data-water);
 }
 
 .cal-day.is-open {
@@ -2923,7 +3206,7 @@ body {
 }
 
 .cal-day-litres {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.78em;
     font-weight: 600;
 }
@@ -2977,7 +3260,7 @@ body {
 
 .cal-streak {
     color: var(--text-secondary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .cal-detail {
@@ -2990,7 +3273,7 @@ body {
 .cal-detail-entry {
     background: var(--bg-card);
     border: 1px solid var(--border-accent);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 16px;
 }
 
@@ -2999,7 +3282,7 @@ body {
     justify-content: space-between;
     align-items: baseline;
     margin-bottom: 10px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* ===============================
@@ -3019,13 +3302,12 @@ body {
 .timeline-item {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 16px;
 }
 
 .timeline-item.is-current {
     border-color: var(--accent-green);
-    box-shadow: var(--shadow-glow);
 }
 
 .timeline-head {
@@ -3037,7 +3319,7 @@ body {
 }
 
 .timeline-days {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.85em;
     color: var(--text-secondary);
     white-space: nowrap;
@@ -3056,18 +3338,18 @@ body {
 
 .timeline-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--accent-green), var(--accent-emerald));
+    background: var(--fill-inverse);
 }
 
 .timeline-fill.overdue {
-    background: linear-gradient(90deg, var(--vpd-adjusting), var(--temp-hot));
+    background: var(--state-warn);
 }
 
 .timeline-span {
     margin-top: 8px;
     color: var(--text-muted);
     font-size: 0.78em;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* ===============================
@@ -3079,14 +3361,14 @@ body {
     padding: 14px 16px;
     background: var(--bg-secondary);
     border-left: 3px solid var(--border-accent);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-size: 0.86em;
     line-height: 1.5;
 }
 
 .sys-note code {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     color: var(--accent-lime);
 }
 
@@ -3100,7 +3382,7 @@ body {
 .sys-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 18px;
 }
 
@@ -3109,6 +3391,9 @@ body {
 }
 
 .sys-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-size: 1.1em;
     font-weight: 600;
 }
@@ -3143,7 +3428,7 @@ body {
 .calib-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 18px;
 }
 
@@ -3176,7 +3461,7 @@ body {
 }
 
 .calib-state {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8em;
     color: var(--text-muted);
 }
@@ -3204,9 +3489,9 @@ body {
     padding: 9px 11px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 1em;
 }
 
@@ -3247,7 +3532,7 @@ body {
     max-width: 900px;
 }
 
-.report-stat-vpd { color: #a855f7; }
+.report-stat-vpd { color: var(--data-water); }
 .report-stat-temp { color: var(--temp-hot); }
 .report-stat-humidity { color: var(--humidity-high); }
 
@@ -3286,14 +3571,14 @@ body {
 
 .report-day-fill {
     height: 100%;
-    background: linear-gradient(90deg, #a855f7, #c084fc);
+    background: var(--data-water);
     transition: width 0.5s ease;
 }
 
 .report-day-score {
     width: 52px;
     text-align: right;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
 }
 
@@ -3319,7 +3604,7 @@ body {
 }
 
 .summary-card-outside {
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(20, 184, 166, 0.05) 100%);
+    background: var(--bg-card);
 }
 
 .summary-stat-value.outside {
@@ -3359,19 +3644,128 @@ body {
 }
 
 @media (max-width: 768px) {
+    /* The sidebar is a top bar here: which tent, and whether the controller is in
+       charge. Only the state button stays up here, because it is the one thing
+       worth reaching from any view; the rest is the bottom bar or the desktop. */
+    .app-shell {
+        display: block;
+    }
+
+    .app-shell > .ac-sidebar,
+    .app-shell > .ac-sidebar.is-collapsed {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        flex: 0 0 auto;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-color);
+        overflow: visible;
+    }
+
+    .app-shell .ac-sidebar .ac-sidebar__top,
+    .app-shell .ac-sidebar .ac-sidebar__tent-mono,
+    .app-shell .ac-sidebar .stage-progress,
+    .app-shell .ac-sidebar .grow-day,
+    .app-shell .ac-sidebar .header-cta,
+    .app-shell .ac-sidebar .last-update {
+        display: none;
+    }
+
+    /* One line, ellipsis: "Carpa principal · Veg. temprano · día 1". The crop
+       name, the progress bar and the extra counters are not up here. */
+    .app-shell .ac-sidebar .ac-sidebar__tent,
+    .app-shell .ac-sidebar.is-collapsed .ac-sidebar__tent {
+        flex: 1 1 auto;
+        display: block;
+        width: auto;
+        height: 44px;
+        min-width: 0;
+        padding: 0 12px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        line-height: 42px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .app-shell .ac-sidebar .ac-sidebar__tent-name {
+        display: inline;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .app-shell .ac-sidebar .ac-sidebar__tent-name::after {
+        content: " · ";
+        color: var(--text-muted);
+        font-weight: 400;
+    }
+
+    .app-shell .ac-sidebar .grow-info {
+        display: inline;
+    }
+
+    .app-shell .ac-sidebar .grow-name {
+        display: none;
+    }
+
+    .app-shell .ac-sidebar .grow-stage {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .app-shell .ac-sidebar .grow-stage::after {
+        content: " · ";
+        color: var(--text-muted);
+    }
+
+    .app-shell .ac-sidebar .stage-day {
+        display: inline;
+        font-size: 13px;
+    }
+
+    .app-shell .ac-sidebar .system-state {
+        width: auto;
+        height: auto;
+        padding: 8px 12px;
+        flex: 0 0 auto;
+    }
+
+    .app-shell .ac-sidebar__status {
+        flex: 0 0 auto;
+        flex-direction: row;
+        align-items: center;
+        margin-top: 0;
+        padding: 0;
+        border-top: 0;
+        gap: 8px;
+    }
+
+    .app-shell .ac-sidebar .system-state-text,
+    .app-shell .ac-sidebar .system-state-since,
+    .app-shell .ac-sidebar .system-state-action,
+    .app-shell .ac-sidebar .ac-sidebar__label {
+        display: inline;
+    }
+
     /* A thumb reaches the bottom of a phone, not the top of a long page. */
-    .view-nav {
+    .app-shell .ac-sidebar__nav {
         position: fixed;
         inset: auto 0 0 0;
         z-index: 60;
+        flex-direction: row;
+        gap: 0;
         margin: 0;
         padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
-        border-radius: 0;
-        border-left: 0;
-        border-right: 0;
-        border-bottom: 0;
-        background: rgba(17, 25, 22, 0.97);
-        backdrop-filter: blur(10px);
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-primary);
         overflow-x: visible;
     }
 
@@ -3379,73 +3773,38 @@ body {
         padding-bottom: 78px;
     }
 
-    .nav-tab {
+    .app-shell .ac-sidebar .nav-tab,
+    .app-shell .ac-sidebar.is-collapsed .nav-tab {
         flex: 1 1 0;
         flex-direction: column;
         gap: 3px;
+        width: auto;
+        height: auto;
         padding: 7px 2px;
         min-width: 0;
+        justify-content: center;
     }
 
-    .nav-tab-icon {
-        font-size: 1.2em;
+    .app-shell .ac-sidebar .nav-tab-icon .icon {
+        width: 22px;
+        height: 22px;
     }
 
     /* "Estadísticas" does not fit a sixth of a phone; the short form rides
        along in the markup so the full word stays in the document. */
-    .nav-tab-label {
+    .app-shell .ac-sidebar .nav-tab-label {
         font-size: 0;
     }
 
-    .nav-tab-label::after {
+    .app-shell .ac-sidebar .nav-tab-label::after {
         content: attr(data-short);
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 500;
     }
 
     .section-header-sticky {
         position: static;
         padding: 0;
-    }
-
-    /* The grow bar is on every view now, so its overflow is not a corner of
-       one screen any more: name, stage and the two day counters have to wrap
-       instead of running off the right edge. */
-    .header {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 10px;
-        text-align: left;
-    }
-
-    .header-right {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 10px;
-    }
-
-    .grow-bar {
-        flex-direction: row;
-        padding: 12px 16px;
-    }
-
-    .grow-info {
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 8px 12px;
-        min-width: 0;
-    }
-
-    .grow-name {
-        width: 100%;
-        text-align: center;
-        font-size: 1.05em;
-    }
-
-    .stage-progress {
-        flex: 1 1 100%;
     }
 
     /* Titles and their controls stack rather than squeeze: the month pager was
@@ -3534,7 +3893,7 @@ body {
     gap: 10px;
     align-items: baseline;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border-left: 3px solid var(--border-accent);
     background: var(--bg-secondary);
     font-size: 0.84em;
@@ -3599,7 +3958,7 @@ body {
 
 .node-card-name {
     font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .node-card-rows {
@@ -3618,7 +3977,7 @@ body {
 .node-row-name { color: var(--text-muted); }
 
 .node-row-value {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     text-align: right;
     min-width: 0;
 }
@@ -3645,7 +4004,7 @@ body {
 .node-sensor.is-bad { color: var(--vpd-adjusting); }
 
 .node-sensor-id {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -3660,16 +4019,16 @@ body {
     border-top: 1px solid var(--border-color);
     color: var(--text-muted);
     font-size: 0.76em;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .node-log-picker {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 5px 10px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8em;
 }
 
@@ -3693,15 +4052,15 @@ body {
     margin-bottom: 16px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
-    font-family: 'JetBrains Mono', monospace;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
     font-size: 0.78em;
     line-height: 1.6;
 }
 
 .node-log-empty {
     color: var(--text-muted);
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-sans);
 }
 
 .node-log-line {
@@ -3754,7 +4113,7 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     padding: 18px;
 }
 
@@ -3765,7 +4124,7 @@ body {
 /* Not styled as a fault: the window doing its job is the normal case. */
 .quiet-card.is-silencing {
     border-left-color: var(--accent-green);
-    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(34, 197, 94, 0.06) 100%);
+    background: var(--bg-card);
 }
 
 .quiet-card.is-inert {
@@ -3823,9 +4182,9 @@ body {
     padding: 8px 10px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 0.95em;
 }
 
@@ -3890,7 +4249,7 @@ body {
     padding: 32px;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
 }
 
@@ -3937,4 +4296,467 @@ body {
     margin-top: 20px;
     color: var(--text-muted);
     font-size: 0.85em;
+}
+
+.grow-item-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    color: var(--accent-green);
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+/* A section or chart title is icon + words, aligned on the icon's centre. */
+.chart-title,
+.hero-label,
+.report-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chart-title .icon,
+.report-section-title .icon {
+    color: var(--accent-green);
+}
+
+/* On a phone the watering button is its icon: the header has one row, and the
+   droplets are the same ones on the Riego tab it leads to. */
+@media (max-width: 520px) {
+    .header-cta-label {
+        display: none;
+    }
+
+    .header-cta {
+        padding: 10px 12px;
+    }
+
+    /* The chip keeps what it does and drops what it says: the dot's colour
+       already tells the state, and "Detener"/"Reanudar" is the part that
+       tells you it is a button. */
+    .system-state-text,
+    .system-state-since {
+        display: none;
+    }
+
+    .system-state-action {
+        padding-left: 0;
+        margin-left: 0;
+        border-left: 0;
+    }
+}
+
+/* ===============================
+   LOADING
+   ===============================
+   One loading state for the whole app. Until main.js has the first answers in
+   (body.is-booting), or the first time a view is opened (.view.is-loading),
+   every place a number or a status will land is a grey block that pulses.
+   Then it is revealed in one go. The blocks keep the size of what they stand
+   in for, so nothing moves when the real values arrive.
+
+   The alerts are held back too: they are the last thing to answer, and when
+   they appeared on their own they pushed the whole panel down. */
+.is-booting :is(.hero-value, .hero-subtitle, .metric-value, .summary-avg,
+        .summary-stat-value, .sensor-badge, .health-row-state, .health-row-detail,
+        .output-state, .output-name, .panel-feed-value, .panel-feed-label,
+        .grow-name, .grow-stage, .grow-day, .last-update, .system-state-text,
+        .section-subtitle, .vpd-score-value, .insight-value, .report-stat-value,
+        .feed-week, .humidity-target, .panel-feed-litres,
+        .ac-status__title, .ac-status__text, .ac-readout__value, .ac-readout__sub,
+        .ac-output__state, .panel-water__title, .panel-water__doses),
+.view.is-loading :is(.hero-value, .metric-value, .summary-avg,
+        .summary-stat-value, .sensor-badge, .health-row-state, .output-state,
+        .output-name, .vpd-score-value, .vpd-score-range, .insight-value,
+        .insight-score, .report-stat-value, .report-trend, .feed-week,
+        .cal-month, .sys-state,
+        .ac-status__title, .ac-status__text, .ac-readout__value, .ac-readout__sub,
+        .ac-output__state, .panel-water__title, .panel-water__doses) {
+    color: transparent !important;
+    background: var(--skeleton) !important;
+    border-color: transparent !important;
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+    user-select: none;
+}
+
+.is-booting :is(.hero-value, .hero-subtitle, .metric-value, .summary-avg,
+        .output-state, .sensor-badge, .health-row-state, .output-name,
+        .grow-name, .panel-feed-litres) *,
+.view.is-loading :is(.hero-value, .metric-value, .summary-avg, .output-state,
+        .sensor-badge, .health-row-state, .output-name, .sys-state) * {
+    visibility: hidden;
+}
+
+/* Badges and small labels have no width of their own while empty. */
+.is-booting :is(.sensor-badge, .health-row-state, .grow-stage),
+.view.is-loading :is(.sensor-badge, .health-row-state) {
+    min-width: 72px;
+    min-height: 1.4em;
+}
+
+.is-booting :is(.hero-value, .ac-readout__value),
+.view.is-loading :is(.hero-value, .ac-readout__value) {
+    width: 60%;
+}
+
+/* The VPD chart and the bitácora are one block each while they wait: the
+   figure keeps its size, so nothing moves when the plot lands. */
+.is-booting :is(.panel-vpd, .panel-logbook),
+.view.is-loading :is(.panel-vpd, .panel-logbook) {
+    background: var(--skeleton);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.is-booting :is(.panel-vpd, .panel-logbook) > *,
+.view.is-loading :is(.panel-vpd, .panel-logbook) > * {
+    visibility: hidden;
+}
+
+.is-booting .panel-vpd,
+.view.is-loading .panel-vpd {
+    min-height: 320px;
+}
+
+/* A chart that has not been drawn yet is one block, not an empty grid with
+   axes running 0 to 1. */
+.is-booting .chart-wrapper,
+.view.is-loading .chart-wrapper {
+    background: var(--skeleton);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.is-booting .chart-wrapper canvas,
+.view.is-loading .chart-wrapper canvas,
+.is-booting :is(.vpd-gauge, .humidity-bar-container),
+.view.is-loading :is(.vpd-gauge, .humidity-bar-container) {
+    visibility: hidden;
+}
+
+.is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert) {
+    display: none !important;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+/* The reveal: values fade in where the blocks were, rather than snapping. */
+body:not(.is-booting) .view.is-active:not(.is-loading) {
+    animation: reveal 0.25s ease-out;
+}
+
+.alert-box.show {
+    animation: reveal 0.25s ease-out;
+}
+
+@keyframes reveal {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-booting *,
+    .view.is-loading *,
+    .loading,
+    body:not(.is-booting) .view.is-active,
+    .alert-box.show {
+        animation: none !important;
+    }
+}
+
+/* ===============================
+   EMPTY STATES
+   ===============================
+   No reading is not a reading. Two dashes in the big orange numerals read as
+   a value at a glance, so a card with nothing to show says so in grey. */
+.hero-grid.no-reading :is(.hero-value, .hero-value .hero-unit) {
+    color: var(--text-muted);
+    -webkit-text-fill-color: var(--text-muted);
+}
+
+/* A chart with nothing to plot shows why, instead of an empty grid. */
+.chart-wrapper.is-empty canvas {
+    visibility: hidden;
+}
+
+.chart-wrapper.is-empty::after {
+    content: attr(data-empty);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.95em;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+/* ===============================
+   INTERACTION
+   =============================== */
+
+/* One focus ring for everything you can reach with Tab. Only modals and the
+   stop dialog had one; everywhere else a keyboard user could not see where
+   they were. :focus-visible, so a mouse click does not draw it. */
+:is(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* A finger is not a cursor: 44 px is the smallest target that is hit reliably
+   on a phone or on the tablet on the wall. The mini buttons stay mini to the
+   eye and get the height where it is touched. */
+@media (pointer: coarse) {
+    :is(.btn, .btn-mini, .btn-output, .time-btn, .system-state, .nav-tab) {
+        min-height: 44px;
+    }
+
+    .btn-mini {
+        padding-inline: 14px;
+    }
+}
+
+/* PANEL (A2) */
+
+/* The panel's layout on top of the design-system classes (components.css):
+   status and chart on the left, readings / relays / water or the log on the
+   right. Only design tokens here, no literal colours. */
+
+.panel-a2 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: var(--space-12);
+    align-items: start;
+}
+
+.panel-a2__main,
+.panel-a2__side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-width: 0;
+}
+
+/* The design-system components set `display` on their own classes, and
+   `display: flex` beats the `hidden` attribute, so the tooltip and the tabs
+   stayed on screen after they were hidden. */
+.panel-a2 [hidden] {
+    display: none !important;
+}
+
+/* A readout's unit stays on its number: "55,0 %" never breaks across lines. */
+.panel-a2 .ac-readout__value {
+    white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+    .panel-a2 {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-8);
+    }
+}
+
+/* ---------- VPD chart ---------- */
+
+.panel-vpd {
+    position: relative;
+    margin: 0;
+}
+
+.panel-vpd__plot svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* The band's labels sit just past the last grid line, in the margin the
+       viewBox leaves for the axes; they must not be cut at its edge. */
+    overflow: visible;
+}
+
+/* The dot's hit area is bigger than the dot, so it is easy to land on with a
+   finger and on the tablet on the tent wall. */
+.panel-vpd__point {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: transparent;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+}
+
+/* Beside the dot, on the side with room for it (renderVpdChart sets --tip-*). */
+.panel-vpd__tip {
+    position: absolute;
+    z-index: 2;
+    left: calc(var(--tip-x, 50%) + 24px);
+    top: calc(var(--tip-y, 50%) - 60px);
+    width: 226px;
+    box-sizing: border-box;
+}
+
+.panel-vpd__tip.is-left {
+    left: calc(var(--tip-x, 50%) - 250px);
+}
+
+.panel-vpd__tip .ac-tooltip__val.is-warn {
+    color: var(--state-warn);
+}
+
+.panel-vpd__close {
+    display: none;
+    margin-top: var(--space-2);
+}
+
+/* On a phone the tooltip is a sheet above the bottom bar, not a box that
+   might be cut off by the edge of the screen. */
+@media (max-width: 768px) {
+    .panel-vpd__tip,
+    .panel-vpd__tip.is-left {
+        position: fixed;
+        top: auto;
+        left: var(--space-4);
+        right: var(--space-4);
+        bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+        width: auto;
+        box-shadow: var(--shadow-overlay);
+    }
+
+    .panel-vpd__close {
+        display: flex;
+    }
+
+    /* Two readouts share a 390 px screen: at the desktop size the humidity
+       would not fit beside the temperature. */
+    .panel-a2 .ac-readout__value {
+        font-size: 40px;
+    }
+}
+
+/* ---------- Ahora ---------- */
+
+.panel-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.panel-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-6) 0 var(--space-2);
+}
+
+.panel-outputs {
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-manual {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--hairline-faint);
+}
+
+.panel-manual__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.panel-manual__row .ac-output__name {
+    flex: 1 1 auto;
+}
+
+.panel-manual__buttons {
+    display: flex;
+    gap: var(--space-2);
+}
+
+/* The button for what the relay is asked to do, pressed. */
+.panel-manual__buttons .ac-btn[aria-pressed="true"] {
+    background: var(--fill-inverse);
+    color: var(--fg-inverse);
+    font-weight: 600;
+}
+
+.panel-manual__held {
+    flex-basis: 100%;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-subtle);
+}
+
+/* Riego de hoy: the watering strip, with the one action on it. */
+.panel-water {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-6);
+    padding: var(--space-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+}
+
+.panel-water__body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.panel-water__title {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--fg);
+}
+
+/* One mono line of doses; it is read at a glance, so it does not wrap on a
+   desktop. On a phone it may wrap, rather than hide a dose. */
+.panel-water__doses {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .panel-water__doses {
+        white-space: normal;
+    }
+}
+
+/* ---------- Bitácora ---------- */
+
+.panel-logbook__filters {
+    align-self: flex-start;
+}
+
+.panel-logbook {
+    min-height: 0;
 }

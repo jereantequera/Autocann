@@ -156,28 +156,31 @@ function renderDetail() {
     }
 
     box.hidden = false;
+    // The same log rows the Riego column lists, so a day reads the same here.
     box.innerHTML = entries.map(entry => {
         const items = (entry.items || []).map(item => `
-            <span class="feed-pill${item.on_plan ? '' : ' off'}">
+            <span class="ac-log__text${item.on_plan ? '' : ' is-off'}">
                 ${escapeHtml(item.name)} ${escapeHtml(dose(item.dose))} ${escapeHtml(item.unit)}
-            </span>`).join('') || '<span class="feed-pill">Solo agua</span>';
+            </span>`).join('') || '<span class="ac-log__text">Solo agua</span>';
 
-        const tags = [
+        const measures = [
             entry.stage ? `${stageName(entry.stage)} S${Number(entry.week) || '?'}` : '',
             Number.isFinite(entry.ph) ? `pH ${dose(entry.ph)}` : '',
             Number.isFinite(entry.ec) ? `EC ${dose(entry.ec)}` : '',
-        ].filter(Boolean)
-            .map(text => `<span class="feed-tag">${escapeHtml(text)}</span>`).join('');
+        ].filter(Boolean).join(' · ');
 
         return `
-            <div class="cal-detail-entry">
-                <div class="cal-detail-head">
-                    <strong>${escapeHtml(entry.date)}</strong>
-                    <span>${escapeHtml(dose(entry.litres))} L</span>
+            <div class="cal-detail-head">
+                <strong>${escapeHtml(entry.date)}</strong>
+                <span>${escapeHtml(dose(entry.litres))} L</span>
+            </div>
+            <div class="ac-log__item">
+                <span class="ac-dot ac-dot--info" aria-hidden="true"></span>
+                <div>
+                    ${items}
+                    ${measures ? `<div class="ac-log__detail">${escapeHtml(measures)}</div>` : ''}
+                    ${entry.notes ? `<div class="ac-log__detail">${escapeHtml(entry.notes)}</div>` : ''}
                 </div>
-                <div class="feed-entry-tags">${tags}</div>
-                <div class="feed-entry-items">${items}</div>
-                ${entry.notes ? `<div class="feed-entry-note">${escapeHtml(entry.notes)}</div>` : ''}
             </div>`;
     }).join('');
 }

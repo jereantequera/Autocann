@@ -23,6 +23,10 @@ JS_TEST_DIR = Path(__file__).parent / "js"
 #: The two modules the control-mode tests read as text.
 VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
 APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
+#: Partials kept on disk on purpose with no page including them yet. None now:
+#: the Exterior card moved into Estadísticas, and its partial went with it. The
+#: list stays so that the next exception has to be decided here, not slipped in.
+PENDING_PARTIALS: set[str] = set()
 
 
 def _strip_js_comments(source: str) -> str:
@@ -109,14 +113,14 @@ def test_stage_ranges_are_not_hardcoded_in_the_frontend():
 
 def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
     """
-    The stage list lives once in vpd_math.py, but the browser needs five things
+    The stage list lives once in vpd_math.py, but the browser needs four things
     per stage that no kPa band implies: a fallback display name, a short name
-    for the chart markers, an option in each of the two stage selects, a letter
-    over the feed grid's week columns and a badge colour.
+    for the chart markers, an option in each of the two stage selects and a
+    badge colour.
 
     Every one of them is forgotten silently. A stage with no name renders as
-    `seedling` in the badge; with no letter it used to fall through to 'S',
-    which already means Secado.
+    `seedling` in the badge. The feed grid's header is the stage's display name
+    now, so it needs no letter of its own.
     """
     from autocann.control.vpd_math import STAGES
 
@@ -134,8 +138,6 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
         "state.js (vpdRanges)": block(state_js, "vpdRanges: {", "state.js"),
         "charts.js (STAGE_SHORT_NAMES)": block(
             (JS_DIR / "charts.js").read_text(), "const STAGE_SHORT_NAMES = {", "charts.js"),
-        "feeding.js (STAGE_INITIALS)": block(
-            (JS_DIR / "feeding.js").read_text(), "const STAGE_INITIALS = {", "feeding.js"),
     }
 
     missing = []
@@ -147,13 +149,13 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
             missing.append(f"{stage} no está en los dos selects de etapa")
         if f".grow-stage.{stage}" not in css:
             missing.append(f"{stage} no tiene color de chapita en app.css")
-        if f".feed-col.{stage}" not in css:
-            missing.append(f"{stage} no tiene color de columna en app.css")
     assert missing == [], missing
 
-    # Two stages sharing a letter is the same bug as a missing one.
-    letters = re.findall(r"\w+: '(\w)'", blocks["feeding.js (STAGE_INITIALS)"])
-    assert len(set(letters)) == len(STAGES), f"letras repetidas en la grilla: {letters}"
+    # The grid's stage row is named from the same table as the badge, not
+    # from a private copy.
+    feeding = (JS_DIR / "feeding.js").read_text()
+    assert "stageName(group.stage)" in feeding
+    assert "STAGE_INITIALS" not in feeding
 
 
 def test_chart_options_are_never_self_assigned():
@@ -187,8 +189,16 @@ def test_the_temperature_chart_draws_the_min_max_envelope():
 
 
 def test_the_envelopes_helper_series_is_kept_out_of_the_legend():
+    """
+    The lower bound of the envelope is drawn invisibly to fill against, so it
+    must not be a legend entry. The legends are HTML now: Chart.js draws none,
+    and the HTML names the band as one item, shown only when there is a band.
+    """
     charts_js = (JS_DIR / "charts.js").read_text()
-    assert "filter: item => item.text !== 'Mín. temperatura'" in charts_js
+    assert "legend: { display: false }" in charts_js
+    partial = (TEMPLATES_DIR / "partials" / "charts.html").read_text()
+    assert "Mín. temperatura" not in partial
+    assert 'data-series="band" hidden' in partial
 
 
 def _included(path: Path, seen: set[str] | None = None) -> set[str]:
@@ -228,7 +238,7 @@ def test_every_template_is_reachable_from_a_page():
     on_disk = {
         str(path.relative_to(TEMPLATES_DIR)) for path in TEMPLATES_DIR.rglob("*.html")
     }
-    assert on_disk - reachable == set()
+    assert on_disk - reachable - PENDING_PARTIALS == set()
 
 
 def test_every_entry_point_is_actually_served():
@@ -240,20 +250,21 @@ def test_every_entry_point_is_actually_served():
     for entry in ENTRY_POINTS:
         assert entry in app_py or entry in auth_py, entry
 
-def test_the_humidity_card_cannot_render_a_difference_without_readings():
+
+def test_the_humidity_readout_cannot_render_a_difference_without_readings():
     """
     /api/current-data answers 404 with a JSON body, and apiGet only raises on
-    5xx, so the dashboard renders that body with every field `undefined`. The
-    guard was `humidity !== null`, which `undefined` passes, and the card
-    announced "NaN% por encima". The comparison now lives in a pure helper that
-    tests/js/ exercises with an empty payload.
+    5xx, so the dashboard renders that body with every field `undefined`. A
+    guard written `humidity !== null` lets `undefined` through, and the readout
+    announced "NaN% por encima". The difference now lives in renderReadouts,
+    which checks the reading itself before it compares anything.
     """
     dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
-    match = re.search(r"function updateHumidityBar\(.*?\n\}", dashboard, re.S)
-    assert match, "updateHumidityBar desapareció de dashboard.js"
+    match = re.search(r"function renderReadouts\(.*?\n\}", dashboard, re.S)
+    assert match, "renderReadouts desapareció de dashboard.js"
     body = match.group(0)
 
-    assert "humidityDiffLabel(humidity, targetHumidity)" in body
+    assert "humidityOk &&" in body
     assert "humidity - targetHumidity" not in body
     # `undefined !== null` is true, which is how the NaN got on screen.
     assert "!== null" not in body
@@ -267,8 +278,8 @@ def test_the_indoor_sensors_section_is_reachable_from_the_page():
 
 def test_every_nav_tab_points_at_a_view_that_exists():
     """A tab for a view that is not in the page just shows an empty screen."""
-    nav = (TEMPLATES_DIR / "partials" / "nav.html").read_text()
-    tabs = set(re.findall(r'class="nav-tab"[^>]*data-view="(\w+)"', nav))
+    nav = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    tabs = set(re.findall(r'class="nav-tab[^"]*"[^>]*data-view="(\w+)"', nav))
     views = set(re.findall(r'class="view [^"]*"\s+data-view="(\w+)"', _page_html()))
     assert tabs, "la barra de vistas quedó sin pestañas"
     assert tabs == views, f"pestañas sin vista o vistas sin pestaña: {tabs ^ views}"
@@ -407,9 +418,10 @@ def test_every_history_request_carries_the_grow_scope():
     others on the same screen.
     """
     for module, endpoints in (
+        # The time-in-range readout asks for its score from dashboard.js now,
+        # next to the readout it fills, so that is where its scope is checked.
         ("dashboard.js", ("/api/sensor-history", "/api/history/aggregated",
-                          "/api/period-summary")),
-        ("analytics.js", ("/api/vpd-score",)),
+                          "/api/period-summary", "/api/vpd-score")),
     ):
         code = _strip_js_comments((JS_DIR / module).read_text())
         assert "withGrow" in code, module
@@ -611,15 +623,15 @@ def test_the_pause_is_announced_on_screen_while_it_lasts():
     amber banner under the header *and* an amber chip inside it, three
     sentences apart, saying the same three things - and two elements saying one
     thing is how a reader learns to skip both. The chip is the announcement
-    now: it is in the header, so it is on every view, it goes amber and keeps
+    now: it is in the sidebar, so it is on every view, it goes amber and keeps
     its dot pulsing, it says how long it has been, and the verb that ends it is
     on it.
     """
-    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
-    assert 'id="system-state"' in header
-    assert 'data-action="toggle-pause"' in header
+    sidebar = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    assert 'id="system-state"' in sidebar
+    assert 'data-action="toggle-pause"' in sidebar
     # How long it has been - the one thing the banner carried that a chip did not.
-    assert 'id="pause-elapsed"' in header
+    assert 'id="pause-elapsed"' in sidebar
 
     dashboard = _strip_js_comments((JS_DIR / "dashboard.js").read_text())
     assert "renderSystemState" in dashboard
@@ -654,58 +666,51 @@ def test_the_pause_is_announced_in_exactly_one_place():
     assert ".pause-bar" not in (STATIC_DIR / "css" / "app.css").read_text()
 
 
-def test_the_panel_answers_its_three_questions_in_order():
+
+def test_the_panel_answers_its_questions_in_order():
     """
-    The panel is the screen somebody reads standing in the tent, and it is read
-    for three things in this order: cómo está el ambiente, qué relés están
-    prendidos, con qué hay que regar hoy. They are three bands top to bottom so
-    that each is found by looking at one part of the screen - the readings and
-    the relays used to be in two columns with six diagnostic cards between them,
-    and the watering plan was not on this screen at all.
+    The Ahora tab is read for three things, in this order: how the tent is
+    (the two readings), which relays are on, and what to pour today. They are
+    bands top to bottom, so each is found by looking at one part of the tab.
+    The status line and the chart sit beside them, not in front of them.
     """
     panel = (TEMPLATES_DIR / "views" / "panel.html").read_text()
+    readings = panel.index('class="ac-readout-row"')
     order = [panel.index(f'{{% include "partials/{name}.html" %}}')
-             for name in ("hero", "outputs", "today-feed")]
-    assert order == sorted(order), "el orden de las tres bandas del panel cambió"
+             for name in ("outputs", "today-feed")]
+    assert readings < order[0] < order[1], "el orden de las bandas del panel cambió"
+    assert 'include "partials/hero.html"' not in panel
 
-    # Ambiente is one band: the outside air is read in the same glance as the
-    # inside, not two sections down the right-hand column.
-    assert 'include "partials/outdoor.html"' in (
-        TEMPLATES_DIR / "partials" / "hero.html").read_text()
 
 
 def test_the_sensor_diagnostics_are_not_on_the_panel():
     """
     Six cards of raw readings, roles, ages and drift verdicts were taking half
-    of the screen that exists to be read from across the room, restating in
-    small type the numbers the Ambiente band shows in large. They belong next
-    to the calibration, the connectivity and the node log.
+    of the screen that exists to be read from across the room. They belong next
+    to the calibration, the connectivity and the node log, in Sistema.
 
-    What the panel keeps is the one line that says whether to believe the rest
-    of it, computed from the same /api/health response - so the strip and the
-    cards cannot say different things about the same sensor.
+    The panel no longer has a sensors row either: its status line says whether
+    to believe the readings, and it reads the loop from the same /api/health
+    response the Sistema cards use, so the two cannot disagree.
     """
     assert 'include "partials/sensors.html"' in (
         TEMPLATES_DIR / "views" / "system.html").read_text()
-    assert "sensors.html" not in (TEMPLATES_DIR / "views" / "panel.html").read_text()
-
-    assert 'include "partials/health-strip.html"' in (
-        TEMPLATES_DIR / "views" / "panel.html").read_text()
-    assert 'id="health-sensors-state"' in (
-        TEMPLATES_DIR / "partials" / "health-strip.html").read_text()
+    panel = (TEMPLATES_DIR / "views" / "panel.html").read_text()
+    assert "sensors.html" not in panel
+    assert "health-strip" not in panel
 
     health = _strip_js_comments((JS_DIR / "health.js").read_text())
-    assert "health-sensors-state" in health
+    assert "health-sensors-state" not in health
     assert "sensorsBadge(health.sensors)" in health
 
     # And the poller that feeds both has to run on both views, or whichever one
-    # is not listed sits at the loading ellipsis forever.
+    # is not listed sits at the loading ellipsis forever. It also feeds the
+    # sidebar and the alert slot, which every view shows, so it has no `views`.
     pollers = re.search(r"const POLLERS = \[(.*?)\n\];",
                         _strip_js_comments((JS_DIR / "main.js").read_text()), re.S)
     fetch_health = re.search(r"\{ fn: fetchHealth[^}]*\}", pollers.group(1))
     assert fetch_health, "el poller de /api/health desapareció"
-    assert "'panel'" in fetch_health.group(0)
-    assert "'sistema'" in fetch_health.group(0)
+    assert "views" not in fetch_health.group(0)
 
 
 def test_the_panel_watering_tile_never_fetches_its_own_plan():
@@ -738,11 +743,11 @@ def test_the_pause_is_reachable_from_every_view():
     """
     index = (TEMPLATES_DIR / "index.html").read_text()
     # Included outside <main class="views">, so it is not inside any one view.
-    assert index.index('partials/header.html') < index.index('<main class="views">')
+    assert index.index('partials/sidebar.html') < index.index('<main class="views">')
 
-    header = (TEMPLATES_DIR / "partials" / "header.html").read_text()
-    assert 'data-action="toggle-pause"' in header
-    assert 'href="#/riego"' in header, "el CTA de riego también vive arriba"
+    sidebar = (TEMPLATES_DIR / "partials" / "sidebar.html").read_text()
+    assert 'data-action="toggle-pause"' in sidebar
+    assert 'href="#/riego"' in sidebar, "el CTA de riego también vive en la barra"
 
 
 def test_the_pause_does_not_expire_on_its_own():
@@ -970,3 +975,163 @@ def test_monitoring_is_not_exempt_from_the_history_check():
     assert history_verdict(999999, "paused")["level"] == "ok"
     assert history_verdict(999999, MODE_MONITOR)["level"] == "error"
     assert history_verdict(10, MODE_MONITOR)["state"] == "writing"
+
+
+# Pictographic emoji, plus the variation selector that turns a plain glyph into one.
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿⌚-⏿️]")
+
+
+def _ui_sources():
+    yield from TEMPLATES_DIR.rglob("*.html")
+    yield from (STATIC_DIR / "js").glob("*.js")
+    yield STATIC_DIR / "css" / "app.css"
+
+
+def _code_only(path: Path) -> str:
+    """The file without its comments, which may quote what the screen used to say."""
+    text = path.read_text()
+    text = re.sub(r"{#.*?#}|<!--.*?-->|/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"^\s*(//|\*).*$", "", text, flags=re.M)
+
+
+def test_the_dashboard_draws_no_emoji():
+    """
+    The Raspberry has no emoji font: on the tablet on the tent wall every emoji
+    rendered as an empty box, the ✅ and ❌ of the status badges included.
+    """
+    offenders = {
+        path.name: sorted(set(_EMOJI.findall(_code_only(path))))
+        for path in _ui_sources()
+        if _EMOJI.search(_code_only(path))
+    }
+    assert offenders == {}
+
+
+def test_every_icon_the_dashboard_asks_for_is_in_the_sprite():
+    """A missing symbol renders nothing at all, with no error anywhere."""
+    sprite = (TEMPLATES_DIR / "partials" / "icons.html").read_text()
+    available = set(re.findall(r'<symbol id="i-([a-z0-9-]+)"', sprite))
+
+    wanted = set()
+    for path in TEMPLATES_DIR.rglob("*.html"):
+        wanted |= set(re.findall(r'icon\("([a-z0-9-]+)"', path.read_text()))
+    for path in (STATIC_DIR / "js").glob("*.js"):
+        code = _code_only(path)
+        wanted |= set(re.findall(r"\bicon\(\s*'([a-z0-9-]+)'", code))
+        wanted |= set(re.findall(r"\bicon: '([a-z0-9-]+)'", code))
+        # Lookup tables of state -> icon name.
+        for table in re.findall(r"const [A-Z_]+_ICONS = \{([^}]*)\}", code):
+            wanted |= set(re.findall(r"'([a-z0-9-]+)'", table))
+
+    assert wanted, "the scan found no icons at all, so it is not looking"
+    assert wanted - available == set()
+
+
+def test_fonts_are_served_from_here_not_from_google():
+    """The stylesheet request to Google is what a page with no internet hangs on."""
+    for entry in ENTRY_POINTS:
+        assert "fonts.googleapis.com" not in (TEMPLATES_DIR / entry).read_text(), entry
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    for font in re.findall(r"url\('\.\./(vendor/fonts/[^']+)'\)", css):
+        assert (STATIC_DIR / font).exists(), font
+    assert "vendor/fonts/" in css
+
+
+#: Every colour token of the design system. The values live in tokens.css and
+#: come from the designer's tokens.json; this is the list the stylesheet must
+#: define in both themes, so a token added to the design and forgotten here fails.
+COLOR_TOKENS = (
+    "surface-0", "surface-sunken", "surface-raised", "surface-active", "surface-overlay",
+    "fg", "fg-secondary", "fg-muted", "fg-subtle", "fg-inverse",
+    "fill-inverse", "hairline", "hairline-faint", "border-control", "focus",
+    "state-ok", "state-warn", "state-alert", "state-idle",
+    "data-water", "data-temp", "data-outside",
+)
+
+
+def _theme_block(css: str, selector: str) -> str:
+    match = re.search(re.escape(selector) + r"\s*\{(.*?)\n\}", css, re.S)
+    assert match, f"{selector} desapareció de tokens.css"
+    return match.group(1)
+
+
+def test_the_tokens_define_every_colour_in_both_themes():
+    """Grafito is the default and Noche is the wall tablet's; a token missing from one is a blank colour there."""
+    css = (STATIC_DIR / "css" / "tokens.css").read_text()
+    themes = {
+        "Grafito (:root)": _theme_block(css, ":root"),
+        "Noche (data-theme=night)": _theme_block(css, ':root[data-theme="night"]'),
+    }
+    missing = [
+        f"--{name} en {theme}"
+        for theme, block in themes.items()
+        for name in COLOR_TOKENS
+        if not re.search(rf"--{re.escape(name)}:\s*#[0-9A-Fa-f]{{6}};", block)
+    ]
+    assert missing == []
+    assert "--font-sans:" in themes["Grafito (:root)"]
+    assert "--font-mono:" in themes["Grafito (:root)"]
+
+
+def test_the_page_links_the_tokens_and_components_before_the_app_stylesheet():
+    """
+    The tokens and the component classes come first so app.css, which maps its
+    old variables onto them, has the last word. components.css must not import
+    anything: the page cannot depend on the internet.
+    """
+    assert "@import" not in (STATIC_DIR / "css" / "components.css").read_text()
+    for entry in ("index.html", "login.html"):
+        html = (TEMPLATES_DIR / entry).read_text()
+        positions = [html.find(f"css/{name}") for name in ("tokens.css", "components.css", "app.css")]
+        assert all(position >= 0 for position in positions), entry
+        assert positions == sorted(positions), entry
+
+
+def test_the_page_loads_behind_one_skeleton_and_always_comes_out_of_it():
+    """
+    The page starts as skeletons and is revealed once, when the first answers
+    are in - not piece by piece, with the alerts landing last and shoving the
+    panel down. And a startup that throws must still take the skeleton off,
+    or the page looks like it is loading forever.
+    """
+    index = (TEMPLATES_DIR / "index.html").read_text()
+    assert '<body class="is-booting">' in index
+
+    main = _strip_js_comments((JS_DIR / "main.js").read_text())
+    assert "whenSettled" in main
+    assert re.search(r"\.catch\(\s*\w+\s*=>\s*\{[^}]*classList\.remove\('is-booting'\)", main)
+
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert)" in css
+
+
+
+def test_a_chart_with_nothing_to_plot_says_so():
+    """An empty grid with axes from 0 to 1 reads as a broken chart, not as no data."""
+    charts = _strip_js_comments((JS_DIR / "charts.js").read_text())
+    panel = _strip_js_comments((JS_DIR / "panel.js").read_text())
+    vpd = _strip_js_comments((JS_DIR / "vpdchart.js").read_text())
+    # Estadísticas still has charts that can be empty.
+    assert "setChartEmpty" in charts
+    # The panel's chart has no grid to be empty with: without a reading it
+    # draws the band and says so, instead of a dot at a made-up place.
+    assert "Sin lectura actual" in vpd
+    assert "setChartEmpty" not in panel
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".chart-wrapper.is-empty::after" in css
+
+
+def test_the_sidebar_tent_holds_no_space_for_a_hidden_progress_bar():
+    """
+    The progress block is `hidden` when a stage has no expected length, but a
+    `display: flex` rule beats the attribute, and in the tent's column layout
+    its flex-basis was a 140 px height: an empty gap between the stage line and
+    "día N de ~M". The rule that displays it has to yield to `hidden`.
+    """
+    css = (STATIC_DIR / "css" / "app.css").read_text()
+    assert ".ac-sidebar .stage-progress[hidden] {" in css
+    block = re.search(r"\.ac-sidebar \.stage-progress \{(.*?)\}", css, re.S)
+    assert block, "la regla de .stage-progress desapareció"
+    assert "flex: none" in block.group(1)
+    assert "140px" not in block.group(1)
+

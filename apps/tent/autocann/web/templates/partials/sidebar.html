@@ -1,0 +1,127 @@
+        <!-- Sidebar: which tent, where to go, and whether the controller is in charge -->
+        <!--
+             Everything that is true of the whole app rather than of one view:
+             which grow this is, whether the controller is in charge, and the
+             two things anyone does from anywhere - stop the loop, log a
+             watering. It sits outside <main class="views">, so it is on every
+             view, and it is the one place the pause is announced.
+
+             The grow context is the sentence the rest of the screen is read
+             inside: every number in the app means something different in week
+             two of flowering than in week two of veg. The view links are plain
+             anchors, not buttons, so the current view survives a reload - which
+             is what the tablet on the tent wall does every time the network
+             blinks - and a view can be bookmarked.
+
+             The nav is ordered by how often a view is opened, not by how much
+             it contains. On a phone the same nav becomes the bottom bar (app.css).
+        -->
+        <aside class="ac-sidebar" id="app-sidebar" aria-label="Carpa y vistas">
+            <div class="ac-sidebar__top">
+                <span class="ac-sidebar__brand">AUTOCANN</span>
+                <!--
+                     The icon is inline, not from the sprite: it is the only
+                     glyph for the sidebar's own chrome, and the sprite is for
+                     the things the views say.
+                -->
+                <!--
+                     Two glyphs, swapped by CSS: the one shows where the bar
+                     goes next, so it is the opposite of the bar's state.
+                -->
+                <button type="button" class="ac-sidebar__toggle" data-action="toggle-sidebar"
+                        aria-label="Colapsar la barra" aria-expanded="true" aria-controls="app-sidebar">
+                    {{ icon("panel-left-close", "ac-sidebar__toggle-icon icon-expanded") }}
+                    {{ icon("panel-left-open", "ac-sidebar__toggle-icon icon-collapsed") }}
+                </button>
+            </div>
+
+            <!--
+                 Not a button yet: the tent selector is for when there is more
+                 than one tent. Until then it names the one there is.
+            -->
+            <!--
+                 Collapsed, the block is a monogram of the grow and every
+                 word in it is hidden; JS writes the words to title and
+                 aria-label so the collapsed bar still says what it is.
+            -->
+            <div class="ac-sidebar__tent" role="group" title="Carpa principal" aria-label="Carpa principal">
+                <span class="ac-sidebar__tent-mono" id="tent-mono" aria-hidden="true"></span>
+                <span class="ac-sidebar__tent-name">Carpa principal</span>
+                <!-- Crop and stage on one line. The stage chip is plain text here. -->
+                <div class="grow-info">
+                    <span class="grow-name" id="grow-name">Cargando...</span>
+                    <span class="grow-stage" id="grow-stage">--</span>
+                </div>
+                <div class="stage-progress" id="stage-progress" hidden>
+                    <div class="stage-progress-bar">
+                        <div class="stage-progress-fill" id="stage-progress-fill"></div>
+                    </div>
+                    <!-- JS writes the estimated end here. Not shown in the sidebar: it is the Cultivo view's job. -->
+                    <span class="stage-progress-label visually-hidden" id="stage-progress-label"></span>
+                </div>
+                <span class="stage-day" id="stage-day" title="Día dentro de la etapa actual"></span>
+                <!-- JS writes "cultivo: día N" here. Same information as the stage day, so it is only read by machines. -->
+                <span class="grow-day visually-hidden" id="grow-day" title="Día desde el inicio del cultivo"></span>
+            </div>
+
+            <nav class="view-nav ac-sidebar__nav" aria-label="Vistas">
+                <a class="nav-tab ac-sidebar__link" href="#/panel" data-view="panel"
+                   title="Panel" aria-label="Panel">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("layout-dashboard") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Panel">Panel</span>
+                </a>
+                <a class="nav-tab ac-sidebar__link" href="#/riego" data-view="riego"
+                   title="Riego" aria-label="Riego">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("droplets") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Riego">Riego</span>
+                </a>
+                <a class="nav-tab ac-sidebar__link" href="#/stats" data-view="stats"
+                   title="Estadísticas" aria-label="Estadísticas">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("chart-line") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Datos">Estadísticas</span>
+                </a>
+                <a class="nav-tab ac-sidebar__link" href="#/reportes" data-view="reportes"
+                   title="Reportes" aria-label="Reportes">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("clipboard-list") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Reporte">Reportes</span>
+                </a>
+                <a class="nav-tab ac-sidebar__link" href="#/cultivo" data-view="cultivo"
+                   title="Cultivo" aria-label="Cultivo">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("sprout") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Cultivo">Cultivo</span>
+                </a>
+                <a class="nav-tab ac-sidebar__link" href="#/sistema" data-view="sistema"
+                   title="Sistema" aria-label="Sistema">
+                    <span class="nav-tab-icon" aria-hidden="true">{{ icon("settings") }}</span>
+                    <span class="ac-sidebar__label nav-tab-label" data-short="Sistema">Sistema</span>
+                </a>
+            </nav>
+
+            <div class="ac-sidebar__status">
+                <!--
+                     A button, not a label. The state it reports is also the
+                     state you change, so it is the control for it.
+
+                     It is also the only place the pause is announced. A chip
+                     that says how long it has been and the verb that ends it
+                     is the whole announcement; a second banner saying the same
+                     thing is how you end up reading neither.
+                -->
+                <!-- Hidden when collapsed: it is the same place as the Riego link above. -->
+                <a class="ac-btn ac-btn--secondary ac-btn--block header-cta" href="#/riego" aria-label="Agregar riego">
+                    {{ icon("droplets") }}
+                    <span class="header-cta-label">Agregar riego</span>
+                    <span class="header-cta-badge" id="feed-cta-badge" hidden></span>
+                </a>
+
+                <button type="button" class="system-state" id="system-state"
+                        data-action="toggle-pause">
+                    <span class="status-dot" id="system-state-dot"></span>
+                    <span class="system-state-text" id="system-state-text">Sistema activo</span>
+                    <span class="system-state-since" id="pause-elapsed"></span>
+                    <span class="system-state-action" id="system-state-action">Pausar</span>
+                </button>
+
+                <div class="last-update" id="last-update">Cargando...</div>
+            </div>
+        </aside>

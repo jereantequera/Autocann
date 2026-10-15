@@ -64,6 +64,24 @@ function currentView() {
     return current || viewFromHash();
 }
 
+/**
+ * Put the right section on screen before anything is wired, so the loading
+ * skeleton has somewhere to show.
+ *
+ * Classes only: no `view:enter`, and `current` stays unset, so initViews()
+ * still runs the real activation - and its listeners - once their modules are
+ * ready for it. Without this the page was blank for the time /api/config took.
+ */
+function showInitialView() {
+    const id = viewFromHash();
+    document.querySelectorAll('.view').forEach(section => {
+        section.classList.toggle('is-active', section.dataset.view === id);
+    });
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.toggle('is-active', tab.dataset.view === id);
+    });
+}
+
 function initViews() {
     // The hash is the single source of truth, so the wall tablet comes back to
     // the same view after a reload and a view can be bookmarked.
@@ -71,4 +89,4 @@ function initViews() {
     activate(viewFromHash(), { initial: true });
 }
 
-export { DEFAULT_VIEW, initViews, currentView, navigate };
+export { DEFAULT_VIEW, initViews, currentView, navigate, showInitialView };

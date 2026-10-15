@@ -1,42 +1,18 @@
         <!-- Riego de hoy: what to pour, without opening the other tab -->
         <!--
-             The panel carried a version of this once and it was dropped for
-             being a worse copy of the Riego tab. What makes it belong here is
-             that it is not a copy of the *form*: it is the answer to the one
-             question asked standing in front of the tent with an empty jug —
-             cuánto hace que no riego, cuántos litros, y qué le pongo al agua.
-             Logging it still happens over there, behind the button at the
-             bottom of this tile.
+             The answer to the one question asked standing in front of the tent
+             with an empty jug: how much to make, and what goes in it. Every
+             number comes from the same /api/feeding/today payload the Riego view
+             renders, handed over by an event rather than fetched again.
 
-             Every number in it comes from the same /api/feeding/today payload
-             the Riego view renders, handed over by an event rather than fetched
-             again, so the two screens cannot show two different plans.
-
-             Three different things in the three slots, on purpose: the badge
-             says what kind of week this is, the big number how long it has
-             been, and the right-hand column how much solution to make. The
-             panel used to be full of pairs of boxes saying one thing twice.
+             Logging the watering still happens over there: the link below is the
+             only way out of this strip, and it is the primary action on it.
         -->
-        <div class="section-header section-header-row">
-            <h2 class="section-title">
-                <span class="section-title-icon">🧪</span>
-                Riego de hoy
-            </h2>
-            <span class="sensor-badge" id="panel-feed-badge">⏳</span>
-        </div>
-
-        <div class="panel-feed" id="panel-feed">
-            <div class="panel-feed-head">
-                <div class="panel-feed-since-block">
-                    <div class="panel-feed-value" id="panel-feed-since">--</div>
-                    <div class="panel-feed-label" id="panel-feed-week">--</div>
-                </div>
-                <div class="panel-feed-litres">
-                    <span id="panel-feed-litres">--</span><small>L</small>
-                </div>
+        <div class="panel-water" id="panel-water">
+            <div class="panel-water__body">
+                <div class="panel-water__title" id="panel-feed-title">Riego de hoy · --</div>
+                <div class="panel-water__doses" id="panel-feed-doses">Cargando plan</div>
+                <div class="ac-readout__sub" id="panel-feed-since"></div>
             </div>
-            <div class="panel-feed-doses" id="panel-feed-doses">
-                <div class="loading">Cargando plan</div>
-            </div>
-            <a class="btn btn-primary panel-feed-cta" href="#/riego">💧 Registrar riego</a>
+            <a class="ac-btn ac-btn--primary" href="#/riego">Registrar</a>
         </div>

@@ -1,187 +1,242 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { alertDialog, closeModal, showModal, toast } from './modals.js';
-import { MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, config, state } from './state.js';
+import { config, MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, state } from './state.js';
+import { outputRowState, outputShortName } from './status.js';
+import { timeInRange } from './stats-math.js';
 import {
-    escapeHtml, fmtNum, formatDuration, humidityDiffLabel, outputPinLabel, relaySourceLabel,
-    withGrow,
+    escapeHtml, fmtComma, formatDuration, icon, relaySourceLabel, stampLastUpdate, withGrow,
 } from './util.js';
 
-/** Live readings, period summary, sensor badges and relay cards. */
+/** Live readings, period summary, the pause state and the relay rows. */
 
-function updateVpdGauge(vpd) {
-    const marker = document.getElementById('vpd-marker');
-    if (!marker) return;
+// ===============================
+// Ahora: the two readings the panel is read for
+// ===============================
+// The readouts are where temperature and humidity are shown on the panel. The
+// status line and the VPD chart need the same reading, so they are handed it
+// as an event rather than fetching it a second time: one request, one answer.
 
-    const vpdAbsMax = 2.0;
-    const range = config.vpdRanges[state.stage] || config.vpdRanges.late_veg;
-    const vpdMin = range.min;
-    const vpdMax = range.max;
-
-    // Update zone widths dynamically from current stage range
-    const lowPct  = (vpdMin / vpdAbsMax) * 100;
-    const optPct  = ((vpdMax - vpdMin) / vpdAbsMax) * 100;
-    const highPct = ((vpdAbsMax - vpdMax) / vpdAbsMax) * 100;
-    document.querySelector('.vpd-zone.low').style.width     = lowPct  + '%';
-    document.querySelector('.vpd-zone.optimal').style.width = optPct  + '%';
-    document.querySelector('.vpd-zone.high').style.width    = highPct + '%';
-
-    // Update gauge labels
-    const labels = document.querySelectorAll('.vpd-gauge-labels span');
-    if (labels.length === 4) {
-        labels[0].textContent = '0.0';
-        labels[1].textContent = vpdMin.toFixed(1);
-        labels[2].textContent = vpdMax.toFixed(1);
-        labels[3].textContent = vpdAbsMax.toFixed(1);
-    }
-
-    // Position marker; skip if no value
-    if (vpd === null || vpd === undefined) return;
-    const position = Math.min(Math.max((vpd / vpdAbsMax) * 100, 0), 100);
-    marker.style.left = `${position}%`;
+/** Band edges are whole numbers in practice; a fraction keeps its tenth. */
+function bandEdge(value) {
+    return Number.isInteger(value) ? String(value) : fmtComma(value, 1);
 }
 
-// Cada pieza de la barra depende de una lectura distinta y cualquiera puede
-// faltar, así que cada una se dibuja sólo si su propio número existe.
+function setReadoutValue(id, value, unit, { empty = false, warn = false } = {}) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = `${escapeHtml(value)}<span class="ac-readout__unit"> ${escapeHtml(unit)}</span>`;
+    el.classList.toggle('is-empty', empty);
+    el.classList.toggle('is-warn', warn);
+}
 
-function updateHumidityBar(humidity, targetHumidity) {
-    const fillEl = document.getElementById('humidity-bar-fill');
-    const targetEl = document.getElementById('humidity-bar-target');
-    const diffEl = document.getElementById('humidity-diff');
+function setReadoutSub(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
 
-    if (fillEl && Number.isFinite(humidity)) {
-        fillEl.style.width = `${Math.min(Math.max(humidity, 0), 100)}%`;
-    }
+function renderReadouts(data) {
+    const band = Array.isArray(data.humidity_band) && data.humidity_band.length === 2
+        ? data.humidity_band : null;
+    const [low, high] = band || [];
+    const humidityOk = Number.isFinite(data.humidity);
+    // Truthiness, not `!== null`: an error body arrives with every field
+    // undefined, and an undefined band must read as "no band".
+    const below = humidityOk && !!band && data.humidity < low;
+    const above = humidityOk && !!band && data.humidity > high;
 
-    if (targetEl && Number.isFinite(targetHumidity)) {
-        targetEl.style.left = `${Math.min(Math.max(targetHumidity, 0), 100)}%`;
-    }
+    setReadoutValue('panel-temp', fmtComma(data.temperature, 1), '°C',
+        { empty: !Number.isFinite(data.temperature) });
+    setReadoutSub('panel-temp-sub', Number.isFinite(data.outside_temperature)
+        ? `afuera ${fmtComma(data.outside_temperature, 1)} °C` : 'afuera --');
 
-    // Sin lectura no hay diferencia: el cartel vuelve a quedar vacío, como nace
-    // en la plantilla, en lugar de anunciar una resta contra undefined.
-    if (diffEl) {
-        const label = humidityDiffLabel(humidity, targetHumidity);
-        diffEl.className = label ? `humidity-diff ${label.state}` : 'humidity-diff';
-        diffEl.textContent = label ? label.text : '';
-    }
+    // Warn only when the humidity is outside its band: inside it, the colour
+    // would be claiming a problem the readout does not have.
+    setReadoutValue('panel-humidity', fmtComma(data.humidity, 1), '%',
+        { empty: !humidityOk, warn: below || above });
+    let sub = band ? `objetivo ${bandEdge(low)} – ${bandEdge(high)}` : 'objetivo --';
+    if (below) sub += ` · ${Math.round(low - data.humidity)} por debajo`;
+    if (above) sub += ` · ${Math.round(data.humidity - high)} por encima`;
+    setReadoutSub('panel-humidity-sub', sub);
 }
 
 function updateCurrentData(data) {
-    document.getElementById('current-temp').innerHTML =
-        fmtNum(data.temperature, 1) + '<span class="hero-unit">°C</span>';
-    document.getElementById('current-humidity').innerHTML =
-        fmtNum(data.humidity, 1) + '<span class="hero-unit">%</span>';
-    // A line inside the humidity card, not a big number of its own: the '%'
-    // is in the template because the target is read as "objetivo 60%", not as
-    // a measurement in its own right.
-    document.getElementById('current-target-humidity').textContent =
-        fmtNum(data.target_humidity, 1);
-    document.getElementById('current-vpd').innerHTML =
-        fmtNum(data.leaf_vpd, 2) + '<span class="hero-unit">kPa</span>';
-    document.getElementById('current-leaf-temp').textContent =
-        fmtNum(data.leaf_temperature, 1);
-    document.getElementById('current-outdoor-temp').innerHTML =
-        fmtNum(data.outside_temperature, 1) + '<span class="metric-unit">°C</span>';
-    document.getElementById('current-outdoor-humidity').innerHTML =
-        fmtNum(data.outside_humidity, 1) + '<span class="metric-unit">%</span>';
-    
-    // Update VPD gauge
-    updateVpdGauge(data.leaf_vpd);
-    
-    // Update humidity bar
-    updateHumidityBar(data.humidity, data.target_humidity);
-    
-    // Update VPD status
-    const vpdCard = document.getElementById('vpd-card');
-    const vpdStatus = document.getElementById('vpd-status');
-    const vpdHint = document.getElementById('vpd-target-hint');
-    
-    const range = config.vpdRanges[state.stage];
-    if (data.vpd_in_range === true) {
-        vpdCard.classList.remove('vpd-adjusting');
-        vpdCard.classList.add('vpd-optimal');
-        vpdStatus.className = 'vpd-badge in-range';
-        vpdStatus.innerHTML = '✓ En rango óptimo';
-        vpdHint.textContent = `(${range.min}-${range.max} kPa)`;
-    } else if (data.vpd_in_range === false) {
-        vpdCard.classList.remove('vpd-optimal');
-        vpdCard.classList.add('vpd-adjusting');
-        vpdStatus.className = 'vpd-badge adjusting';
-        vpdStatus.innerHTML = '⚡ Ajustando...';
-        vpdHint.textContent = `Objetivo: ${range.min}-${range.max} kPa`;
-    } else {
-        vpdCard.classList.remove('vpd-optimal', 'vpd-adjusting');
-        vpdStatus.className = 'vpd-badge';
-        vpdStatus.textContent = '';
-        vpdHint.textContent = '';
-    }
-    
-    // The time, and nothing else. It read "Actualizado: 14/10/2026, 17:26:38",
-    // which is a date you already know, to a precision nobody reads, in the
-    // corner of a row that was already too full. What it is for is answering
-    // "is this live?" at a glance; the full stamp is in the tooltip for the
-    // rare time that is the actual question.
-    const now = new Date();
-    const stamp = document.getElementById('last-update');
-    stamp.textContent = now.toLocaleTimeString('es-AR', {
-        hour: '2-digit', minute: '2-digit', hour12: false,
-    });
-    stamp.title = `Última actualización: ${now.toLocaleString('es-AR', { hour12: false })}`;
+    // No reading is shown as no reading: a dash, not a number that passes for
+    // one. A 404 lands here too, as `{error}`.
+    renderReadouts(data);
+    document.dispatchEvent(new CustomEvent('current:updated', { detail: data }));
+
+    // The time, and nothing else. What it is for is answering "is this live?"
+    // at a glance; the full stamp is in the tooltip.
+    stampLastUpdate();
 }
 
 // El estado de los sensores -y el de todo lo demas- vive en health.js, que
 // lo saca de /api/health: un solo veredicto para el badge del hero, las
 // tarjetas y el cartel de arriba, que antes podian decir cosas distintas.
 
+/** "22,6 – 26,4" for a min and max, or "--" when either is missing. */
+function rangeText(min, max, decimals) {
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return '--';
+    return `${fmtComma(min, decimals)} – ${fmtComma(max, decimals)}`;
+}
+
+/** The average as the readout's value: the number big, the unit small. */
+function readoutValueHtml(value, decimals, unit) {
+    const text = Number.isFinite(value) ? fmtComma(value, decimals) : '--';
+    return `${escapeHtml(text)}<span class="ac-readout__unit"> ${escapeHtml(unit)}</span>`;
+}
+
+/**
+ * The VPD average of the period, kept for the one case the time-in-range
+ * readout cannot be computed truthfully: several grows at once, where the
+ * backend refuses a single score. Then the readout says so and shows this.
+ */
+let lastVpdAverage = null;
+/** Whether the in-range readout is currently showing the VPD average instead. */
+let inRangeShowsVpd = false;
+
 function updatePeriodSummary(data) {
     if (!data || data.sample_count === 0) return;
 
     // `x !== null ? x : '--'` is true for undefined too, so a missing key
-    // rendered the literal "undefined". fmtNum covers both cases.
-    const set = (id, value, decimals, unit) => {
-        document.getElementById(id).textContent = fmtNum(value, decimals) + unit;
+    // rendered the literal "undefined". fmtComma covers both cases.
+    const setValue = (id, value, decimals, unit) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = readoutValueHtml(value, decimals, unit);
     };
-    const setHero = (id, value, decimals, unit) => {
-        document.getElementById(id).innerHTML =
-            fmtNum(value, decimals) + `<span class="hero-unit">${unit}</span>`;
+    const setText = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
     };
 
-    setHero('summary-temp-avg', data.temperature?.avg, 1, '°C');
-    set('summary-temp-min', data.temperature?.min, 1, '°C');
-    set('summary-temp-max', data.temperature?.max, 1, '°C');
+    setValue('summary-temp-avg', data.temperature?.avg, 1, '°C');
+    setText('summary-temp-range', rangeText(data.temperature?.min, data.temperature?.max, 1));
 
-    setHero('summary-humidity-avg', data.humidity?.avg, 1, '%');
-    set('summary-humidity-min', data.humidity?.min, 1, '%');
-    set('summary-humidity-max', data.humidity?.max, 1, '%');
+    setValue('summary-humidity-avg', data.humidity?.avg, 1, '%');
+    setText('summary-humidity-range', rangeText(data.humidity?.min, data.humidity?.max, 1));
 
-    setHero('summary-vpd-avg', data.vpd?.avg, 2, 'kPa');
-    set('summary-vpd-min', data.vpd?.min, 2, ' kPa');
-    set('summary-vpd-max', data.vpd?.max, 2, ' kPa');
+    // The outdoor humidity used to have a card of its own; it rides along here
+    // rather than being lost with the card.
+    setValue('summary-outside-temp', data.outside_temperature?.avg, 1, '°C');
+    const outsideHumidity = Number.isFinite(data.outside_humidity?.avg)
+        ? ` · hum. ${fmtComma(data.outside_humidity.avg, 1)} %` : '';
+    setText('summary-outside-range', rangeText(
+        data.outside_temperature?.min, data.outside_temperature?.max, 1) + outsideHumidity);
 
-    set('summary-outside-temp', data.outside_temperature?.avg, 1, '°C');
-    set('summary-outside-humidity', data.outside_humidity?.avg, 1, '%');
-
-    document.getElementById('summary-samples').textContent =
-        Number.isFinite(data.sample_count)
-            ? data.sample_count.toLocaleString('es-AR') : '--';
+    lastVpdAverage = Number.isFinite(data.vpd?.avg) ? data.vpd.avg : null;
+    if (inRangeShowsVpd) showVpdAverageFallback();
 }
 
 function updateSummaryPeriodLabel() {
+    // The pressed state is what a screen reader announces; the selector's
+    // active class is main.js's, so it is mirrored here rather than restyled
+    // by a second listener.
+    document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
+    });
+
+    // The heading names the period on screen, so it says the same thing the
+    // selector does.
     const label = document.getElementById('summary-period-label');
-    if (!label) return;  // Element doesn't exist, skip update
+    if (!label) return;
     if (state.hours !== null) {
         if (state.hours < 1) {
             label.textContent = `Últimos ${Math.round(state.hours * 60)} minutos`;
+        } else if (state.hours === 1) {
+            label.textContent = 'Última hora';
         } else {
-            label.textContent = `Últimas ${state.hours}h`;
+            label.textContent = `Últimas ${state.hours} horas`;
         }
     } else if (state.period === 1) {
-        // The element this writes into did not exist in any template, so the
-        // function returned early and "Últimos 1 día" was never on screen.
-        label.textContent = 'Último día';
+        label.textContent = 'Últimas 24 horas';
     } else {
         label.textContent = `Últimos ${state.period} días`;
     }
+}
+
+// ===============================
+// Tiempo en rango
+// ===============================
+// The share of samples whose VPD sat inside the stage's band. Two sources,
+// because only one of them has the samples:
+// - a window of hours is read raw, so every sample is there to be judged;
+// - a window of days is the backend's score over the same rolling days, since
+//   the hourly aggregate has averaged the samples away before it reaches us.
+
+function setInRangeReadout({ value, label, sub, empty }) {
+    const valueEl = document.getElementById('summary-in-range');
+    const labelEl = document.getElementById('summary-in-range-label');
+    const subEl = document.getElementById('summary-in-range-sub');
+    if (valueEl) {
+        valueEl.innerHTML = value;
+        valueEl.classList.toggle('is-empty', !!empty);
+    }
+    if (labelEl) labelEl.textContent = label;
+    if (subEl) subEl.textContent = sub;
+}
+
+function showVpdAverageFallback() {
+    inRangeShowsVpd = true;
+    setInRangeReadout({
+        value: readoutValueHtml(lastVpdAverage, 2, 'kPa'),
+        label: 'VPD prom.',
+        sub: 'Todos los cultivos juntos: no hay una sola franja de VPD',
+        empty: lastVpdAverage === null,
+    });
+}
+
+/** The readout for a computed share, or for the reason there is none. */
+function renderTimeInRange({ percent, total, vpdRange, note }) {
+    inRangeShowsVpd = false;
+    const hasShare = Number.isFinite(percent);
+    const samples = total > 0 ? `${total.toLocaleString('es-AR')} muestras` : '';
+    const band = vpdRange
+        ? `VPD ${fmtComma(vpdRange.min, 1)} – ${fmtComma(vpdRange.max, 1)} kPa`
+        : 'franja de cada etapa';
+    setInRangeReadout({
+        value: hasShare
+            ? `${escapeHtml(String(percent))}<span class="ac-readout__unit"> %</span>`
+            : `--<span class="ac-readout__unit"> %</span>`,
+        label: 'Tiempo en rango',
+        sub: hasShare ? [band, samples].filter(Boolean).join(' · ') : (note || 'sin muestras de VPD'),
+        empty: !hasShare,
+    });
+}
+
+/**
+ * The days window: the backend scores the same rolling days the selector names.
+ * Hours are left to fetchHistoricalData, which already has the raw samples.
+ */
+function fetchTimeInRange() {
+    if (state.hours !== null) return;
+    apiGet(withGrow(`/api/vpd-score?days=${state.period}`, state.growId), { key: 'time-in-range' })
+        .then(data => {
+            if (!data) return;
+            if (data.error) {
+                // The refusal the readout can meet is "todos los cultivos", which
+                // has no single band; the VPD average says the same thing honestly.
+                showVpdAverageFallback();
+                return;
+            }
+            renderTimeInRange({
+                percent: data.overall_score,
+                total: data.period_samples_total,
+                vpdRange: data.vpd_range,
+                note: 'sin muestras de VPD en este período',
+            });
+        });
+}
+
+/** Hours of raw samples: judged here, each against its own stage's band. */
+function renderTimeInRangeFromSamples(rows) {
+    const result = timeInRange(rows, stage => config.vpdRanges[stage || state.stage]);
+    renderTimeInRange({
+        percent: result.percent,
+        total: result.total,
+        vpdRange: null,
+        note: 'sin muestras de VPD en este período',
+    });
 }
 
 function fetchPeriodSummary() {
@@ -314,91 +369,71 @@ document.addEventListener('connection:changed', event => {
     renderSystemState();
 });
 
-function outputCardHtml(output, mode) {
-    let stateText = '--';
-    let stateClass = 'unknown';
-    if (output.state === true) {
-        stateText = 'ENCENDIDA';
-        stateClass = 'on';
-    } else if (output.state === false) {
-        stateText = 'APAGADA';
-        stateClass = 'off';
-    }
+// Remembered per relay: when this page first saw it on. The backend does not
+// say when a relay switched, so after a reload the minutes count from the
+// reload rather than from the switch - the row says so by showing less, not
+// by being wrong about it.
+const onSince = {};
 
-    const label = escapeHtml(output.label || output.name || 'Salida');
-    const name = escapeHtml(output.name || '');
-    const pin = outputPinLabel(output.pin);
+/** The outputs with `since` filled in for any relay that is on. */
+function outputsWithSince(outputs) {
+    const nowSeconds = Date.now() / 1000;
+    return outputs.map(output => {
+        if (output.state !== true) {
+            delete onSince[output.name];
+            return output;
+        }
+        if (!(output.name in onSince)) onSince[output.name] = nowSeconds;
+        return { ...output, since: onSince[output.name] };
+    });
+}
 
-    let controls = '';
-    if (mode.active && output.name) {
-        const requested = mode.requested_outputs?.[output.name];
-        // A relay that does not move must say why, or the button looks broken.
-        // The minimum on/off times hold even for a person: the equipment does
-        // not care who asked.
-        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
-            ? `<div class="output-held">⏳ esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</div>`
-            : '';
-        controls = `
-            <div class="output-controls">
-                <button class="btn-output on ${requested === true ? 'active' : ''}"
-                        data-action="test-output" data-name="${name}" data-state="true">Prender</button>
-                <button class="btn-output off ${requested === false ? 'active' : ''}"
-                        data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
-            </div>
-            ${held}
-        `;
-    }
-
-    // The class, not just the text: the card itself lights up, which is what
-    // makes "¿qué relés están prendidos?" answerable without reading a word.
-    return `
-        <div class="output-card is-${stateClass} ${mode.active ? 'is-manual' : ''}">
-            <div class="output-header">
-                <div class="output-name">${label}</div>
-                <div class="output-pin" title="${escapeHtml(pin.title)}">${escapeHtml(pin.text)}</div>
-            </div>
-            <div class="output-state ${stateClass}">${stateText}</div>
-            ${controls}
-        </div>
-    `;
+function outputRowsHtml(outputs) {
+    return outputs.map(output => {
+        const row = outputRowState(output);
+        return `
+            <div class="ac-output${row.state === 'on' ? ' is-on' : ''}">
+                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
+                <span class="ac-output__state">${escapeHtml(row.text)}</span>
+            </div>`;
+    }).join('');
 }
 
 /**
- * "2 de 3 encendidas", and never a bare tick.
- *
- * A count stays true when a fourth relay is wired in and nothing else is
- * touched; an icon that means "fine" would have to be told what fine is.
+ * The manual relay controls, under the rows, and only while the loop is not in
+ * charge: the buttons are how a person drives a relay, and they mean nothing
+ * while the loop is deciding.
  */
-function renderOutputsBadge(outputs) {
-    const badge = document.getElementById('outputs-badge');
-    if (!badge) return;
-
-    if (!outputs.length) {
-        badge.className = 'sensor-badge';
-        badge.textContent = 'sin salidas';
-        return;
-    }
-    // Only the ones actually answering: a relay whose state is unknown is not
-    // an off relay, and counting it as one is how a stuck reading reads as calm.
-    const known = outputs.filter(o => typeof o.state === 'boolean');
-    const on = known.filter(o => o.state === true).length;
-    badge.className = on ? 'sensor-badge ok' : 'sensor-badge';
-    badge.textContent = known.length < outputs.length
-        ? `${on} de ${outputs.length} encendidas · ${outputs.length - known.length} sin estado`
-        : `${on} de ${outputs.length} encendidas`;
+function manualControlsHtml(outputs, mode) {
+    return outputs.filter(output => output.name).map(output => {
+        const requested = mode.requested_outputs?.[output.name];
+        // A relay that does not move must say why, or the button looks broken.
+        // The minimum on/off times hold even for a person.
+        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
+            ? `<span class="panel-manual__held">${icon('hourglass')}esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</span>`
+            : '';
+        const name = escapeHtml(output.name);
+        return `
+            <div class="panel-manual__row">
+                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
+                <span class="panel-manual__buttons">
+                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === true}"
+                            data-action="test-output" data-name="${name}" data-state="true">Prender</button>
+                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === false}"
+                            data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
+                </span>
+                ${held}
+            </div>`;
+    }).join('');
 }
 
 function updateOutputsStatus(payload) {
-    const grid = document.getElementById('outputs-grid');
-    const outputs = payload?.outputs || [];
+    const outputs = outputsWithSince(payload?.outputs || []);
 
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
-    renderOutputsBadge(outputs);
 
-    // Qué placa conmuta, dicho una vez en el encabezado: las tres salidas
-    // cuelgan siempre de la misma, y el número de cada tarjeta no se entiende
-    // sin saber de qué placa es.
+    // Qué placa conmuta, dicho una vez: las salidas cuelgan de la misma.
     const source = document.getElementById('outputs-source');
     if (source) {
         const label = relaySourceLabel(outputs[0]?.pin);
@@ -406,19 +441,24 @@ function updateOutputsStatus(payload) {
         source.title = label.title;
     }
 
-    if (!grid) return;
-
-    if (!outputs.length) {
-        grid.innerHTML = `
-            <div class="output-card">
-                <div class="output-name">No configuradas</div>
-                <div class="output-state unknown">--</div>
-            </div>
-        `;
-        return;
+    const list = document.getElementById('outputs-list');
+    if (list) {
+        list.innerHTML = outputs.length
+            ? outputRowsHtml(outputs)
+            : '<div class="ac-output"><span class="ac-output__name">No configuradas</span>'
+                + '<span class="ac-output__state">--</span></div>';
     }
 
-    grid.innerHTML = outputs.map(o => outputCardHtml(o, testMode)).join('');
+    const manual = document.getElementById('outputs-manual');
+    if (manual) {
+        const show = testMode.active && outputs.length > 0;
+        manual.innerHTML = show ? manualControlsHtml(outputs, testMode) : '';
+        manual.hidden = !show;
+    }
+
+    document.dispatchEvent(new CustomEvent('outputs:updated', {
+        detail: { outputs, test_mode: testMode },
+    }));
 }
 
 /**
@@ -527,11 +567,15 @@ function fetchHistoricalData(days, interval, hours = null) {
 
     // Keyed by endpoint, not by URL, so switching time range cancels
     // nothing but still never stacks two history requests.
+    // The days window has its own score request; this one only runs the hours.
+    fetchTimeInRange();
+
     apiGet(withGrow(url, state.growId), { key: 'history' }).then(data => {
         if (!data) return;
         updateHistoricalCharts(hours !== null
             ? { data: data.data || [], count: data.count || 0, aggregated: false }
             : data);
+        if (hours !== null) renderTimeInRangeFromSamples(data.data || []);
         renderGrowScopeNote(data);
         // The x-axis just changed, so the markers need repositioning.
         // Only for the active grow: the markers come from its stage timeline,
@@ -565,7 +609,7 @@ function renderGrowScopeNote(payload) {
 }
 
 export {
-    updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData,
+    updateSummaryPeriodLabel, fetchPeriodSummary, fetchCurrentData, fetchTimeInRange,
     fetchOutputsStatus, fetchDatabaseStats, fetchHistoricalData, renderGrowScopeNote,
     enterMonitorMode, enterTestMode, exitTestMode, toggleTestMode, setTestOutput,
     renderSystemState,

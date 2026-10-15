@@ -1,0 +1,274 @@
+/*
+ * Vista Estadísticas. Tokens de tokens.css y clases de components.css.
+ *
+ * app.css still paints the legacy classes this view used to carry (time-btn,
+ * time-selector) and it loads before this file, so the overrides below are
+ * scoped to the view. They win on specificity, not on !important, and they
+ * reset only what the new classes do not already set.
+ */
+
+.view[data-view="stats"] {
+    font-family: var(--font-sans);
+    color: var(--fg);
+}
+
+/* The heading names the period; the selectors sit beside it on one row. */
+.view[data-view="stats"] .stats-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-6) 0 var(--space-4);
+}
+
+.view[data-view="stats"] .stats-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 28px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.view[data-view="stats"] .stats-cultivo {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.view[data-view="stats"] .stats-cultivo .ac-field__label {
+    white-space: nowrap;
+}
+
+.view[data-view="stats"] .stats-cultivo .ac-field__input {
+    width: auto;
+    min-width: 200px;
+}
+
+/* The wrapper keeps the id and the class the page is checked by, and takes no
+   box of its own, so the segmented control is a flex item of the toolbar. */
+.view[data-view="stats"] .time-selector {
+    display: contents;
+}
+
+.view[data-view="stats"] .time-btn {
+    width: auto;
+    height: var(--control-sm);
+    margin: 0;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--fg-muted);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.view[data-view="stats"] .time-btn:hover {
+    color: var(--fg);
+}
+
+.view[data-view="stats"] .time-btn[aria-pressed="true"] {
+    background: var(--fill-inverse);
+    color: var(--fg-inverse);
+    font-weight: 500;
+}
+
+.view[data-view="stats"] .time-btn:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.view[data-view="stats"] .stats-note {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.view[data-view="stats"] [hidden] {
+    display: none !important;
+}
+
+/* Readouts: the period's numbers, four across, under the heading. */
+.view[data-view="stats"] .stats-readouts {
+    margin-bottom: var(--space-8);
+}
+
+/* Charts. */
+.view[data-view="stats"] .stats-charts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+}
+
+.view[data-view="stats"] .stats-block {
+    margin: 0;
+    min-width: 0;
+}
+
+.view[data-view="stats"] .stats-block__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 20px;
+    margin-bottom: 10px;
+}
+
+.view[data-view="stats"] .stats-block__title {
+    flex: 1 1 auto;
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.view[data-view="stats"] .stats-block__hint {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
+}
+
+.view[data-view="stats"] .stats-legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.view[data-view="stats"] .stats-swatch--temp {
+    background: var(--data-temp);
+}
+
+.view[data-view="stats"] .stats-swatch--water {
+    background: var(--data-water);
+}
+
+.view[data-view="stats"] .stats-swatch--outside {
+    background: repeating-linear-gradient(90deg, var(--data-outside) 0 4px, transparent 4px 8px);
+}
+
+.view[data-view="stats"] .stats-swatch--target {
+    background: repeating-linear-gradient(90deg, var(--state-ok) 0 4px, transparent 4px 8px);
+}
+
+.view[data-view="stats"] .stats-swatch--band {
+    background: var(--state-ok);
+    opacity: 0.18;
+}
+
+.view[data-view="stats"] .stats-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 40px;
+}
+
+.view[data-view="stats"] .stats-chart {
+    position: relative;
+    height: 240px;
+}
+
+.view[data-view="stats"] .stats-chart--main {
+    height: 300px;
+}
+
+.view[data-view="stats"] .stats-chart canvas {
+    display: block;
+}
+
+/* A chart with nothing to plot says why, in place of an empty grid. */
+.view[data-view="stats"] .ac-chart.is-empty canvas {
+    visibility: hidden;
+}
+
+.view[data-view="stats"] .ac-chart.is-empty::after {
+    content: attr(data-empty);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    border: 1px dashed var(--border-control);
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    text-align: center;
+}
+
+/* Loading: the heading and every chart are blocks of the size they will be. */
+.view[data-view="stats"].is-loading .stats-title {
+    width: 40%;
+    color: transparent;
+    background: var(--surface-active);
+    border-radius: var(--radius-md);
+    animation: ac-pulse 1.4s ease-in-out infinite;
+    user-select: none;
+}
+
+.view[data-view="stats"].is-loading .stats-chart {
+    background: var(--surface-active);
+    border-radius: var(--radius-md);
+    animation: ac-pulse 1.4s ease-in-out infinite;
+}
+
+.view[data-view="stats"].is-loading .stats-chart canvas,
+.view[data-view="stats"].is-loading .stats-legend {
+    visibility: hidden;
+}
+
+@media (max-width: 900px) {
+    .view[data-view="stats"] .stats-pair {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-8);
+    }
+}
+
+@media (max-width: 720px) {
+    .view[data-view="stats"] .stats-title {
+        font-size: 22px;
+    }
+
+    .view[data-view="stats"] .stats-cultivo {
+        width: 100%;
+    }
+
+    .view[data-view="stats"] .stats-cultivo .ac-field__input {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .view[data-view="stats"] .stats-readouts {
+        grid-auto-flow: row;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .view[data-view="stats"] .stats-readouts > * {
+        padding-top: var(--space-4);
+        padding-bottom: var(--space-4);
+    }
+
+    .view[data-view="stats"] .stats-readouts > :nth-child(odd) {
+        padding-left: 0;
+        border-left: 0;
+    }
+
+    .view[data-view="stats"] .stats-readouts > :nth-child(n + 3) {
+        border-top: 1px solid var(--hairline);
+    }
+
+    .view[data-view="stats"] .stats-readouts .ac-readout__value {
+        font-size: 28px;
+    }
+}

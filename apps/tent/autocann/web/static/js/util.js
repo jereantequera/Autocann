@@ -15,6 +15,24 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+/**
+ * An icon from the sprite in partials/icons.svg, as markup.
+ *
+ * Emoji used to be the icons. The Raspberry has no emoji font, so on the
+ * tablet on the tent wall every one of them was an empty box - including the
+ * ✅ and ❌ that were the only difference between "anda" and "no anda".
+ */
+function icon(name, extraClass = '') {
+    const cls = `icon ${extraClass}`.trim();
+    return `<svg class="${escapeHtml(cls)}" aria-hidden="true" focusable="false">`
+        + `<use href="#i-${escapeHtml(name)}"></use></svg>`;
+}
+
+/** Icon + words, the shape every badge and status line on the page has. */
+function iconText({ icon: name, text }) {
+    return `${name ? icon(name) : ''}${escapeHtml(text || '')}`;
+}
+
 // `x ? fmt(x) : '--'` renders a real 0 as "--". 0 °C of leaf temperature
 // and 0% of target humidity are both legitimate readings.
 
@@ -22,6 +40,16 @@ function fmtNum(value, decimals = 1, fallback = '--') {
     return (typeof value === 'number' && Number.isFinite(value))
         ? value.toFixed(decimals)
         : fallback;
+}
+
+/**
+ * The same number with the decimal comma the grower reads: 25.8 -> "25,8".
+ *
+ * Kept apart from fmtNum rather than changing it, because fmtNum also feeds
+ * places that are read by machines (the sensor cards, the chart axes).
+ */
+function fmtComma(value, decimals = 1, fallback = '--') {
+    return fmtNum(value, decimals, fallback).replace('.', ',');
 }
 
 // ===============================
@@ -97,31 +125,6 @@ function fmtSigned(value, decimals = 1, fallback = '--') {
     return (value >= 0 ? '+' : '') + value.toFixed(decimals);
 }
 
-/**
- * El cartel de diferencia contra la humedad objetivo, o null si falta una lectura.
- *
- * Nullish no es null: cuando /api/current-data responde 404 el cuerpo
- * `{"error": ...}` llega igual, cada campo vale `undefined`, y un guard escrito
- * `humidity !== null` lo deja pasar y rinde "NaN% por encima" en pantalla.
- *
- * @returns {?{state: string, text: string}}  null cuando no hay nada que comparar
- */
-function humidityDiffLabel(humidity, targetHumidity, tolerance = 3) {
-    if (!Number.isFinite(humidity) || !Number.isFinite(targetHumidity)) return null;
-    const diff = humidity - targetHumidity;
-    const absDiff = Math.abs(diff).toFixed(1);
-    if (Math.abs(diff) <= tolerance) return { state: 'on-target', text: '✓ En objetivo' };
-    if (diff < 0) return { state: 'too-low', text: `↓ ${absDiff}% por debajo` };
-    return { state: 'too-high', text: `↑ ${absDiff}% por encima` };
-}
-
-// ===============================
-// Feeding
-// ===============================
-// The panel tile and the Riego tab render the same plan from the same payload,
-// so the arithmetic and the wording live here rather than once in each: two
-// copies of "25 ml" is how one of them ends up rounding differently.
-
 /** 1 -> "1", 1.5 -> "1,5". Doses are read aloud, not computed with. */
 function fmtDose(value) {
     if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
@@ -153,14 +156,16 @@ function doseAmount(item, litres) {
 function waterOnlyNote(reason) {
     if (reason === 'seedling') {
         return {
-            badge: '💧 solo agua',
+            icon: 'droplet',
+            badge: 'solo agua',
             text: 'Plántula: el plan no lleva nutrientes todavía. '
                 + 'Regá con agua sola y el pH corregido.',
         };
     }
     if (reason === 'flush') {
         return {
-            badge: '💧 lavado',
+            icon: 'droplet',
+            badge: 'lavado',
             text: 'Semana de lavado: el plan no lleva nutrientes. '
                 + 'Regá con agua sola y el pH corregido.',
         };
@@ -219,38 +224,6 @@ function withGrow(url, growId) {
 }
 
 /**
- * El borne que hay que ir a medir para una salida: el número corto para la
- * tarjeta, y la frase entera para el title.
- *
- * Decía "BCM 7" siempre, y con `AUTOCANN_RELAY_MODE=remote` la Raspberry no
- * conmuta nada: eran tres pines de una placa que no está en el circuito. Peor
- * todavía, el 25 que mostraba para la ventilación existe también en el ESP32,
- * donde maneja el humidificador — así que mandaba a medir el header correcto
- * con la etiqueta equivocada.
- *
- * @param {?{scope: string, node: ?string, number: ?number}} source  de /api/output-status
- * @returns {{text: string, title: string}}  vacío cuando no hay pin que mostrar
- */
-function outputPinLabel(source) {
-    // Sin coerción: `Number(null)` es 0, y el BCM 0 es un pin que existe. Una
-    // salida sin pin rendiría "BCM 0", que no se lee como un hueco sino como
-    // un dato — justo el defecto que esto viene a sacar de la pantalla.
-    const number = source?.number;
-    if (!Number.isFinite(number)) return { text: '', title: '' };
-    if (source.scope === 'remote') {
-        const node = source.node || 'el nodo remoto';
-        return {
-            text: `GPIO ${number}`,
-            title: `La conmuta el GPIO ${number} de ${node}, no la Raspberry`,
-        };
-    }
-    return {
-        text: `BCM ${number}`,
-        title: `La conmuta el BCM ${number} de la Raspberry`,
-    };
-}
-
-/**
  * Qué placa maneja los relés, para el encabezado del panel.
  *
  * Va una vez arriba y no en cada tarjeta porque las tres salidas están siempre
@@ -284,16 +257,36 @@ function getScoreClass(score) {
     return 'poor';
 }
 
+/** @returns {{icon: string, text: string}} */
 function getScoreLabel(score) {
-    if (score >= 85) return '🏆 Excelente';
-    if (score >= 70) return '✅ Bueno';
-    if (score >= 50) return '⚠️ Regular';
-    return '❌ Necesita mejorar';
+    if (score >= 85) return { icon: 'trophy', text: 'Excelente' };
+    if (score >= 70) return { icon: 'circle-check', text: 'Bueno' };
+    if (score >= 50) return { icon: 'triangle-alert', text: 'Regular' };
+    return { icon: 'circle-x', text: 'Necesita mejorar' };
+}
+
+/**
+ * Writes the time of the last answer into the sidebar's #last-update.
+ *
+ * Shared by every poller that shows the stamp: the current-data poller runs on
+ * the panel only, and the sidebar is on every view. Each successful answer
+ * stamps it, so the sidebar never sits at "Cargando..." on a view where the
+ * current-data poller is not running.
+ */
+function stampLastUpdate(now = new Date()) {
+    if (typeof document === 'undefined') return;
+    const stamp = document.getElementById('last-update');
+    if (!stamp) return;
+    stamp.textContent = now.toLocaleTimeString('es-AR', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    stamp.title = `Última actualización: ${now.toLocaleString('es-AR', { hour12: false })}`;
 }
 
 export {
-    escapeHtml, fmtNum, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
-    formatDate, growParam, humidityDiffLabel, getScoreClass, getScoreLabel, withGrow,
-    outputPinLabel, relaySourceLabel,
+    icon, iconText, stampLastUpdate,
+    escapeHtml, fmtNum, fmtComma, fmtSigned, formatAge, formatDuration, parseLocalDatetime,
+    formatDate, growParam, getScoreClass, getScoreLabel, withGrow,
+    relaySourceLabel,
     STALE_AFTER_DAYS, fmtDose, doseAmount, lastWateringLabel, waterOnlyNote,
 };

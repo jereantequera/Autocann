@@ -1,32 +1,22 @@
-        <!-- Outputs: which relays are closed right now -->
+        <!-- Salidas: which relays are on right now, one row each -->
         <!--
-             The button that paused the loop used to be in this header, and the
-             banner announcing the pause right below it. Both moved to the top
-             of the page: pausing is not a property of the relay section, it is
-             the state of the whole system, and it has to be visible from the
-             views that are not this one.
+             One row per relay, not a card: the question is which ones are on,
+             and a row answers it in one line. The board name sits on the
+             label row once, because every relay here is on the same board.
 
-             The badge counts them. "Ventilación encendida" is only half an
-             answer when the question asked from the doorway is how much of the
-             installation is currently running.
+             The manual controls are under the rows, and only when the loop is
+             not in charge (dashboard.js renders them). Pausing itself is the
+             sidebar's chip, which is where it has always been announced.
         -->
-        <div class="section-header section-header-row">
-            <h2 class="section-title">
-                <span class="section-title-icon">🔌</span>
-                Salidas
-                <!--
-                     Qué placa conmuta estos relés. Lo llena el JS porque
-                     depende de AUTOCANN_RELAY_MODE, y sin eso los pines de
-                     las tarjetas no dicen de qué header son.
-                -->
-                <span class="section-subtitle" id="outputs-source"></span>
-            </h2>
-            <span class="sensor-badge" id="outputs-badge">⏳</span>
+        <div class="panel-section-head">
+            <span class="ac-readout__label">Salidas</span>
+            <span class="ac-readout__sub" id="outputs-source"></span>
         </div>
 
-        <div class="outputs-grid" id="outputs-grid">
-            <div class="output-card">
-                <div class="output-name">Cargando...</div>
-                <div class="output-state unknown">--</div>
+        <div class="panel-outputs" id="outputs-list">
+            <div class="ac-output">
+                <span class="ac-output__name">Cargando...</span>
+                <span class="ac-output__state">--</span>
             </div>
         </div>
+        <div class="panel-manual" id="outputs-manual" hidden></div>

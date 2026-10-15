@@ -68,8 +68,26 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 
 ### Front
 
-- `autocann/web/static/js/`: 18 módulos ES, sin bundler.
-- `autocann/web/templates/`: `index.html` y `login.html`, más 16 parciales.
+- **Design system "Grafito"**: `static/css/tokens.css` (colores en dos temas,
+  Grafito y Noche; tipografía, espacio, radios) y `static/css/components.css`
+  (las clases `ac-*`). Son la copia en código del design system documentado
+  como artifact; si cambia uno, cambia el otro. `app.css` mapea sus variables
+  viejas a los tokens, y cada vista tiene su hoja en `static/css/views/`.
+- Navegación: barra lateral colapsable (`partials/sidebar.html`, `sidebar.js`)
+  con la carpa, las vistas y el estado del lazo; en el celular se parte en una
+  barra arriba y la barra de pestañas abajo.
+- `autocann/web/static/js/`: 25 módulos ES, sin bundler. Los nuevos con lógica
+  pura y tests: `status.js` (la frase del panel), `vpdchart.js` (la carta de
+  VPD, cuya franja sale de `/api/vpd-band` con la misma cuenta que el lazo),
+  `logbook.js`, `grow-model.js`, `stats-math.js`, `theme.js`.
+- `autocann/web/templates/`: `index.html` y `login.html`, más 12 parciales.
+- Íconos: [Lucide](https://lucide.dev) como sprite SVG incrustado en la página
+  (`templates/partials/icons.html`), con `icon()` en Jinja y en `util.js`. Nada
+  de emoji: la Raspberry no tiene fuente de emoji y se veían como cuadrados
+  vacíos. `make test` falla si vuelve uno o si se pide un ícono que no está en
+  el sprite.
+- Fuentes (IBM Plex Sans y Mono) servidas desde `static/vendor/fonts/`, igual
+  que Chart.js: la página no depende de internet para nada.
 - `tests/`: suite de pytest. La lógica de control no necesita hardware ni Redis.
   Los tests de JS corren con `node --test tests/js/` y también desde pytest.
 

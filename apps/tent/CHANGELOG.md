@@ -1,5 +1,72 @@
 # Changelog
 
+## Un sistema de diseño en lugar de un kit
+
+El dashboard tenía el aspecto de cualquier panel oscuro hecho con plantilla:
+verde neón, brillos, degradés y una tarjeta alrededor de cada cosa, con el
+mismo peso visual para el VPD que para el nombre de un relé. Ahora sale de un
+design system propio, **Grafito**: tokens en dos temas (Grafito, y Noche para
+la tablet de la pared con las luces apagadas), IBM Plex, y una regla que
+ordena todo lo demás: el color es estado, no decoración.
+
+- **Barra lateral** colapsable a íconos, con la carpa y su cultivo arriba y el
+  estado del lazo abajo. Si el lazo está caído lo dice ahí, en todas las vistas.
+- **Panel**: una frase contesta si la carpa está bien. Debajo, una carta de
+  temperatura contra humedad con la franja que el lazo está sosteniendo
+  (`/api/vpd-band`, calculada con las mismas funciones que el control) y la
+  lectura como un punto; el VPD de hoja aparece al tocarlo, marcado como
+  estimado. Pestañas Ahora y Bitácora (`/api/logbook`).
+- **Una sola alerta**: con el lazo caído había tres cajas rojas diciendo lo
+  mismo. Ahora es un cartel, con las advertencias plegadas adentro.
+- Riego, Estadísticas, Reportes, Cultivo y Sistema rehechos con los mismos
+  componentes. Reportes dice "tiempo con el VPD en rango" en lugar de un
+  puntaje abstracto.
+
+## La carga tenía un diseño, y era el de nadie
+
+Abrir el panel pasaba por cuatro estados que nadie eligió: "Cargando...",
+`--`, relojes de arena y un gráfico con ejes inventados de 0 a 1; a los 0,8 s
+llegaban las alertas, que son las últimas en contestar, y empujaban todo el
+panel 110 px para abajo. Y cuando no había lectura, los `--` quedaban en el
+naranja y el azul grandes de un valor medido.
+
+- **Un solo estado de carga.** Hasta que llegan las primeras respuestas
+  (`whenSettled()` en `api.js`) la página muestra skeletons del tamaño de lo
+  que va a ir ahí, y después se revela entera de una vez, alertas incluidas.
+  Lo mismo la primera vez que se abre cada vista. Si el arranque falla, el
+  skeleton se saca igual.
+- **Sin dato no es un dato.** Sin lectura, los valores del panel se ven en
+  gris; un gráfico sin muestras lo dice en vez de dibujar una grilla vacía. Y
+  elegir un rango sin muestras ya no deja el gráfico del rango anterior.
+- **Contraste.** El gris de los textos secundarios medía 3:1, abajo del 4,5:1
+  que pide WCAG AA para texto chico. Ahora pasa en todos los fondos.
+- **Teclado y dedos.** Un anillo de foco para todo lo que se alcanza con Tab
+  (sólo los modales lo tenían) y 44 px de alto mínimo en pantallas táctiles.
+- **Celular.** El chip de estado vuelve a decir "Detener", y la barra de abajo
+  tiene íconos y etiquetas más grandes.
+
+## Los íconos eran cuadrados vacíos
+
+El dashboard usaba 117 emoji como íconos — 37 distintos, en la navegación, en
+los títulos y, sobre todo, en los estados: el ✅ y el ❌ eran lo único que
+distinguía "anda" de "no anda" en un badge. La Raspberry no tiene fuente de
+emoji, así que en la tablet de la carpa cada uno se dibujaba como un cuadrado
+vacío. El badge decía "lazo caído" con un cuadradito adelante, igual que "OK".
+
+Ahora son íconos de Lucide en un sprite SVG incrustado en la página: no hay un
+request más, toman el color del texto (un ícono en un badge rojo es rojo) y se
+ven igual en cualquier dispositivo. Los helpers de estado devuelven
+`{icon, text, state}` en lugar de un texto con el emoji pegado adelante.
+
+De paso:
+
+- Las fuentes venían de Google Fonts, y era lo único de la página que dependía
+  de internet. Están en `static/vendor/fonts/`.
+- "Agregar riego" y "Registrar riego" son links con forma de botón y salían
+  subrayados.
+- En el celular el header ocupaba un tercio de la pantalla, apilado y
+  centrado. Ahora logo, estado y riego entran en una fila.
+
 ## 3357 conexiones a Redis sin que nadie las pidiera
 
 El backend abría conexiones a Redis y no las devolvía nunca. Un proceso que
