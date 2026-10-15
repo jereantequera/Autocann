@@ -1,0 +1,2 @@
+# unwrap en un test es la forma corta de decir "esto tiene que andar".
+allow-unwrap-in-tests = true

@@ -32,7 +32,7 @@ Si ya tenés uv instalado pero el script no lo encuentra, agregá manualmente el
 ```bash
 cd /home/autocann
 git clone <tu-repositorio> Autocann
-cd Autocann
+cd Autocann/apps/tent
 ```
 
 ### Paso 3: Instalar dependencias
@@ -134,7 +134,7 @@ Agregá uv al PATH (ver output del comando anterior).
 ```bash
 cd ~/Documents
 git clone <tu-repositorio> Autocann
-cd Autocann
+cd Autocann/apps/tent
 ```
 
 ### Paso 3: Instalar dependencias base
