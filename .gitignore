@@ -46,3 +46,9 @@ config.mk
 
 # Firmware: credenciales de WiFi e IP de la instalación
 firmware/*/secrets.h
+
+# Rust
+target/
+
+# CA y certificados de desarrollo: se generan con deploy/pki/dev-pki.sh
+deploy/pki/out/
