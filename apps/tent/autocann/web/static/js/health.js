@@ -13,13 +13,12 @@
  * que lo calcula una vez mirando todas las fuentes juntas. Dos elementos de la
  * pantalla no pueden discrepar si leen del mismo objeto.
  *
- * Este módulo también decide qué cartel de arriba se muestra: el de "roto" y el
- * de anomalías son uno solo, para que no haya dos cajas rojas pegadas diciendo
- * lo mismo.
+ * Este módulo también dibuja los carteles de arriba; cuál se muestra lo decide
+ * alerts.js, para que no haya dos cajas pegadas diciendo lo mismo.
  */
 
+import { alertDecision, moreWarningsLabel } from './alerts.js';
 import { apiGet, connection } from './api.js';
-import { MODE_MONITOR } from './state.js';
 import {
     escapeHtml, fmtNum, fmtSigned, formatAge, icon, iconText, stampLastUpdate,
 } from './util.js';
@@ -135,114 +134,6 @@ function verdictFor(health, checks) {
     if (health.error) return 'No se pudo calcular el estado';
     if (checks.every(check => check.level === 'ok')) return 'Todo anda';
     return health.headline || 'Hay algo para revisar';
-}
-
-/**
- * Si el cartel de "roto" tiene que estar arriba de todo.
- *
- * Sólo lo que está roto ahora y es del lazo o del sensor que controla. Una
- * pausa es intencional y la anuncia el header; un hueco en el histórico lo
- * cuentan las anomalías. Un cartel que aparece por algo que alguien hizo a
- * propósito es el que enseña a ignorar los carteles.
- */
-function isBroken(health) {
-    if (!health || health.error) return false;
-    if (health.loop?.state === 'down' || health.loop?.level === 'error') return true;
-    return (health.sensors || []).some(
-        sensor => sensor.role === 'primary' && (sensor.state === 'missing' || sensor.state === 'stale'));
-}
-
-/** Severities, least serious first, so the box takes the tone of the worst one. */
-const SEVERITIES = ['info', 'warning', 'critical'];
-
-/**
- * The anomalies box's title, icon and tone for the most serious item in it.
- *
- * The colour follows the words: a red box titled "Advertencias" or an amber one
- * titled "Problemas críticos" says two things at once, and the reader believes
- * whichever is worse.
- */
-const ANOMALY_LOOKS = {
-    critical: { title: 'Problemas críticos detectados', icon: 'siren', tone: '' },
-    warning: { title: 'Advertencias detectadas', icon: 'triangle-alert', tone: 'warn' },
-    info: { title: 'Para tener en cuenta', icon: 'circle-alert', tone: 'info' },
-};
-
-/** The worst severity among `issues`; an unknown or missing one counts as a warning. */
-function worstSeverity(issues) {
-    return issues.reduce((worst, issue) => {
-        const severity = SEVERITIES.includes(issue?.severity) ? issue.severity : 'warning';
-        return SEVERITIES.indexOf(severity) > SEVERITIES.indexOf(worst) ? severity : worst;
-    }, 'info');
-}
-
-/**
- * The "no hay cultivo activo" notice, or null when there is a grow.
- *
- * Not an anomaly: nothing is broken, the loop just has nowhere to file the
- * samples. It is shown in every mode — paused or monitoring, it is still true
- * that nothing is being stored — and worded for monitoring, where the grower
- * might think the mode itself was recording.
- */
-function noGrowNotice(health) {
-    if (!health || health.error || !health.no_active_grow) return null;
-    const text = health.loop?.state === MODE_MONITOR
-        ? 'No hay cultivo activo: el monitoreo no guarda datos. Creá un cultivo para empezar a registrar.'
-        : 'No hay cultivo activo: no se guardan datos. Creá un cultivo para empezar a registrar.';
-    return { kind: 'no_grow', text };
-}
-
-/**
- * Qué cartel de arriba se muestra, dados el veredicto y las anomalías.
- *
- * - Roto: sólo el cartel de roto. Las anomalías no tienen caja propia: se
- *   suman como una línea "+N advertencias", para que el que lee vea que hay
- *   más sin tener dos carteles pegados.
- * - Sano con anomalías: el cartel de anomalías, con hasta tres, con el título
- *   y el color del más grave que muestra.
- * - Nada: ningún cartel.
- *
- * Aparte, `notice`: el aviso de que no hay cultivo, que no es una alerta y no
- * se descarta. Sale de la salud y no de las anomalías, así que "Descartar" no
- * lo esconde y se va en cuanto hay un cultivo.
- *
- * Pura, así que lo que se ve queda probado sin el DOM.
- */
-function alertDecision({ health, anomalies = [], dismissed = false }) {
-    const issues = dismissed ? [] : anomalies;
-    const notice = noGrowNotice(health);
-    if (isBroken(health)) {
-        return {
-            mode: 'broken',
-            title: health.headline || 'Problema con sensores',
-            text: health.detail || '',
-            more: issues.length,
-            notice,
-        };
-    }
-    if (issues.length) {
-        const severity = worstSeverity(issues);
-        return {
-            mode: 'warnings',
-            total: issues.length,
-            severity,
-            critical: severity === 'critical',
-            ...ANOMALY_LOOKS[severity],
-            items: issues.slice(0, 3),
-            hidden: Math.max(0, issues.length - 3),
-            notice,
-        };
-    }
-    return { mode: 'none', notice };
-}
-
-/**
- * The "+N" line of the broken-state alert: singular for one, plural for more,
- * empty for none so the element stays hidden.
- */
-function moreWarningsLabel(n) {
-    if (!n) return '';
-    return n === 1 ? '+1 advertencia' : `+${n} advertencias`;
 }
 
 // ===============================
@@ -630,7 +521,7 @@ if (typeof document !== 'undefined') {
 }
 
 export {
-    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, moreWarningsLabel, noGrowNotice,
-    renderAlerts, sensorsBadge, setAnomalies, verdictFor, worstSeverity, SENSOR_READ_CELLS, CALIB_CELLS,
+    fetchHealth, healthChecks, latestHealth, renderAlerts, sensorsBadge, setAnomalies, verdictFor,
+    SENSOR_READ_CELLS, CALIB_CELLS,
     SENSOR_ROLES, DRIFT_FLAG_LABELS,
 };

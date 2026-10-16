@@ -51,6 +51,7 @@ from autocann.control.humidity import (
     MedianFilter,
     decide,
 )
+from autocann.control.plausible import plausible_reading
 from autocann.control.quiet import blocked_actions, windows_from_dict
 from autocann.control.reading_age import parse_esp32_sample
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, Calibration, SampleAccumulator
@@ -796,7 +797,7 @@ class Sensors:
             try:
                 temperature = sensor.temperature
                 humidity = sensor.humidity
-                if temperature is not None and humidity is not None:
+                if temperature is not None and humidity is not None and plausible_reading(temperature, humidity):
                     return float(temperature), float(humidity)
             except RuntimeError:
                 pass  # a failed checksum is normal for a DHT22
@@ -911,7 +912,8 @@ class Sensors:
                 )
                 return None, None
 
-            if sample.temperature is None or sample.humidity is None:
+            # An impossible value is a failed read: the median filter keeps the last good one.
+            if None in (sample.temperature, sample.humidity) or not plausible_reading(sample.temperature, sample.humidity):
                 return None, None
             self._payload_ages[key] = sample.data_age
             return float(sample.temperature), float(sample.humidity)
@@ -956,10 +958,8 @@ class Sensors:
     def _record_drift(self, primary, witness) -> None:
         """Feed the monitor, persist a newly learned baseline, warn on faults."""
         had_baseline = self.drift.baseline is not None
-        def _usable(reading):
-            return reading if None not in reading else None
-
-        report = self.drift.update(primary=_usable(primary), witness=_usable(witness))
+        report = self.drift.update(primary=None if None in primary else primary,
+                                   witness=None if None in witness else witness)
         self.drift_report = report
 
         if not had_baseline and self.drift.baseline is not None:

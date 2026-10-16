@@ -16,6 +16,7 @@ import pytest
 
 from autocann.config import OBSERVER, PRIMARY, WITNESS, indoor_sensor_key
 from autocann.time import ARGENTINA_TZ
+from autocann.web.alert_owners import reframe_history_anomalies
 from autocann.web.diagnostics import (
     LOG_MAX_LINE_LENGTH,
     LOG_MAX_LINES,
@@ -26,7 +27,6 @@ from autocann.web.diagnostics import (
     loop_verdict,
     node_verdict,
     overall_verdict,
-    reframe_history_anomalies,
     sensor_verdict,
     worst,
 )
@@ -276,13 +276,73 @@ def test_a_gap_that_already_closed_is_not_answered_with_the_state_of_right_now()
     assert gap["about"] == "history"
 
 
-def test_a_real_outage_is_left_alone():
-    """Sin filas y sin lecturas, el sensor sí está desconectado: no se toca."""
+def test_without_anything_in_health_to_explain_it_the_outage_is_left_alone():
+    """Sin filas, sin lecturas y sin un cartel que lo diga: el ítem se queda."""
     out = reframe_history_anomalies(
         REPORT, {"loop": {"state": "running"}, "sensors": [DEAD]})
 
     assert out["anomalies"] == REPORT["anomalies"]
     assert out["status"] == "critical"
+
+
+DEAD_PRIMARY = {"role": PRIMARY, "state": "stale", "controls": True}
+
+
+def test_a_dead_primary_is_told_once_by_the_banner_not_by_the_box():
+    """
+    El primario callado salía en el cartel rojo, en Sistema, en la línea del
+    panel, en el badge y como `stale_data` doblado en "+1 advertencia". El
+    cartel de arriba es el dueño: la anomalía de "no se guarda nada" se va.
+    """
+    out = reframe_history_anomalies(
+        REPORT, {"loop": {"state": "running"}, "sensors": [DEAD_PRIMARY]})
+
+    assert not any(i["type"] == "stale_data" for i in out["anomalies"] + out["warnings"])
+    # The hole that already closed is a different fact, and stays.
+    assert [i["type"] for i in out["warnings"]] == ["data_gap"]
+
+
+def test_a_loop_that_is_down_is_owned_by_the_banner():
+    out = reframe_history_anomalies(REPORT, {"loop": {"state": "down"}, "sensors": [POSTING]})
+    assert not any(i["type"] == "stale_data" for i in out["anomalies"] + out["warnings"])
+    assert out["status"] == "warning"  # the data_gap
+
+
+def test_a_stalled_history_stays_in_the_box_as_a_warning_with_what_to_do():
+    """
+    El lazo corre y no guarda: no hay nada sin controlar, así que no es el
+    cartel rojo. Queda en la caja, como advertencia que dice qué revisar.
+    """
+    health = {"loop": {"state": "running"}, "history": {"state": "stalled"}, "sensors": [POSTING]}
+    out = reframe_history_anomalies(REPORT, health)
+    stale = next(i for i in out["warnings"] if i["type"] == "stale_data")
+    assert stale["severity"] == "warning"
+    assert "el que no está guardando es el lazo de control" in stale["message"]
+    assert stale["message"].endswith("(make status).")
+    assert out["anomalies"] == []
+
+
+def test_the_reframed_item_ends_with_what_to_do():
+    out = reframe_history_anomalies(
+        {**REPORT, "anomalies": [{**REPORT["anomalies"][0], "minutes_ago": 238}]},
+        {"loop": {"state": "running"}, "sensors": [POSTING]})
+    message = out["warnings"][0]["message"]
+    assert message.startswith("Último dato guardado hace 238 min")
+    assert message.endswith("Revisá el servicio en la Raspberry (make status).")
+
+
+def test_overall_verdict_for_a_dead_primary_says_what_to_do():
+    sensor = {"role": PRIMARY, "label": "Sensor A", **sensor_verdict(
+        {"role": PRIMARY, "has_reading": True, "is_stale": True, "age_seconds": 900})}
+    loop = loop_verdict({"timestamp": 1}, 3, None, 100, mode="active")
+    history = history_verdict(60, "running")
+    verdict = overall_verdict([sensor], loop, history, [])
+    assert verdict["headline"] == "Sensor A (el que controla) no está posteando"
+    assert "Mirá el log del nodo" in verdict["detail"]
+
+
+def test_a_stalled_history_says_what_to_do():
+    assert history_verdict(3600, "running")["detail"].endswith("(make status).")
 
 
 def test_anomalies_that_are_not_about_the_history_are_left_alone():

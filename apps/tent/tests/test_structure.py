@@ -26,14 +26,14 @@ ALLOWLIST: dict[str, int] = {
     "autocann/cli/simulate.py": 748,
     "autocann/cli/vpd.py": 1485,
     "autocann/config.py": 446,
-    "autocann/db.py": 2522,
+    "autocann/db.py": 2365,
     "autocann/web/app.py": 1756,
-    "autocann/web/diagnostics.py": 996,
+    "autocann/web/diagnostics.py": 912,
     "autocann/web/static/js/charts.js": 435,
     "autocann/web/static/js/dashboard.js": 616,
     "autocann/web/static/js/feeding.js": 644,
     "autocann/web/static/js/grows.js": 599,
-    "autocann/web/static/js/health.js": 636,
+    "autocann/web/static/js/health.js": 527,
     "autocann/web/static/js/system.js": 419,
 }
 

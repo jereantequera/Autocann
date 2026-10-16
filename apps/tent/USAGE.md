@@ -473,21 +473,27 @@ GET /api/anomalies?hours=6
 ```json
 {
   "status": "warning",
-  "anomalies": [
-    {
-      "type": "stale_data",
-      "severity": "critical",
-      "message": "Último dato hace 45 minutos - sensor posiblemente desconectado",
-      "timestamp": "2025-01-17 14:30:00",
-      "minutes_ago": 45
-    }
-  ],
+  "anomalies": [],
   "warnings": [
+    {
+      "type": "data_gap",
+      "severity": "warning",
+      "message": "2 huecos sin datos entre 03:10 y 09:40 (el más largo, 47 min). Si no pausaste el sistema, mirá el log del nodo en Sistema para ver si se cayó el WiFi o el sensor.",
+      "timestamp": "2025-01-17 09:40:00",
+      "count": 2,
+      "first": "2025-01-17 03:10:00",
+      "last": "2025-01-17 09:40:00",
+      "gap_minutes": 47
+    },
     {
       "type": "temperature_spike",
       "severity": "warning",
-      "message": "Cambio brusco de temperatura: 12.5°C en 5 min",
-      "timestamp": "2025-01-17 10:15:00",
+      "message": "Cambio brusco de temperatura: 3 veces entre 10:15 y 11:40 (hasta 12.5 °C en 5 min). Si nadie abrió la carpa ni tocó las luces, fijate que el sensor no esté suelto o pegado a la lámpara.",
+      "timestamp": "2025-01-17 11:40:00",
+      "count": 3,
+      "first": "2025-01-17 10:15:00",
+      "last": "2025-01-17 11:40:00",
+      "change": 12.5,
       "from_value": 22.5,
       "to_value": 35.0
     }
@@ -501,38 +507,59 @@ GET /api/anomalies?hours=6
 }
 ```
 
-#### Tipos de Anomalías Detectadas
+Cada tipo sale **una sola vez**, aunque haya pasado muchas veces: `count`,
+`first` y `last` dicen cuántas y entre cuándo, `timestamp` es la más reciente, y
+el mensaje dice qué pasó y qué hacer. Los umbrales viven en
+`autocann/control/anomalies.py` (el detector, puro) y lo que la salud ya dice se
+saca en `autocann/web/alert_owners.py`.
 
-| Tipo | Severidad | Descripción | Causa Probable |
-|------|-----------|-------------|----------------|
-| `no_data` | 🔴 Critical | No hay datos en el período analizado | Sensor completamente desconectado o sistema apagado |
-| `stale_data` | 🔴 Critical | Último dato hace más de 15 minutos | Sensor desconectado o proceso VPD detenido |
-| `invalid_temperature` | 🔴 Critical | Temperatura fuera del rango físico (-10°C a 60°C) | Sensor defectuoso o conexión suelta |
-| `invalid_humidity` | 🔴 Critical | Humedad fuera del rango 0-100% | Sensor defectuoso o conexión suelta |
-| `data_gap` | 🟡 Warning | Sin datos por más de 15 minutos | Interrupción temporal, reinicio del sistema |
-| `temperature_spike` | 🟡 Warning | Cambio >10°C en menos de 10 minutos | Sensor tocado, puerta abierta, o lectura errónea |
-| `humidity_spike` | 🟡 Warning | Cambio >30% en menos de 10 minutos | Humidificador encendido/apagado bruscamente, o sensor errático |
-| `stuck_temperature` | 🟡 Warning | Mismo valor exacto por >30 minutos | Sensor congelado o defectuoso |
-| `stuck_humidity` | 🟡 Warning | Mismo valor exacto por >30 minutos | Sensor congelado o defectuoso |
+Lo que nadie puede arreglar no es una alerta. Una lectura **imposible** (fuera
+de -10..60 °C o 0..100 %, `autocann/control/plausible.py`) se descarta: el
+endpoint del ESP32 la rechaza con 400 (queda en el log del nodo), el lazo la
+trata como una lectura que no llegó (el filtro de mediana sigue con la última
+buena y, si no llegan más buenas, salta el failsafe y el cartel de "dejó de
+postear"), no se guarda, y todas las estadísticas, gráficos y reportes saltean
+las filas viejas que la tengan, sin tocar la base: la fila entera si lo
+imposible es el interior (`VALID_ROW_SQL`), y sólo esa columna si es el
+exterior (`OUTSIDE_TEMPERATURE_SQL`, `OUTSIDE_HUMIDITY_SQL` en los promedios y
+mínimos/máximos, `scrub_outdoor` en las filas crudas de los gráficos), así un
+DHT22 exterior roto no borra el dato interior de esa fila. El sensor exterior
+del lazo descarta lo imposible igual que el interior. Un valor
+**quieto** tampoco es alerta: si está siempre, no avisa de nada.
+
+#### Alertas: qué dice cada una y quién la dice
+
+Una regla: **cada hecho lo dice un solo cartel**. El cartel rojo de arriba
+(sale de `/api/health`) dice lo que está roto ahora — el lazo, el sensor que
+controla, el histórico que no se guarda —, el aviso de "sin cultivo" lo suyo, y
+la caja de anomalías queda para la calidad de los datos guardados. Sistema, la
+línea del panel y el badge de sensores muestran el **estado**, no son alertas.
+
+| Tipo | Decisión | Severidad | Umbral (constante) | Mensaje (qué pasa + qué hacer) | Dueño en el dashboard |
+|------|----------|-----------|--------------------|--------------------------------|------------------------|
+| Primario sin postear (`missing`/`stale` en `/api/health`) | Se queda | error | `INDOOR_SENSOR_MAX_AGE_SECONDS` (config) | Título "Sensor A (el que controla) no está posteando"; detalle + "Mirá el log del nodo en Sistema…" o "Revisá que el nodo esté encendido…" | Cartel rojo (único) |
+| Lazo caído (`loop.state = down`) | Se queda | error | `LOOP_MAX_AGE_SECONDS` = 30 s: diez ciclos de 3 s | "El lazo de control no está corriendo" + "Revisá el servicio en la Raspberry (make status)." | Cartel rojo |
+| Histórico frenado (`history.state = stalled`) | Se queda; **no** levanta el cartel rojo (nada queda sin controlar) | error en Sistema | `HISTORY_MAX_AGE_SECONDS` = `MAX_GAP_SECONDS` = 15 min | Sistema: "No se está guardando" + "Revisá el servicio… (make status)."; en la caja, el `stale_data` reescrito (fila siguiente) | Caja de anomalías (advertencia) + chequeo de Sistema |
+| `no_data` | Se fusiona con la salud: se saca cuando la salud lo explica | crítica | ventana `hours` (24 h) | "No hay datos guardados en las últimas 24 h. Mirá Sistema: ahí dice si se cortó el sensor o el lazo." | Cartel rojo si el lazo está caído o el primario no postea; aviso de pausa / sin cultivo; si no, queda en la caja |
+| `stale_data` | Igual que `no_data` | crítica (advertencia si los sensores postean) | `MAX_GAP_SECONDS` = 15 min: tres escrituras perdidas | "Último dato guardado hace N min. Mirá Sistema…"; con sensores vivos: "…pero los sensores están posteando: el que no está guardando es el lazo de control. Revisá el servicio en la Raspberry (make status)." | Igual que `no_data` |
+| `data_gap` | Se queda, agrupado | advertencia | `MAX_GAP_SECONDS` = 15 min; una fila descartada deja 10 min y no cuenta | "2 huecos sin datos entre 03:10 y 09:40 (el más largo, 47 min). Si no pausaste el sistema, mirá el log del nodo en Sistema…" | Caja de anomalías |
+| `temperature_spike` | Se queda, agrupado; subir y volver en seguida cuenta como una vez; no cuenta saltos hacia/desde una fila vieja imposible | advertencia | `TEMPERATURE_SPIKE_C` = 10 °C entre filas a ≤ `SPIKE_WINDOW_SECONDS` = 10 min: prender las luces mueve 3-6 °C en media hora | "Cambio brusco de temperatura: 2 veces entre 14:05 y 14:20 (hasta 13.1 °C en 5 min). Si nadie abrió la carpa ni tocó las luces, fijate que el sensor no esté suelto o pegado a la lámpara." | Caja de anomalías |
+| `humidity_spike` | Igual | advertencia | `HUMIDITY_SPIKE_PERCENT` = 30 %: abrir la carpa mueve ~15 % | "Cambio brusco de humedad: … Si nadie regó ni abrió la carpa, fijate que el sensor no esté mojado o suelto." | Caja de anomalías |
+| `invalid_temperature` / `invalid_humidity` | **Se elimina**: la lectura se descarta en la fuente y las estadísticas saltean filas viejas | — | `TEMPERATURE_MIN_C`/`MAX_C` = -10 / 60 °C, `HUMIDITY_MIN/MAX_PERCENT` = 0 / 100 % (`plausible.py`): fuera de eso es una lectura fallida del DHT22 | — (si sigue pasando, el sensor deja de postear y lo dice el cartel rojo; el 400 queda en el log del nodo) | Nadie |
+| `stuck_temperature` / `stuck_humidity` | **Se elimina**: no hay nada que hacer, y si está siempre no es una alerta | — | — | — | Nadie (la deriva sigue en Sistema) |
+| Sin conexión al backend | Se queda | — | — | "Revisá que el servicio esté corriendo: make status" | Su propio cartel (api.js) |
+| Sin cultivo activo | Se queda (aviso, no alerta) | info | — | "No hay cultivo activo: no se guardan datos. Creá un cultivo…" + botón | Aviso propio, no se descarta |
+
+Con el cartel rojo arriba, las anomalías que dicen lo mismo (`no_data`,
+`stale_data`) no suman al "+N advertencias"; los huecos y los saltos sí.
 
 #### Estados del Sistema
 
 - **`ok`**: Sin problemas detectados
-- **`warning`**: Solo advertencias menores
+- **`warning`**: Solo advertencias
 - **`critical`**: Hay anomalías críticas que requieren atención inmediata
+- **`no_grow`**: No hay cultivo activo; no se buscan anomalías
 - **`error`**: Error al ejecutar la detección
-
-#### Umbrales de Detección
-
-| Parámetro | Umbral |
-|-----------|--------|
-| Intervalo esperado entre samples | 5 minutos |
-| Gap máximo antes de alerta | 15 minutos (3 samples perdidos) |
-| Cambio brusco de temperatura | >10°C en 10 min |
-| Cambio brusco de humedad | >30% en 10 min |
-| Tiempo para detectar valor estancado | 30 minutos (6 samples idénticos) |
-| Rango válido de temperatura | -10°C a 60°C |
-| Rango válido de humedad | 0% a 100% |
 
 ### Dashboard
 
