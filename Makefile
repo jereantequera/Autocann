@@ -7,7 +7,11 @@
 # Lo de la carpa se alcanza con el prefijo `tent-`: `make tent-deploy` es
 # `make -C apps/tent deploy`.
 
-export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(PATH)
+# nvm only puts node on PATH in interactive shells, so make would not find it.
+# Prefer nvm's node (the newest one unless NVM_BIN is set) when it exists.
+NODE_BIN := $(or $(NVM_BIN),$(shell ls -d $(HOME)/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -n 1))
+
+export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(HOME)/.cargo/bin:$(HOME)/.local/bin:$(PATH)
 
 PKI := deploy/pki/out
 DEVICE ?= carpa-01

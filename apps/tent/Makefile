@@ -1,5 +1,10 @@
 .PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data compact-remote compact-remote-dry compact-local ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
+# nvm only puts node on PATH in interactive shells, so make would not find it.
+# Prefer nvm's node (the newest one unless NVM_BIN is set) when it exists.
+NODE_BIN := $(or $(NVM_BIN),$(shell ls -d $(HOME)/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -n 1))
+export PATH := $(if $(NODE_BIN),$(NODE_BIN):)$(PATH)
+
 # Configuración de la Raspberry Pi (valores por defecto)
 RPI_USER ?= autocann
 RPI_HOST ?= autocann.local
