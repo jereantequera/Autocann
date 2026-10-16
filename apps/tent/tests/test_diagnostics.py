@@ -302,32 +302,24 @@ def test_a_dead_primary_is_told_once_by_the_banner_not_by_the_box():
     assert [i["type"] for i in out["warnings"]] == ["data_gap"]
 
 
-def test_a_value_still_frozen_with_the_primary_down_is_the_same_dead_sensor():
-    report = {"status": "warning", "anomalies": [], "warnings": [
-        {"type": "stuck_temperature", "severity": "warning", "message": "Clavada", "ongoing": True},
-        {"type": "stuck_humidity", "severity": "warning", "message": "Clavada ayer", "ongoing": False},
-    ]}
-    out = reframe_history_anomalies(
-        report, {"loop": {"state": "running"}, "sensors": [DEAD_PRIMARY]})
-    assert [i["type"] for i in out["warnings"]] == ["stuck_humidity"]
-
-    alive = reframe_history_anomalies(
-        report, {"loop": {"state": "running"}, "sensors": [{**DEAD_PRIMARY, "state": "posting"}]})
-    assert len(alive["warnings"]) == 2
-
-
-@pytest.mark.parametrize("health", [
-    {"loop": {"state": "down"}, "sensors": [POSTING]},
-    {"loop": {"state": "running"}, "history": {"state": "stalled"}, "sensors": [POSTING]},
-])
-def test_a_loop_down_or_a_stalled_history_is_owned_by_the_banner(health):
-    """
-    "El que no está guardando es el lazo" repetía el chequeo de Histórico de
-    Sistema. Con el cartel rojo diciéndolo arriba, la caja no lo repite.
-    """
-    out = reframe_history_anomalies(REPORT, health)
+def test_a_loop_that_is_down_is_owned_by_the_banner():
+    out = reframe_history_anomalies(REPORT, {"loop": {"state": "down"}, "sensors": [POSTING]})
     assert not any(i["type"] == "stale_data" for i in out["anomalies"] + out["warnings"])
     assert out["status"] == "warning"  # the data_gap
+
+
+def test_a_stalled_history_stays_in_the_box_as_a_warning_with_what_to_do():
+    """
+    El lazo corre y no guarda: no hay nada sin controlar, así que no es el
+    cartel rojo. Queda en la caja, como advertencia que dice qué revisar.
+    """
+    health = {"loop": {"state": "running"}, "history": {"state": "stalled"}, "sensors": [POSTING]}
+    out = reframe_history_anomalies(REPORT, health)
+    stale = next(i for i in out["warnings"] if i["type"] == "stale_data")
+    assert stale["severity"] == "warning"
+    assert "el que no está guardando es el lazo de control" in stale["message"]
+    assert stale["message"].endswith("(make status).")
+    assert out["anomalies"] == []
 
 
 def test_the_reframed_item_ends_with_what_to_do():

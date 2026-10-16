@@ -1,9 +1,9 @@
 """
 El detector de anomalías del histórico, sin base de datos.
 
-Lo que se prueba es lo de #65: una ráfaga de lecturas malas es un ítem con su
-cuenta y no un ítem por fila, cada mensaje termina diciendo qué hacer, y una
-misma lectura rota no sale dos veces (como inválida y como salto).
+Lo que se prueba es lo de #65: lo que se repite es un ítem con su cuenta y no
+un ítem por fila, cada mensaje termina diciendo qué hacer, y lo que nadie puede
+arreglar (una lectura imposible, un valor quieto) no es una alerta.
 """
 
 from __future__ import annotations
@@ -46,51 +46,17 @@ def test_a_clean_history_is_ok():
     assert report == {"status": "ok", "anomalies": [], "warnings": []}
 
 
-def test_a_burst_of_invalid_readings_is_one_item_with_a_count_and_a_range():
-    rows = _calm(30)
-    for row in rows[10:22]:
-        row["temperature"] = 85.0
-    rows[15]["temperature"] = -40.0
-    report = find_anomalies(rows, rows[-1]["timestamp"] + 60)
-
-    items = _by_type(report, "invalid_temperature")
-    assert len(items) == 1
-    item = items[0]
-    assert item["count"] == 12
-    assert item["first"].endswith("14:50:00")
-    assert item["last"].endswith("15:45:00")
-    assert item["timestamp"] == item["last"]
-    assert item["message"].startswith("Temperatura inválida: 12 lecturas entre 14:50 y 15:45")
-    assert "de -40.0 a 85.0 °C" in item["message"]
-    assert item["message"].endswith(an.FIX_WIRING)
-
-
-def test_a_single_invalid_reading_reads_as_one():
-    rows = _calm(10)
-    rows[4]["humidity"] = 140.0
-    item = _by_type(find_anomalies(rows, rows[-1]["timestamp"] + 60), "invalid_humidity")[0]
-    assert item["count"] == 1
-    assert item["message"].startswith("Humedad inválida: 1 lectura a las 14:20 (140.0 %)")
-
-
-def test_an_invalid_reading_is_critical_while_it_lasts_and_a_warning_once_it_is_old():
-    rows = _calm(10)
-    rows[-1]["temperature"] = 99.0
-    now = rows[-1]["timestamp"] + 60
-    assert _by_type(find_anomalies(rows, now), "invalid_temperature")[0]["severity"] == "critical"
-
-    rows += _calm(an.ONGOING_SECONDS // STEP + 1, start=now)
-    report = find_anomalies(rows, rows[-1]["timestamp"] + 60)
-    assert _by_type(report, "invalid_temperature")[0]["severity"] == "warning"
-    assert report["status"] == "warning"
-
-
-def test_a_broken_read_is_an_invalid_value_and_not_also_two_spikes():
+def test_an_old_impossible_row_is_not_an_alert_nor_two_spikes():
+    """
+    Lecturas imposibles ya no son una alerta (nadie puede hacer nada): se
+    descartan en la fuente. Una fila vieja que quedó guardada no salta ni como
+    alerta ni como dos cambios bruscos de 60 °C.
+    """
     rows = _calm(10)
     rows[5]["temperature"] = 85.0  # 24 -> 85 -> 24 would be two 60 °C jumps
+    rows[7]["humidity"] = 140.0
     report = find_anomalies(rows, rows[-1]["timestamp"] + 60)
-    assert _by_type(report, "temperature_spike") == []
-    assert len(_by_type(report, "invalid_temperature")) == 1
+    assert report == {"status": "ok", "anomalies": [], "warnings": []}
 
 
 def test_repeated_spikes_are_one_item_with_the_worst_jump():
@@ -137,33 +103,6 @@ def test_gaps_are_one_item_naming_the_longest():
     assert "Sistema" in gaps[0]["message"]
 
 
-def test_a_stuck_value_is_reported_once_with_how_long_and_whether_it_still_is():
-    rows = _calm(5)
-    rows += _rows([(22.0, 60 + i) for i in range(8)], start=rows[-1]["timestamp"] + STEP)
-    report = find_anomalies(rows, rows[-1]["timestamp"] + 60)
-    item = _by_type(report, "stuck_temperature")[0]
-    assert item["count"] == 8
-    assert item["ongoing"] is True
-    assert "clavada en 22.0 °C durante 35 min" in item["message"]
-    assert item["message"].endswith(an.FIX_WIRING)
-
-    rows += _calm(3, start=rows[-1]["timestamp"] + STEP)
-    item = _by_type(find_anomalies(rows, rows[-1]["timestamp"] + 60), "stuck_temperature")[0]
-    assert item["ongoing"] is False
-
-
-def test_an_invalid_value_repeated_is_not_also_stuck():
-    rows = _rows([(-999.0, 60 + i) for i in range(an.STUCK_SAMPLES + 2)])
-    report = find_anomalies(rows, rows[-1]["timestamp"] + 60)
-    assert _by_type(report, "stuck_temperature") == []
-    assert _by_type(report, "invalid_temperature")[0]["count"] == an.STUCK_SAMPLES + 2
-
-
-def test_five_identical_values_are_not_stuck():
-    rows = _rows([(22.0, 60 + i) for i in range(an.STUCK_SAMPLES - 1)])
-    assert _by_type(find_anomalies(rows, rows[-1]["timestamp"] + 60), "stuck_temperature") == []
-
-
 def test_nothing_stored_says_so_and_sends_to_sistema():
     report = find_anomalies([], T0, hours=24)
     assert report["status"] == "critical"
@@ -183,14 +122,12 @@ def test_a_stale_history_is_critical_and_sends_to_sistema():
 
 def test_every_message_ends_with_what_to_do():
     rows = _calm(5)
-    rows[1]["temperature"] = 80.0
-    rows[2]["humidity"] = -5.0
     rows += _rows([(24.0, 20.0), (24.0, 60.0), (40.0, 60.5)], start=rows[-1]["timestamp"] + STEP)
     rows += _rows([(22.0, 60 + i * 0.3) for i in range(7)], start=rows[-1]["timestamp"] + 30 * 60)
     report = find_anomalies(rows, rows[-1]["timestamp"] + an.MAX_GAP_SECONDS + 60)
     kinds = {i["type"] for i in _all(report)}
-    assert kinds == {"stale_data", "data_gap", "invalid_temperature", "invalid_humidity",
-                     "temperature_spike", "humidity_spike", "stuck_temperature"}
+    # Every type the detector still raises; impossible and stuck values are gone.
+    assert kinds == {"stale_data", "data_gap", "temperature_spike", "humidity_spike"}
     for item in _all(report):
         assert any(verb in item["message"] for verb in ("Revisá", "Mirá", "mirá", "fijate")), item
         assert {"type", "severity", "message", "timestamp"} <= item.keys()
@@ -200,3 +137,15 @@ def test_when_names_the_day_only_when_it_changes():
     assert when(T0, T0) == "a las 14:00"
     assert when(T0, T0 + 40 * 60) == "entre 14:00 y 14:40"
     assert when(T0, T0 + 24 * 3600) == "entre 15/10 14:00 y 16/10 14:00"
+
+
+def test_a_value_that_does_not_move_is_not_an_alert():
+    rows = _rows([(22.0, 60.0)] * 20)
+    assert find_anomalies(rows, rows[-1]["timestamp"] + 60)["status"] == "ok"
+
+
+def test_one_discarded_read_leaves_no_gap():
+    """Descartar una fila deja 10 min entre vecinas: menos que el hueco de 15."""
+    rows = _calm(10)
+    del rows[4]
+    assert _by_type(find_anomalies(rows, rows[-1]["timestamp"] + 60), "data_gap") == []

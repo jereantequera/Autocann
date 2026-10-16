@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from autocann.control.anomalies import find_anomalies
 from autocann.control.feeding import WATER_ONLY_STAGES
+from autocann.control.plausible import AND_VALID_ROW
 from autocann.control.vpd_math import (
     HUMIDITY_RANGES,
     STAGE_EXPECTED_DAYS,
@@ -994,7 +995,6 @@ def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None) -> boo
     Store a single sensor reading in the database.
     """
     try:
-        # Get grow_id if not provided
         if grow_id is None:
             active_grow = get_active_grow()
             if not active_grow:
@@ -1578,12 +1578,14 @@ def get_sensor_data_range(
     end_timestamp: Optional[int] = None,
     limit: Optional[int] = None,
     grow_id=None,
+    valid_only: bool = True,
 ) -> List[Dict]:
     """
     Get sensor data within a time range, for one grow or for all of them.
 
     `grow_id` follows `_resolve_grow_filter`: an id, `ALL_GROWS`, or None for
-    the active grow.
+    the active grow. Rows holding a physically impossible reading are left out
+    unless `valid_only` is False: they are a failed read, not a measurement.
     """
     try:
         grow_id = _resolve_grow_filter(grow_id)
@@ -1594,7 +1596,7 @@ def get_sensor_data_range(
         conn = _open(row_factory=True)
         cursor = conn.cursor()
 
-        query = "SELECT * FROM sensor_data WHERE 1=1"
+        query = "SELECT * FROM sensor_data WHERE 1=1" + (AND_VALID_ROW if valid_only else "")
         params: List[object] = []
 
         if grow_id is not None:
@@ -1676,7 +1678,7 @@ def get_aggregated_data(
                 COUNT(*) as sample_count
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
-        """
+        """ + AND_VALID_ROW
 
         params: List[object] = [interval_seconds, interval_seconds, start_timestamp, end_timestamp]
 
@@ -1806,7 +1808,7 @@ def get_period_summary(
                 COUNT(*) as sample_count
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
-        """
+        """ + AND_VALID_ROW
         params: List[object] = [start_timestamp, end_timestamp]
 
         if grow_id is not None:
@@ -1985,7 +1987,6 @@ def get_vpd_score(
             start_timestamp = end_timestamp - (days * 24 * 3600)
             start_date = None
 
-        # Get daily scores
         daily_scores = []
         
         if start_ts is not None and end_ts is not None:
@@ -2004,7 +2005,7 @@ def get_vpd_score(
                         SUM(CASE WHEN COALESCE(leaf_vpd, vpd) >= ? AND COALESCE(leaf_vpd, vpd) <= ? THEN 1 ELSE 0 END) as in_range
                     FROM sensor_data
                     WHERE timestamp >= ? AND timestamp < ?
-                """
+                """ + AND_VALID_ROW
                 params: List[object] = [vpd_min, vpd_max, day_start, day_end]
 
                 if grow_id is not None:
@@ -2038,7 +2039,7 @@ def get_vpd_score(
                         SUM(CASE WHEN COALESCE(leaf_vpd, vpd) >= ? AND COALESCE(leaf_vpd, vpd) <= ? THEN 1 ELSE 0 END) as in_range
                     FROM sensor_data
                     WHERE timestamp >= ? AND timestamp < ?
-                """
+                """ + AND_VALID_ROW
                 params = [vpd_min, vpd_max, day_start, day_end]
 
                 if grow_id is not None:
@@ -2063,14 +2064,13 @@ def get_vpd_score(
             # Reverse to have oldest first
             daily_scores = list(reversed(daily_scores))
 
-        # Calculate overall score
         query = """
             SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN COALESCE(leaf_vpd, vpd) >= ? AND COALESCE(leaf_vpd, vpd) <= ? THEN 1 ELSE 0 END) as in_range
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
-        """
+        """ + AND_VALID_ROW
         params = [vpd_min, vpd_max, start_timestamp, end_timestamp]
 
         if grow_id is not None:
@@ -2131,7 +2131,6 @@ def get_weekly_report(
         start_timestamp = int(week_start.timestamp())
         end_timestamp = int(current_time.timestamp())
 
-        # Get period summary
         summary = get_period_summary(start_timestamp, end_timestamp, grow_id)
 
         # Get VPD score for this week (using calendar days)
@@ -2154,7 +2153,7 @@ def get_weekly_report(
                 SUM(CASE WHEN COALESCE(leaf_vpd, vpd) >= ? AND COALESCE(leaf_vpd, vpd) <= ? THEN 1 ELSE 0 END) as in_range
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
-        """
+        """ + AND_VALID_ROW
         params: List[object] = [vpd_min, vpd_max, start_timestamp, end_timestamp]
 
         if grow_id is not None:
@@ -2206,7 +2205,6 @@ def get_weekly_report(
 
         conn.close()
 
-        # Calculate trends
         temp_trend = None
         humidity_trend = None
         vpd_trend = None

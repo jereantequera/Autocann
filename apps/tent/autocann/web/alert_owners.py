@@ -6,19 +6,19 @@ a hole in the history and the wrong place to look for a dead sensor: the two
 are the same row count. Health reads Redis and the loop, and knows which one it
 is. Left alone, a primary that stops posting was told five times — the sensor
 alert, the Sistema table, the panel line, the sensors badge and a folded
-`stale_data` — and a loop that stopped saving twice, in the history check and
-in a re-worded `stale_data`.
+`stale_data`.
 
-So each fact has one place that says it on the dashboard:
+So each fact has one place that says it on the dashboard (Sistema shows the
+state of everything, and is not counted as an alert):
 
-- **Nothing is being stored right now** (`no_data`, `stale_data`) belongs to
-  health. When health explains it — paused, no grow, the loop down, the
-  primary not posting, or the history stalled — the anomaly is dropped and the
-  red banner at the top (or the pause bar, or the no-grow notice) says it.
-  Only when health cannot explain it is the item kept, re-worded to blame the
-  recorder rather than the sensors that are demonstrably alive.
-- **A number that is still frozen** (`stuck_*` up to the last row) with the
-  primary down is the same dead sensor, and goes too.
+- **Nothing is being stored right now** (`no_data`, `stale_data`) with the
+  loop down or the primary not posting is the red banner's: the anomaly is
+  dropped. Paused or without a grow, the pause bar or the no-grow notice says
+  it, and it is dropped too.
+- **The loop running and not saving** stays in the box, as a warning
+  re-worded to blame the recorder rather than the sensors that are
+  demonstrably alive, with what to do. It does not raise the red banner:
+  nothing is uncontrolled, and Sistema's history check keeps saying it there.
 - Everything else is about the quality of stored data and stays in the box.
 
 Pure: the report and the health snapshot come in, a report goes out.
@@ -46,12 +46,10 @@ def banner_owner(health: Dict) -> bool:
     """
     Whether the red banner is already saying "nothing is being stored".
 
-    The same three conditions the dashboard's `isBroken` raises the banner for:
-    the loop down, the controlling sensor not posting, the history stalled.
+    The same conditions the dashboard's `isBroken` raises the banner for: the
+    loop down, or the controlling sensor not posting.
     """
     if (health.get("loop") or {}).get("state") == "down":
-        return True
-    if (health.get("history") or {}).get("state") == "stalled":
         return True
     return primary_broken(health)
 
@@ -75,7 +73,6 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
     paused = loop_state == "paused"
     no_grow = bool(health.get("no_active_grow") or report.get("no_active_grow"))
     owned = banner_owner(health)
-    sensor_down = primary_broken(health)
     recorder = "el monitoreo" if loop_state == MODE_MONITOR else "el lazo de control"
     sensors_live = any(s.get("state") in ("posting", "suspect")
                        for s in health.get("sensors") or [])
@@ -84,8 +81,6 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
         if not isinstance(issue, dict):
             return issue
         kind = issue.get("type")
-        if sensor_down and str(kind).startswith("stuck_") and issue.get("ongoing"):
-            return None  # the dead primary's banner already says it
         if kind not in HISTORY_ANOMALY_TYPES:
             return issue
         if no_grow or paused:

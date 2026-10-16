@@ -174,17 +174,19 @@ test('before the first answer the page says it is checking, not that all is well
 // Un dueño por hecho (#65)
 // ---------------------------------------------------------------------------
 
-test('a history that stopped saving with the loop running is the red banner, not an anomaly', () => {
+test('a history that stopped saving with the loop running is not the red banner, it stays in the box', () => {
+    // Nada queda sin controlar: lo dice la caja de anomalías, con qué revisar.
     const stalled = {
         ...healthy,
         level: 'error',
         headline: 'No se está guardando el histórico',
         history: { state: 'stalled', level: 'error', label: 'No se está guardando' },
     };
-    assert.equal(isBroken(stalled), true);
-    const decision = alertDecision({ health: stalled, anomalies: [] });
-    assert.equal(decision.mode, 'broken');
-    assert.equal(decision.title, 'No se está guardando el histórico');
+    assert.equal(isBroken(stalled), false);
+    const stale = { type: 'stale_data', severity: 'warning', message: 'Último dato guardado hace 40 min, pero…' };
+    const decision = alertDecision({ health: stalled, anomalies: [stale] });
+    assert.equal(decision.mode, 'warnings');
+    assert.equal(decision.items[0].type, 'stale_data');
 });
 
 test('a dead primary is one alert: the banner owns "nothing is being stored", even in the count', () => {
@@ -194,17 +196,17 @@ test('a dead primary is one alert: the banner owns "nothing is being stored", ev
         sensors: [{ ...posting, state: 'stale' }],
     };
     const stale = { type: 'stale_data', severity: 'critical', message: 'Último dato guardado hace 40 min.' };
-    const frozen = { type: 'stuck_temperature', severity: 'warning', message: 'Clavada', ongoing: true };
-    const decision = alertDecision({ health: dead, anomalies: [stale, frozen] });
+    const none = { type: 'no_data', severity: 'critical', message: 'No hay datos guardados.' };
+    const decision = alertDecision({ health: dead, anomalies: [stale, none] });
     assert.equal(decision.mode, 'broken');
     assert.equal(decision.more, 0);
 });
 
-test('when broken, data-quality items still count as "+N advertencias"', () => {
+test('when broken, the history items it does not own still count as "+N advertencias"', () => {
     const dead = { ...healthy, sensors: [{ ...posting, state: 'missing' }] };
-    const invalid = { type: 'invalid_temperature', severity: 'critical', message: 'Temperatura inválida: 12 lecturas' };
-    const pastFreeze = { type: 'stuck_humidity', severity: 'warning', message: 'Clavada', ongoing: false };
-    const decision = alertDecision({ health: dead, anomalies: [invalid, pastFreeze] });
+    const spike = { type: 'temperature_spike', severity: 'warning', message: 'Cambio brusco' };
+    const gap = { type: 'data_gap', severity: 'warning', message: 'Hueco' };
+    const decision = alertDecision({ health: dead, anomalies: [spike, gap] });
     assert.equal(decision.more, 2);
 });
 
@@ -218,8 +220,6 @@ test('without a banner, the box keeps what health could not explain', () => {
 test('ownedByBanner names only the facts the banner says', () => {
     assert.equal(ownedByBanner({ type: 'no_data' }), true);
     assert.equal(ownedByBanner({ type: 'stale_data' }), true);
-    assert.equal(ownedByBanner({ type: 'stuck_temperature', ongoing: true }), true);
-    assert.equal(ownedByBanner({ type: 'stuck_temperature' }), false);
     assert.equal(ownedByBanner({ type: 'data_gap' }), false);
     assert.equal(ownedByBanner({ type: 'temperature_spike' }), false);
     assert.equal(ownedByBanner(null), false);

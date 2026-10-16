@@ -2,10 +2,9 @@
  * Qué cartel de arriba se muestra: el de "roto", el de anomalías o ninguno.
  *
  * Una regla: cada cosa la dice un solo cartel. Que el sensor que controla no
- * postea, que el lazo no corre o que el histórico no se guarda lo dice el
- * cartel rojo de arriba (sale de /api/health); la caja de anomalías queda para
- * la calidad de los datos guardados — lecturas imposibles, saltos, valores
- * clavados, huecos. El backend ya saca de /api/anomalies lo que la salud
+ * postea o que el lazo no corre lo dice el cartel rojo de arriba (sale de
+ * /api/health); la caja de anomalías queda para el histórico — saltos, huecos,
+ * y el lazo que corre pero no guarda. El backend ya saca de /api/anomalies lo que la salud
  * explica (`web/alert_owners.py`); acá se vuelve a filtrar porque las dos
  * respuestas llegan en momentos distintos.
  *
@@ -17,30 +16,27 @@ import { MODE_MONITOR } from './state.js';
 /**
  * Si el cartel de "roto" tiene que estar arriba de todo.
  *
- * Sólo lo que está roto ahora: el lazo, el sensor que controla, o el histórico
- * que no se guarda con el lazo diciendo que corre. Una pausa es intencional y
- * la anuncia el header; un hueco que ya pasó lo cuentan las anomalías. Un
- * cartel que aparece por algo que alguien hizo a propósito es el que enseña a
- * ignorar los carteles.
+ * Sólo lo que está roto ahora y es del lazo o del sensor que controla. Una
+ * pausa es intencional y la anuncia el header; un hueco en el histórico, o el
+ * lazo que corre sin guardar, lo cuentan las anomalías. Un cartel que aparece
+ * por algo que alguien hizo a propósito es el que enseña a ignorar los
+ * carteles.
  */
 function isBroken(health) {
     if (!health || health.error) return false;
     if (health.loop?.state === 'down' || health.loop?.level === 'error') return true;
-    if (health.history?.state === 'stalled') return true;
     return (health.sensors || []).some(
         sensor => sensor.role === 'primary' && (sensor.state === 'missing' || sensor.state === 'stale'));
 }
 
 /**
  * Las anomalías que dicen lo mismo que el cartel de roto: "no se está guardando
- * nada ahora" y un valor que sigue clavado. Con el cartel arriba, ni siquiera
- * suman al "+N advertencias".
+ * nada ahora". Con el cartel arriba, ni siquiera suman al "+N advertencias".
  */
 const OWNED_BY_BANNER = new Set(['no_data', 'stale_data']);
 
 function ownedByBanner(issue) {
-    if (OWNED_BY_BANNER.has(issue?.type)) return true;
-    return String(issue?.type || '').startsWith('stuck_') && !!issue?.ongoing;
+    return OWNED_BY_BANNER.has(issue?.type);
 }
 
 /** Severities, least serious first, so the box takes the tone of the worst one. */

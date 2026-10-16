@@ -33,6 +33,7 @@ from autocann.control.feeding import (
     water_only_reason,
     weeks_in_stage,
 )
+from autocann.control.plausible import HUMIDITY_MAX_PERCENT, HUMIDITY_MIN_PERCENT, TEMPERATURE_MAX_C, TEMPERATURE_MIN_C
 from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
 from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import (
@@ -763,19 +764,18 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"error": "temperature and humidity must be numbers"}), 400
 
-        if temperature < -40 or temperature > 80:
-            return jsonify({"error": f"Invalid temperature: {temperature}°C (expected -40 to 80)"}), 400
-        if humidity < 0 or humidity > 100:
+        # Physically impossible is a failed read: refused, so it is never shown,
+        # used or stored (the node logs the 400). See control/plausible.py.
+        if not TEMPERATURE_MIN_C <= temperature <= TEMPERATURE_MAX_C:
+            return jsonify({"error": f"Invalid temperature: {temperature}°C "
+                                     f"(expected {TEMPERATURE_MIN_C:g} to {TEMPERATURE_MAX_C:g})"}), 400
+        if not HUMIDITY_MIN_PERCENT <= humidity <= HUMIDITY_MAX_PERCENT:
             return jsonify({"error": f"Invalid humidity: {humidity}% (expected 0 to 100)"}), 400
-
-        # Calculate VPD
         vpd = calculate_vpd(temperature, humidity)
 
-        # Get current timestamp
         current_time = datetime.now(ARGENTINA_TZ)
         timestamp = int(current_time.timestamp())
 
-        # Build sensor data payload
         sensor_data = {
             "temperature": round(temperature, 2),
             "humidity": round(humidity, 2),

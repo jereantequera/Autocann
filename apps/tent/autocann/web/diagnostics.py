@@ -583,7 +583,7 @@ def _last_stored_sample_age(now: int) -> Optional[float]:
     wrong with anything.
     """
     try:
-        rows = get_sensor_data_range(limit=1, grow_id=ALL_GROWS)
+        rows = get_sensor_data_range(limit=1, grow_id=ALL_GROWS, valid_only=False)
     except Exception:
         return None
     if not rows:

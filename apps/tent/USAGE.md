@@ -473,21 +473,18 @@ GET /api/anomalies?hours=6
 ```json
 {
   "status": "warning",
-  "anomalies": [
-    {
-      "type": "invalid_temperature",
-      "severity": "critical",
-      "message": "Temperatura inválida: 12 lecturas entre 14:02 y 14:57 (85.0 °C). Revisá el cable y la alimentación del sensor.",
-      "timestamp": "2025-01-17 14:57:00",
-      "count": 12,
-      "first": "2025-01-17 14:02:00",
-      "last": "2025-01-17 14:57:00",
-      "value": 85.0,
-      "min_value": 85.0,
-      "max_value": 85.0
-    }
-  ],
+  "anomalies": [],
   "warnings": [
+    {
+      "type": "data_gap",
+      "severity": "warning",
+      "message": "2 huecos sin datos entre 03:10 y 09:40 (el más largo, 47 min). Si no pausaste el sistema, mirá el log del nodo en Sistema para ver si se cayó el WiFi o el sensor.",
+      "timestamp": "2025-01-17 09:40:00",
+      "count": 2,
+      "first": "2025-01-17 03:10:00",
+      "last": "2025-01-17 09:40:00",
+      "gap_minutes": 47
+    },
     {
       "type": "temperature_spike",
       "severity": "warning",
@@ -516,6 +513,15 @@ el mensaje dice qué pasó y qué hacer. Los umbrales viven en
 `autocann/control/anomalies.py` (el detector, puro) y lo que la salud ya dice se
 saca en `autocann/web/alert_owners.py`.
 
+Lo que nadie puede arreglar no es una alerta. Una lectura **imposible** (fuera
+de -10..60 °C o 0..100 %, `autocann/control/plausible.py`) se descarta: el
+endpoint del ESP32 la rechaza con 400 (queda en el log del nodo), el lazo la
+trata como una lectura que no llegó (el filtro de mediana sigue con la última
+buena y, si no llegan más buenas, salta el failsafe y el cartel de "dejó de
+postear"), no se guarda, y todas las estadísticas, gráficos y reportes saltean
+las filas viejas que la tengan (`VALID_ROW_SQL`), sin tocar la base. Un valor
+**quieto** tampoco es alerta: si está siempre, no avisa de nada.
+
 #### Alertas: qué dice cada una y quién la dice
 
 Una regla: **cada hecho lo dice un solo cartel**. El cartel rojo de arriba
@@ -528,21 +534,19 @@ línea del panel y el badge de sensores muestran el **estado**, no son alertas.
 |------|----------|-----------|--------------------|--------------------------------|------------------------|
 | Primario sin postear (`missing`/`stale` en `/api/health`) | Se queda | error | `INDOOR_SENSOR_MAX_AGE_SECONDS` (config) | Título "Sensor A (el que controla) no está posteando"; detalle + "Mirá el log del nodo en Sistema…" o "Revisá que el nodo esté encendido…" | Cartel rojo (único) |
 | Lazo caído (`loop.state = down`) | Se queda | error | `LOOP_MAX_AGE_SECONDS` = 30 s: diez ciclos de 3 s | "El lazo de control no está corriendo" + "Revisá el servicio en la Raspberry (make status)." | Cartel rojo |
-| Histórico frenado (`history.state = stalled`) | Se queda; ahora también levanta el cartel rojo | error | `HISTORY_MAX_AGE_SECONDS` = `MAX_GAP_SECONDS` = 15 min | "No se está guardando el histórico" + "Revisá el servicio en la Raspberry (make status)." | Cartel rojo (antes: sólo Sistema + un `stale_data` reescrito) |
-| `no_data` | Se fusiona con la salud: se saca cuando la salud lo explica | crítica | ventana `hours` (24 h) | "No hay datos guardados en las últimas 24 h. Mirá Sistema: ahí dice si se cortó el sensor o el lazo." | Cartel rojo / aviso de pausa / aviso sin cultivo; sólo queda en la caja si la salud no lo explica |
-| `stale_data` | Igual que `no_data` | crítica (advertencia si los sensores postean) | `MAX_GAP_SECONDS` = 15 min: tres escrituras perdidas | "Último dato guardado hace N min. Mirá Sistema…"; con sensores vivos: "…pero los sensores están posteando: el que no está guardando es el lazo de control. Revisá el servicio…" | Igual que `no_data` |
-| `data_gap` | Se queda, agrupado | advertencia | `MAX_GAP_SECONDS` = 15 min | "2 huecos sin datos entre 03:10 y 09:40 (el más largo, 47 min). Si no pausaste el sistema, mirá el log del nodo en Sistema…" | Caja de anomalías |
-| `invalid_temperature` | Se queda, agrupado | crítica si la última fue hace ≤ 30 min (`ONGOING_SECONDS`), si no advertencia | `TEMPERATURE_MIN_C`/`MAX_C` = -10 / 60 °C: fuera de eso es una lectura fallida del DHT22 | "Temperatura inválida: 12 lecturas entre 14:02 y 14:40 (de -40.0 a 85.0 °C). Revisá el cable y la alimentación del sensor." | Caja de anomalías |
-| `invalid_humidity` | Se queda, agrupado | igual que la temperatura | `HUMIDITY_MIN/MAX_PERCENT` = 0 / 100 %: es un porcentaje | "Humedad inválida: 1 lectura a las 14:20 (140.0 %). Revisá el cable…" | Caja de anomalías |
-| `temperature_spike` | Se queda, agrupado; subir y volver en seguida cuenta como una vez; no cuenta saltos hacia/desde un valor inválido | advertencia | `TEMPERATURE_SPIKE_C` = 10 °C entre filas a ≤ `SPIKE_WINDOW_SECONDS` = 10 min: prender las luces mueve 3-6 °C en media hora | "Cambio brusco de temperatura: 2 veces entre 14:05 y 14:20 (hasta 13.1 °C en 5 min). Si nadie abrió la carpa ni tocó las luces, fijate que el sensor no esté suelto o pegado a la lámpara." | Caja de anomalías |
+| Histórico frenado (`history.state = stalled`) | Se queda; **no** levanta el cartel rojo (nada queda sin controlar) | error en Sistema | `HISTORY_MAX_AGE_SECONDS` = `MAX_GAP_SECONDS` = 15 min | Sistema: "No se está guardando" + "Revisá el servicio… (make status)."; en la caja, el `stale_data` reescrito (fila siguiente) | Caja de anomalías (advertencia) + chequeo de Sistema |
+| `no_data` | Se fusiona con la salud: se saca cuando la salud lo explica | crítica | ventana `hours` (24 h) | "No hay datos guardados en las últimas 24 h. Mirá Sistema: ahí dice si se cortó el sensor o el lazo." | Cartel rojo si el lazo está caído o el primario no postea; aviso de pausa / sin cultivo; si no, queda en la caja |
+| `stale_data` | Igual que `no_data` | crítica (advertencia si los sensores postean) | `MAX_GAP_SECONDS` = 15 min: tres escrituras perdidas | "Último dato guardado hace N min. Mirá Sistema…"; con sensores vivos: "…pero los sensores están posteando: el que no está guardando es el lazo de control. Revisá el servicio en la Raspberry (make status)." | Igual que `no_data` |
+| `data_gap` | Se queda, agrupado | advertencia | `MAX_GAP_SECONDS` = 15 min; una fila descartada deja 10 min y no cuenta | "2 huecos sin datos entre 03:10 y 09:40 (el más largo, 47 min). Si no pausaste el sistema, mirá el log del nodo en Sistema…" | Caja de anomalías |
+| `temperature_spike` | Se queda, agrupado; subir y volver en seguida cuenta como una vez; no cuenta saltos hacia/desde una fila vieja imposible | advertencia | `TEMPERATURE_SPIKE_C` = 10 °C entre filas a ≤ `SPIKE_WINDOW_SECONDS` = 10 min: prender las luces mueve 3-6 °C en media hora | "Cambio brusco de temperatura: 2 veces entre 14:05 y 14:20 (hasta 13.1 °C en 5 min). Si nadie abrió la carpa ni tocó las luces, fijate que el sensor no esté suelto o pegado a la lámpara." | Caja de anomalías |
 | `humidity_spike` | Igual | advertencia | `HUMIDITY_SPIKE_PERCENT` = 30 %: abrir la carpa mueve ~15 % | "Cambio brusco de humedad: … Si nadie regó ni abrió la carpa, fijate que el sensor no esté mojado o suelto." | Caja de anomalías |
-| `stuck_temperature` / `stuck_humidity` | Se queda, un ítem con la duración; no cuenta valores inválidos | advertencia | `STUCK_SAMPLES` = 6 promedios idénticos (30 min): el aire real no se queda quieto al centésimo | "Temperatura clavada en 22.0 °C durante 35 min, desde las 14:30. Puede ser un sensor colgado: si sigue así, desenchufalo y volvelo a enchufar. Revisá el cable…" | Caja; si sigue clavado (`ongoing`) y el primario no postea, lo dice el cartel rojo |
+| `invalid_temperature` / `invalid_humidity` | **Se elimina**: la lectura se descarta en la fuente y las estadísticas saltean filas viejas | — | `TEMPERATURE_MIN_C`/`MAX_C` = -10 / 60 °C, `HUMIDITY_MIN/MAX_PERCENT` = 0 / 100 % (`plausible.py`): fuera de eso es una lectura fallida del DHT22 | — (si sigue pasando, el sensor deja de postear y lo dice el cartel rojo; el 400 queda en el log del nodo) | Nadie |
+| `stuck_temperature` / `stuck_humidity` | **Se elimina**: no hay nada que hacer, y si está siempre no es una alerta | — | — | — | Nadie (la deriva sigue en Sistema) |
 | Sin conexión al backend | Se queda | — | — | "Revisá que el servicio esté corriendo: make status" | Su propio cartel (api.js) |
 | Sin cultivo activo | Se queda (aviso, no alerta) | info | — | "No hay cultivo activo: no se guardan datos. Creá un cultivo…" + botón | Aviso propio, no se descarta |
 
 Con el cartel rojo arriba, las anomalías que dicen lo mismo (`no_data`,
-`stale_data`, `stuck_*` en curso) no suman al "+N advertencias"; las de calidad
-de datos sí.
+`stale_data`) no suman al "+N advertencias"; los huecos y los saltos sí.
 
 #### Estados del Sistema
 

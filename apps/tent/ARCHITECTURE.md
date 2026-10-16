@@ -47,10 +47,12 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `feeding.py`: la aritmética de la grilla de fertilización. Semanas contadas
   dentro de la etapa, como se imprimen los feed charts.
 - `anomalies.py`: el detector de `/api/anomalies` sobre las filas guardadas
-  (huecos, valores imposibles, saltos, valores clavados). Un ítem por tipo con
-  su cuenta y su rango, mensajes que terminan en qué hacer, y todos los
-  umbrales con su justificación. La tabla de decisiones está en `USAGE.md`
-  ("Alertas: qué dice cada una y quién la dice").
+  (huecos, saltos). Un ítem por tipo con su cuenta y su rango, mensajes que
+  terminan en qué hacer, y los umbrales con su justificación. La tabla de
+  decisiones está en `USAGE.md` ("Alertas: qué dice cada una y quién la dice").
+- `plausible.py`: qué puede medir un sensor de carpa. Una lectura imposible no
+  es una alerta sino una lectura fallida: la rechazan el endpoint y el lazo, y
+  las estadísticas saltean las filas viejas que la tengan (`VALID_ROW_SQL`).
 
 ### `hardware/`
 
@@ -71,8 +73,8 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
   (`/api/health`), más el log que los nodos postean. Existe porque el panel
   contestaba esa pregunta desde tres fuentes que podían contradecirse.
 - `alert_owners.py`: un dueño por hecho. Saca de las anomalías lo que la salud
-  ya dice (sensor primario caído, lazo caído, histórico frenado, pausa, sin
-  cultivo), para que cada cosa la diga un solo cartel.
+  ya dice (sensor primario caído, lazo caído, pausa, sin cultivo), para que
+  cada cosa la diga un solo cartel.
 
 ### Front
 
