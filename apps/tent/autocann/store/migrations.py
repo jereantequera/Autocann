@@ -4,11 +4,14 @@ Schema migrations and backfills for databases created by older versions.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Optional
 
 from autocann.time import ARGENTINA_TZ
+
+logger = logging.getLogger(__name__)
 
 
 def _migrate_nullable_outdoor_columns(conn: sqlite3.Connection) -> None:
@@ -158,3 +161,69 @@ def _migrate_sample_detail_columns(conn: sqlite3.Connection) -> None:
         cursor.execute(f"ALTER TABLE sensor_data ADD COLUMN {name} {kind}")
     conn.commit()
     print(f"🔧 sensor_data: {len(missing)} columna(s) agregada(s) para el detalle de muestra")
+
+
+#: Columns added to `grows` when tents and profiles arrived. Nullable, so SQLite
+#: adds them in place; `_migrate_grow_links` fills the existing rows.
+_GROW_LINK_COLUMNS = (
+    ("tent_id", "INTEGER REFERENCES tents(id)"),
+    ("profile_id", "TEXT REFERENCES crop_profiles(id)"),
+)
+
+
+def _migrate_grow_links(conn: sqlite3.Connection, tent_id: int, profile_id: str) -> None:
+    """
+    Add `grows.tent_id` and `grows.profile_id`, and link every grow without one.
+
+    Every grow that existed before tents was the rig's only tent, running the
+    built-in profile, so that is where the NULLs point. Idempotent: the columns
+    are added once, and the UPDATEs only touch rows that are still NULL.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(grows)")}
+    for name, kind in _GROW_LINK_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE grows ADD COLUMN {name} {kind}")
+            logger.info("grows: added column %s", name)
+
+    conn.execute("UPDATE grows SET tent_id = ? WHERE tent_id IS NULL", (tent_id,))
+    conn.execute("UPDATE grows SET profile_id = ? WHERE profile_id IS NULL", (profile_id,))
+    conn.commit()
+
+
+def snapshot_profile_stages(conn: sqlite3.Connection, grow_id: int, profile_id: str) -> None:
+    """
+    Copy a profile's stages into `grow_stages` for one grow.
+
+    One INSERT ... SELECT, so it is a copy by value: a later edit to
+    `profile_stages` cannot reach the rows written here. The caller owns the
+    transaction.
+    """
+    conn.execute(
+        "INSERT INTO grow_stages (grow_id, key, name, position, expected_days, "
+        "vpd_min, vpd_max, rh_min, rh_max, water_only) "
+        "SELECT ?, key, name, position, expected_days, vpd_min, vpd_max, "
+        "rh_min, rh_max, water_only FROM profile_stages WHERE profile_id = ?",
+        (grow_id, profile_id),
+    )
+
+
+def _backfill_grow_stages(conn: sqlite3.Connection) -> None:
+    """
+    Give every grow that has no stage rows a snapshot of its profile's stages.
+
+    Grows created before profiles existed get the built-in profile's stages as
+    they are today. Idempotent: a grow that already has rows is skipped.
+    """
+    rows = conn.execute(
+        """
+        SELECT g.id, g.profile_id
+        FROM grows g
+        WHERE g.profile_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM grow_stages s WHERE s.grow_id = g.id)
+        """
+    ).fetchall()
+    for grow_id, profile_id in rows:
+        snapshot_profile_stages(conn, grow_id, profile_id)
+    conn.commit()
+    if rows:
+        logger.info("grow_stages: snapshot taken for %d grow(s)", len(rows))

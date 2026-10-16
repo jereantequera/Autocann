@@ -23,6 +23,7 @@ from autocann.store.feed import (
     get_feed_plan,
     replace_feed_plan,
 )
+from autocann.store.grow_stages import get_grow_stages
 from autocann.store.grows import (
     _NO_GROW,
     ALL_GROWS,
@@ -76,13 +77,20 @@ from autocann.store.seeds import (
     _FEED_PLAN_SEED,
     BUILTIN_PROFILE_ID,
     BUILTIN_PROFILE_NAME,
+    BUILTIN_TENT_ID,
+    BUILTIN_TENT_NAME,
     _builtin_profile_stage_rows,
     _seed_builtin_profiles,
     _seed_feed_plan,
+    _seed_tents,
 )
 from autocann.store.settings import (
     get_setting,
     set_setting,
+)
+from autocann.store.tents import (
+    get_tent,
+    rename_tent,
 )
 from autocann.store.vpd_score import (
     _ALL_GROWS_IS_NOT_A_GROW,
@@ -95,6 +103,8 @@ __all__ = [
     "ALL_GROWS",
     "BUILTIN_PROFILE_ID",
     "BUILTIN_PROFILE_NAME",
+    "BUILTIN_TENT_ID",
+    "BUILTIN_TENT_NAME",
     "VPD_RANGES",
     "_ALL_GROWS_IS_NOT_A_GROW",
     "_FEED_PLAN_SEED",
@@ -112,6 +122,7 @@ __all__ = [
     "_resolve_grow_filter",
     "_seed_builtin_profiles",
     "_seed_feed_plan",
+    "_seed_tents",
     "cleanup_old_data",
     "create_grow",
     "delete_irrigation",
@@ -125,6 +136,7 @@ __all__ = [
     "get_calibration",
     "get_database_stats",
     "get_feed_plan",
+    "get_grow_stages",
     "get_irrigations",
     "get_latest_sensor_data",
     "get_logbook",
@@ -134,6 +146,7 @@ __all__ = [
     "get_sensor_data_range",
     "get_setting",
     "get_stage_events",
+    "get_tent",
     "get_stage_timeline",
     "get_vpd_score",
     "get_weekly_report",
@@ -141,6 +154,7 @@ __all__ = [
     "last_irrigation_litres",
     "record_irrigation",
     "record_stage_event",
+    "rename_tent",
     "replace_feed_plan",
     "set_active_grow",
     "set_calibration",

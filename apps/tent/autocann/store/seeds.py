@@ -117,6 +117,30 @@ BUILTIN_PROFILE_ID = "cannabis-photoperiod"
 BUILTIN_PROFILE_NAME = "Cannabis fotoperiódico"
 
 
+#: The tent this rig is, from before tents existed. Its id is the one every
+#: pre-tent grow is linked to. Renaming it keeps the id.
+BUILTIN_TENT_ID = 1
+BUILTIN_TENT_NAME = "Carpa principal"
+
+
+def _seed_tents(conn: sqlite3.Connection) -> None:
+    """
+    Write tent 1, once. Never overwrites it.
+
+    INSERT OR IGNORE is the whole check: a tent the person renamed keeps its
+    new name, and a second start-up inserts nothing.
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO tents (id, name, created_at) VALUES (?, ?, ?)",
+        (
+            BUILTIN_TENT_ID,
+            BUILTIN_TENT_NAME,
+            datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    conn.commit()
+
+
 def _builtin_profile_stage_rows() -> List[Tuple]:
     """The built-in profile's stages as `profile_stages` rows, in cycle order."""
     rows = []
