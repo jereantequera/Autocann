@@ -139,11 +139,5 @@ should too. `tests/test_structure.py` enforces the size limit.
 
 ## Deuda conocida
 
-- `autocann/cli/vpd.py` tiene ~1480 líneas y es lo único que queda sin partir:
-  además del loop, ahí viven el acceso a Redis, la lectura de sensores, el
-  driver de relés y la orquestación. Las piezas puras ya están todas en
-  `control/` y tienen tests; lo que falta es que el loop quede como
-  orquestación y nada más. Ojo que es el archivo que **crece** en cada feature,
-  así que la deuda se agranda sola.
 - `cli/inspect_db.py` no tiene tests, y el `main()` del loop no lo ejecuta
   ninguna prueba (sí sus piezas).

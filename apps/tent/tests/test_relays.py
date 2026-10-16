@@ -59,8 +59,8 @@ def relays(monkeypatch):
     r = Relays()
     devices = {name: FakeDevice() for name in r._specs}
     r._devices = devices
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
-    monkeypatch.setattr("autocann.cli.vpd._set_redis", lambda *a, **k: None)
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr("autocann.runtime.outputs._set_redis", lambda *a, **k: None)
     r.devices = devices
     return r
 
@@ -162,9 +162,9 @@ def published(monkeypatch):
     from autocann.config import RELAY_MODE_REMOTE
 
     writes = []
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event", lambda *a, **k: True)
     monkeypatch.setattr(
-        "autocann.cli.vpd._set_redis",
+        "autocann.runtime.outputs._set_redis",
         lambda key, value, **k: writes.append((key, json.loads(value)))
         if key == "desired_outputs" else None,
     )
@@ -179,8 +179,8 @@ def test_remote_mode_never_touches_gpio(monkeypatch):
     """setup() must not import or construct gpiozero devices off a Pi."""
     from autocann.config import RELAY_MODE_REMOTE
 
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
-    monkeypatch.setattr("autocann.cli.vpd._set_redis", lambda *a, **k: None)
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr("autocann.runtime.outputs._set_redis", lambda *a, **k: None)
 
     r = Relays(mode=RELAY_MODE_REMOTE)
     r.setup()
@@ -269,7 +269,7 @@ def test_manual_drive_can_do_what_no_automatic_action_can(relays):
 def test_manual_drive_writes_no_history(relays, monkeypatch):
     """Test mode stores nothing: a bench session is not history."""
     events = []
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event",
                         lambda *a, **k: events.append(a))
 
     relays.apply_manual({"ventilation": True}, tuning=TUNING, now=1000.0)
@@ -323,9 +323,9 @@ def test_an_output_that_never_switched_still_reports_that_it_is_off(monkeypatch)
     a relay that is known to be off.
     """
     written = {}
-    monkeypatch.setattr("autocann.cli.vpd._set_redis",
+    monkeypatch.setattr("autocann.runtime.outputs._set_redis",
                         lambda key, value, **k: written.__setitem__(key, value))
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event", lambda *a, **k: True)
 
     Relays(mode=RELAY_MODE_REMOTE).setup()
 
@@ -340,7 +340,7 @@ def test_test_mode_keeps_the_shutdown_path_out_of_the_history(relays, monkeypatc
     run with exactly the relays a bench session had switched on.
     """
     events = []
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event",
                         lambda *a, **k: events.append(a))
 
     relays.log_events = False
@@ -353,7 +353,7 @@ def test_test_mode_keeps_the_shutdown_path_out_of_the_history(relays, monkeypatc
 
 def test_leaving_test_mode_puts_the_history_back(relays, monkeypatch):
     events = []
-    monkeypatch.setattr("autocann.cli.vpd.store_control_event",
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event",
                         lambda *a, **k: events.append(a))
 
     relays.log_events = False

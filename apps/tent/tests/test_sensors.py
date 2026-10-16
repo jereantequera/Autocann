@@ -161,7 +161,7 @@ def test_the_outdoor_status_reports_the_reading_not_the_device(sensors, monkeypa
 
 def test_the_published_status_carries_the_outdoor_verdict(sensors, monkeypatch):
     published = {}
-    monkeypatch.setattr("autocann.cli.vpd._set_redis",
+    monkeypatch.setattr("autocann.hardware.sensors._set_redis",
                         lambda key, value, ttl=None: published.update({key: value}))
 
     sensors.publish_status(indoor_ok=True)
@@ -171,7 +171,7 @@ def test_the_published_status_carries_the_outdoor_verdict(sensors, monkeypatch):
 
 def test_the_background_reader_fills_the_cache_and_stops(sensors, monkeypatch):
     """The thread is the only thing that touches the outdoor device in production."""
-    monkeypatch.setattr("autocann.cli.vpd.OUTDOOR_READ_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr("autocann.hardware.outdoor.OUTDOOR_READ_INTERVAL_SECONDS", 0.01)
     monkeypatch.setattr(sensors, "_read_dht22", lambda *a, **k: (12.0, 80.0))
     monkeypatch.setattr(sensors, "init_outdoor_dht22", lambda: None)
 
@@ -280,20 +280,20 @@ def test_a_single_sensor_installation_reads_only_the_legacy_key(monkeypatch):
 
 def test_a_corrupt_stored_baseline_does_not_stop_startup(paired, monkeypatch):
     """Redis holding garbage must not keep the control loop from coming up."""
-    import autocann.cli.vpd as vpd
+    import autocann.runtime.redis as runtime_redis
 
-    monkeypatch.setattr(vpd.redis_client, "get", lambda key: b"{not json")
+    monkeypatch.setattr(runtime_redis.redis_client, "get", lambda key: b"{not json")
     paired.load_drift_baseline()
     assert paired.drift.baseline is None
 
 
 def test_an_unreachable_redis_does_not_stop_startup(paired, monkeypatch):
-    import autocann.cli.vpd as vpd
+    import autocann.runtime.redis as runtime_redis
 
     def boom(key):
         raise ConnectionError("redis is down")
 
-    monkeypatch.setattr(vpd.redis_client, "get", boom)
+    monkeypatch.setattr(runtime_redis.redis_client, "get", boom)
     paired.load_drift_baseline()
     assert paired.drift.baseline is None
 
@@ -310,14 +310,15 @@ class _ClockedEsp32:
     def __init__(self, monkeypatch):
         from datetime import datetime, timezone
 
-        import autocann.cli.vpd as vpd
+        import autocann.hardware.indoor as indoor
+        import autocann.hardware.sensors as hw_sensors
 
         self.wall = 1_700_000_000.0
         self.mono = 5_000.0
         self.value = None
-        monkeypatch.setattr(vpd, "redis_client", self)
-        monkeypatch.setattr(vpd, "monotonic", lambda: self.mono)
-        monkeypatch.setattr(vpd, "_now_local",
+        monkeypatch.setattr(indoor, "redis_client", self)
+        monkeypatch.setattr(hw_sensors, "monotonic", lambda: self.mono)
+        monkeypatch.setattr(indoor, "_now_local",
                             lambda: datetime.fromtimestamp(self.wall, timezone.utc))
 
     def get(self, key):
