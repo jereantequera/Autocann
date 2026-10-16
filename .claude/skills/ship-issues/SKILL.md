@@ -31,6 +31,7 @@ the reviewer: Haiku agents write the code, you spec, check and decide.
 
 ```bash
 git fetch origin main
+gh label create in-progress --color 1d76db --description "Being worked by the ship-issues routine" 2>/dev/null
 gh pr list --state open --json number,title,headRefName,labels
 gh issue list --state open --label ready --json number,title,labels,createdAt,assignees --limit 50
 ```
