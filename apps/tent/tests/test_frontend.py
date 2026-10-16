@@ -845,10 +845,14 @@ def test_the_asset_version_changes_when_the_assets_do():
     before = static_asset_version()
     assert before, "el token quedó vacío"
 
+    # The token is the newest mtime under static/, so push app.css past the
+    # newest file, not just past its own old mtime: after a `git pull` another
+    # file can be newer than app.css + 1 h, and then the token would not move.
     asset = STATIC_DIR / "css" / "app.css"
     stamp = asset.stat()
+    newest = max(p.stat().st_mtime for p in STATIC_DIR.rglob("*") if p.is_file())
     try:
-        os.utime(asset, (stamp.st_atime, stamp.st_mtime + 3600))
+        os.utime(asset, (stamp.st_atime, newest + 3600))
         assert static_asset_version() != before
     finally:
         os.utime(asset, (stamp.st_atime, stamp.st_mtime))
