@@ -251,3 +251,45 @@
         flex: 1 1 auto;
     }
 }
+
+/* Phones: the proportional bar stays on one row, and each stage's name and
+   day info move to their own row below it. The stage cells are dissolved
+   (display: contents) so their parts are placed on the bar's grid. */
+@media (max-width: 599px) {
+    .view[data-view="cultivo"] .grow-stages .ac-stagebar {
+        row-gap: 8px;
+    }
+
+    .view[data-view="cultivo"] .grow-stages .ac-stage {
+        display: contents;
+    }
+
+    .view[data-view="cultivo"] .grow-stages .ac-stage__bar {
+        grid-row: 1;
+        grid-column: var(--col);
+    }
+
+    .view[data-view="cultivo"] .grow-stages .ac-stage__name,
+    .view[data-view="cultivo"] .grow-stages .ac-stage__meta {
+        grid-row: var(--row);
+        grid-column: 1 / -1;
+    }
+
+    .view[data-view="cultivo"] .grow-stages .ac-stage__name {
+        justify-self: start;
+    }
+
+    .view[data-view="cultivo"] .grow-stages .ac-stage__meta {
+        justify-self: end;
+    }
+
+    /* The title takes a line of its own; the count and the button share the
+       next one, the button pushed to the right. */
+    .view[data-view="cultivo"] .grow-all-title {
+        flex: 1 1 100%;
+    }
+
+    .view[data-view="cultivo"] .grow-all-head .ac-field__hint {
+        margin-right: auto;
+    }
+}
