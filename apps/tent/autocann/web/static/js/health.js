@@ -184,6 +184,15 @@ function alertDecision({ health, anomalies = [], dismissed = false }) {
     return { mode: 'none' };
 }
 
+/**
+ * The "+N" line of the broken-state alert: singular for one, plural for more,
+ * empty for none so the element stays hidden.
+ */
+function moreWarningsLabel(n) {
+    if (!n) return '';
+    return n === 1 ? '+1 advertencia' : `+${n} advertencias`;
+}
+
 // ===============================
 // Tabla de sensores
 // ===============================
@@ -446,7 +455,7 @@ function renderAlerts() {
             if (brokenMessage) brokenMessage.textContent = decision.text;
             if (brokenMore) {
                 brokenMore.hidden = !decision.more;
-                brokenMore.textContent = decision.more ? `+${decision.more} advertencias` : '';
+                brokenMore.textContent = moreWarningsLabel(decision.more);
             }
         }
     }
@@ -561,7 +570,7 @@ if (typeof document !== 'undefined') {
 }
 
 export {
-    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, renderAlerts,
+    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, moreWarningsLabel, renderAlerts,
     sensorsBadge, setAnomalies, verdictFor, SENSOR_READ_CELLS, CALIB_CELLS,
     SENSOR_ROLES, DRIFT_FLAG_LABELS,
 };

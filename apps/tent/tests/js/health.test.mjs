@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { sensorsBadge } from '../../autocann/web/static/js/health.js';
+import { moreWarningsLabel, sensorsBadge } from '../../autocann/web/static/js/health.js';
 import { readRate, signalLabel } from '../../autocann/web/static/js/nodes.js';
 
 const posting = { controls: true, state: 'posting' };
@@ -47,4 +47,16 @@ test('a DHT22 that fails one read in a hundred is not reported like one that fai
     assert.equal(readRate({ reads_ok: 60, reads_failed: 40 }).bad, true);
     assert.equal(readRate({ reads_ok: 99, reads_failed: 1, consecutive_failed: 5 }).bad, true);
     assert.equal(readRate({}).text, 'sin lecturas');
+});
+
+test('the folded-in warning count agrees with its noun', () => {
+    // Issue #31: "+1 advertencias" — one takes the singular.
+    assert.equal(moreWarningsLabel(0), '');
+    assert.equal(moreWarningsLabel(1), '+1 advertencia');
+    assert.equal(moreWarningsLabel(2), '+2 advertencias');
+});
+
+test('the node counters agree with their nouns at one', () => {
+    assert.equal(readRate({ reads_ok: 9, reads_failed: 1 }).text, '9 ok · 1 fallida (10.0 %)');
+    assert.equal(readRate({ reads_ok: 9, reads_failed: 2 }).text, '9 ok · 2 fallidas (18.2 %)');
 });
