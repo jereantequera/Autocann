@@ -2110,10 +2110,12 @@ def detect_anomalies(
     - Values outside physically possible ranges
     - Stuck values (sensor malfunction)
 
-    Scoped like the rest, and with no active grow it reports the "no data"
-    anomaly rather than falling back to every grow. Reading a closed grow's
-    last rows as "the tent is fine" is the opposite of what a detector is for:
-    with no active grow nothing is being written, and that is worth saying.
+    Scoped like the rest, and with no active grow it reports no anomalies at
+    all, under `status: "no_grow"`, rather than falling back to every grow.
+    Reading a closed grow's last rows as "the tent is fine" would be wrong, but
+    so is calling the empty history an outage: without a grow nothing is
+    written by design, and that is a state for the dashboard to announce, not
+    a fault to raise in red.
     """
     try:
         anomalies = []
@@ -2126,13 +2128,9 @@ def detect_anomalies(
         resolved = _resolve_grow_filter(grow_id)
         if resolved is _NO_GROW:
             return {
-                "status": "critical",
-                "anomalies": [{
-                    "type": "no_data",
-                    "severity": "critical",
-                    "message": f"No hay datos en las últimas {hours} horas",
-                    "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                }],
+                "status": "no_grow",
+                "no_active_grow": True,
+                "anomalies": [],
                 "warnings": [],
             }
         grow_id = resolved

@@ -25,6 +25,7 @@ from autocann.web.diagnostics import (
     history_verdict,
     loop_verdict,
     node_verdict,
+    overall_verdict,
     reframe_history_anomalies,
     sensor_verdict,
     worst,
@@ -121,6 +122,28 @@ def test_a_gap_in_the_history_with_the_loop_running_is_broken():
     assert verdict["level"] == "error"
 
 
+@pytest.mark.parametrize("loop_state", ["running", "monitor", "paused"])
+def test_no_active_grow_is_a_state_of_the_history_not_a_fault(loop_state):
+    """
+    Sin cultivo el lazo no guarda, a propósito: decir "no se está guardando"
+    en rojo manda a revisar un servicio que anda perfecto.
+    """
+    verdict = history_verdict(8 * 3600, loop_state, has_active_grow=False)
+    assert verdict["state"] == "no_grow"
+    assert verdict["level"] == "warn"
+    assert verdict["label"] == "Sin cultivo activo"
+
+
+def test_no_active_grow_is_the_headline_when_nothing_is_broken():
+    loop = loop_verdict({"timestamp": _now()}, 3, None, _now())
+    history = history_verdict(8 * 3600, loop["state"], has_active_grow=False)
+    sensor = {"state": "posting", "role": PRIMARY, "level": "ok", "label": "A"}
+
+    verdict = overall_verdict([sensor], loop, history, [])
+    assert verdict["level"] == "warn"
+    assert verdict["headline"] == "Sin cultivo activo"
+
+
 def test_worst_takes_the_most_serious_level():
     assert worst("ok", "warn", "error") == "error"
     assert worst("ok", "warn") == "warn"
@@ -167,9 +190,76 @@ def test_a_live_sensor_is_never_called_disconnected():
     out = reframe_history_anomalies(
         REPORT, {"loop": {"state": "running"}, "sensors": [POSTING]})
 
-    message = out["anomalies"][0]["message"]
+    message = out["warnings"][0]["message"]
     assert "los sensores están posteando" in message
-    assert out["anomalies"][0]["about"] == "history"
+    assert "el lazo de control" in message
+    assert out["warnings"][0]["about"] == "history"
+
+
+def test_a_reframed_item_is_a_warning_end_to_end():
+    """
+    Bajada a advertencia pero dejada bajo `anomalies`, el status seguía en
+    critical y el cartel decía "Problemas críticos" con nada crítico adentro.
+    """
+    out = reframe_history_anomalies(
+        REPORT, {"loop": {"state": "running"}, "sensors": [POSTING]})
+
+    assert out["anomalies"] == []
+    assert all(i["severity"] == "warning" for i in out["warnings"])
+    assert out["status"] == "warning"
+
+
+def test_in_monitor_mode_the_recorder_is_the_monitor_not_the_loop():
+    out = reframe_history_anomalies(
+        REPORT, {"loop": {"state": "monitor"}, "sensors": [POSTING]})
+
+    message = out["warnings"][0]["message"]
+    assert "el monitoreo" in message
+    assert "lazo" not in message
+
+
+@pytest.mark.parametrize("loop_state", ["running", "monitor"])
+def test_no_active_grow_explains_the_gap_and_never_blames_the_loop(loop_state):
+    out = reframe_history_anomalies(
+        REPORT, {"loop": {"state": loop_state}, "sensors": [POSTING],
+                 "no_active_grow": True})
+
+    assert out["anomalies"] == []
+    assert out["warnings"] == []
+    assert out["status"] == "no_grow"
+    assert out["no_active_grow"] is True
+
+
+def test_no_active_grow_does_not_hide_a_real_fault_in_the_readings():
+    report = {
+        "status": "critical",
+        "anomalies": [{"type": "impossible_value", "message": "Temperatura de 95 °C"}],
+        "warnings": [],
+    }
+    out = reframe_history_anomalies(
+        report, {"loop": {"state": "running"}, "sensors": [POSTING], "no_active_grow": True})
+    assert out["anomalies"] == report["anomalies"]
+    assert out["status"] == "critical"
+
+
+def test_the_detectors_no_grow_report_keeps_its_status():
+    report = {"status": "no_grow", "no_active_grow": True, "anomalies": [], "warnings": []}
+    out = reframe_history_anomalies(
+        report, {"loop": {"state": "running"}, "sensors": [POSTING]})
+    assert out["status"] == "no_grow"
+
+
+def test_the_status_follows_the_severity_each_item_carries():
+    report = {
+        "status": "critical",
+        "anomalies": [{"type": "spike", "severity": "warning", "message": "Salto"}],
+        "warnings": [{"type": "stuck", "severity": "critical", "message": "Clavado"}],
+    }
+    out = reframe_history_anomalies(
+        report, {"loop": {"state": "running"}, "sensors": [POSTING]})
+    assert [i["message"] for i in out["anomalies"]] == ["Clavado"]
+    assert [i["message"] for i in out["warnings"]] == ["Salto"]
+    assert out["status"] == "critical"
 
 
 def test_a_gap_that_already_closed_is_not_answered_with_the_state_of_right_now():
@@ -181,7 +271,7 @@ def test_a_gap_that_already_closed_is_not_answered_with_the_state_of_right_now()
     out = reframe_history_anomalies(
         REPORT, {"loop": {"state": "running"}, "sensors": [POSTING]})
 
-    gap = out["warnings"][0]
+    gap = next(i for i in out["warnings"] if i["type"] == "data_gap")
     assert gap["message"] == "Sin datos por 869 minutos"
     assert gap["about"] == "history"
 
@@ -350,6 +440,26 @@ def test_the_anomalies_endpoint_serves_the_reframed_report(client, monkeypatch):
 
     assert data["status"] != "critical"
     assert not any("desconectado" in i["message"] for i in data["anomalies"])
+
+
+def test_health_says_when_there_is_no_grow_and_stops_once_there_is(client, temp_db, monkeypatch):
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    _post_reading(client, "a")
+    # The schema seeds a first grow; ending it is how a tent gets to have none.
+    temp_db.end_grow(temp_db.get_active_grow()["id"])
+
+    data = client.get("/api/health").get_json()
+    assert data["no_active_grow"] is True
+    assert data["history"]["state"] == "no_grow"
+
+    anomalies = client.get("/api/anomalies").get_json()
+    assert anomalies["status"] == "no_grow"
+    assert anomalies["anomalies"] == []
+
+    client.post("/api/grows", json={"name": "Nuevo", "stage": "seedling"})
+    data = client.get("/api/health").get_json()
+    assert data["no_active_grow"] is False
+    assert data["history"]["state"] != "no_grow"
 
 
 def test_a_node_report_is_stored_and_read_back(client):

@@ -42,7 +42,7 @@ from autocann.config import (
     indoor_sensors_from_env,
     is_valid_sensor_id,
 )
-from autocann.db import ALL_GROWS, get_sensor_data_range, get_setting
+from autocann.db import ALL_GROWS, get_active_grow, get_sensor_data_range, get_setting
 from autocann.time import ARGENTINA_TZ
 
 # ---------------------------------------------------------------------------
@@ -258,15 +258,28 @@ def loop_verdict(payload: Optional[Dict], age_seconds: Optional[float],
     }
 
 
-def history_verdict(age_seconds: Optional[float], loop_state: str) -> Dict:
+def history_verdict(age_seconds: Optional[float], loop_state: str,
+                    has_active_grow: bool = True) -> Dict:
     """
     Whether samples are reaching the database — and why not, when they are not.
 
     A gap in the history is read against what the loop is doing, because the
-    same gap means three different things: expected while paused, an empty tent
-    before the first sample, and a real fault only when the loop claims to be
-    running.
+    same gap means different things: expected without a grow to file it under
+    or while paused, an empty tent before the first sample, and a real fault
+    only when the loop claims to be running.
     """
+    if not has_active_grow:
+        # Checked before the pause: unpausing would not start the history
+        # either, so this is the reason that tells somebody what to do.
+        return {
+            "state": "no_grow",
+            "level": "warn",
+            "label": "Sin cultivo activo",
+            "detail": "No hay cultivo activo, así que no se guardan muestras. "
+                      "Creá un cultivo para empezar a registrar.",
+            "age_seconds": age_seconds,
+        }
+
     if loop_state == "paused":
         return {
             "state": "paused",
@@ -346,6 +359,8 @@ def overall_verdict(sensors: List[Dict], loop: Dict, history: Dict,
     elif any(node["level"] != "ok" for node in nodes):
         node = next(node for node in nodes if node["level"] != "ok")
         headline, detail = f"El nodo «{node['node']}» no está reportando", node["detail"]
+    elif history["state"] == "no_grow":
+        headline, detail = "Sin cultivo activo", history["detail"]
     elif loop["state"] == "paused":
         headline, detail = "Sistema en pausa", loop["detail"]
     else:
@@ -522,19 +537,26 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
     sensor cards saying the opposite.
 
     So the gaps are re-read against what is actually happening right now: dropped
-    when the pause explains them, and re-worded to blame the recorder rather
-    than the sensors when the sensors are demonstrably alive.
+    when the pause or a missing grow explains them, and re-worded to blame the
+    recorder rather than the sensors when the sensors are demonstrably alive.
+    A re-worded item is a warning, and it moves to `warnings` so that the key it
+    sits under and the severity it carries cannot disagree.
     """
     if not isinstance(report, dict):
         return report
 
     paused = health.get("loop", {}).get("state") == "paused"
+    no_grow = bool(health.get("no_active_grow") or report.get("no_active_grow"))
+    recorder = ("el monitoreo" if health.get("loop", {}).get("state") == MODE_MONITOR
+                else "el lazo de control")
     live = [s for s in health.get("sensors", []) if s.get("state") in ("posting", "suspect")]
     sensors_live = bool(live)
 
     def rewrite(issue):
         if not isinstance(issue, dict) or issue.get("type") not in HISTORY_ANOMALY_TYPES:
             return issue
+        if no_grow:
+            return None  # nothing is written without a grow; the notice says so
         if paused:
             return None  # the pause bar already says this, in the right words
         if not sensors_live:
@@ -545,22 +567,30 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
         if issue["type"] in ONGOING_ANOMALY_TYPES:
             issue["message"] = (
                 f"{issue.get('message', '')} — pero los sensores están posteando, "
-                "así que el que no está guardando es el lazo de control."
+                f"así que el que no está guardando es {recorder}."
             ).strip()
         return issue
 
-    rewritten = {
-        key: [i for i in (rewrite(issue) for issue in report.get(key) or []) if i]
-        for key in ("anomalies", "warnings")
-    }
+    # Sorted by the severity each item carries, falling back to the key it came
+    # under, which is what the detector means when it leaves severity out.
+    critical, rest = [], []
+    for key, default in (("anomalies", "critical"), ("warnings", "warning")):
+        for issue in report.get(key) or []:
+            issue = rewrite(issue)
+            if not issue:
+                continue
+            severity = issue.get("severity", default) if isinstance(issue, dict) else default
+            (critical if severity == "critical" else rest).append(issue)
 
     out = dict(report)
-    out.update(rewritten)
-    # `status` drives the colour of the whole strip, so it has to be recomputed:
-    # dropping every critical item and leaving "critical" behind would keep the
-    # banner red with nothing red in it.
-    out["status"] = ("critical" if rewritten["anomalies"]
-                     else "warning" if rewritten["warnings"] else "ok")
+    out["anomalies"], out["warnings"] = critical, rest
+    # `status` drives the colour of the whole strip, so it has to be recomputed
+    # from what is left: dropping or downgrading every critical item and leaving
+    # "critical" behind would keep the banner red with nothing red in it.
+    out["status"] = ("critical" if critical else "warning" if rest
+                     else "no_grow" if no_grow else "ok")
+    if no_grow:
+        out["no_active_grow"] = True
     return out
 
 
@@ -644,6 +674,20 @@ def _last_stored_sample_age(now: int) -> Optional[float]:
         return None
     timestamp = _as_int(rows[0].get("timestamp"))
     return None if timestamp is None else max(0, now - timestamp)
+
+
+def _has_active_grow() -> bool:
+    """
+    Whether there is a grow for the loop to write under.
+
+    A database that cannot be read answers yes: the history check has its own
+    way of saying nothing is being stored, and a "creá un cultivo" over an
+    existing grow would send somebody to make a duplicate.
+    """
+    try:
+        return get_active_grow() is not None
+    except Exception:
+        return True
 
 
 def indoor_entries(redis_client, sensors, now: int) -> List[Dict]:
@@ -777,7 +821,12 @@ def health_snapshot(redis_client) -> Dict:
         mode, since = MODE_MONITOR, now
     loop = loop_verdict(published, loop_age, since, now, mode=mode)
 
-    history = history_verdict(_last_stored_sample_age(now), loop["state"])
+    # Asked here rather than left to /api/anomalies: the dashboard polls this
+    # on every view, and the anomalies stop being fetched while dismissed, so a
+    # notice that hangs off them would outlive the grow that answers it.
+    has_grow = _has_active_grow()
+    history = history_verdict(_last_stored_sample_age(now), loop["state"],
+                              has_active_grow=has_grow)
 
     nodes = [node_report(_json_get(redis_client, f"{NODE_STATUS_PREFIX}:{name}"),
                          now, name=name)
@@ -795,6 +844,7 @@ def health_snapshot(redis_client) -> Dict:
         "max_age_seconds": INDOOR_SENSOR_MAX_AGE_SECONDS,
         "loop": loop,
         "history": history,
+        "no_active_grow": not has_grow,
         "nodes": nodes,
         "generated_at": now,
     }

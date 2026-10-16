@@ -209,6 +209,39 @@ body {
     color: var(--state-warn);
 }
 
+/* Information, not a fault: nothing is wrong, there is just something to do.
+   Neutral on purpose — no state colour, and no blue, which Noche does not have. */
+.alert-box--info {
+    border-color: var(--border-control);
+}
+
+.alert-box--info .alert-icon {
+    color: var(--fg-muted);
+}
+
+.alert-box--info .ac-alert__text {
+    color: var(--fg-secondary);
+}
+
+.alert-box .ac-btn {
+    flex: none;
+}
+
+/* On a phone the action drops under the sentence instead of squeezing it. */
+@media (max-width: 600px) {
+    #grow-notice {
+        flex-wrap: wrap;
+    }
+
+    #grow-notice .ac-alert__body {
+        flex-basis: calc(100% - 32px);
+    }
+
+    #grow-notice .ac-btn {
+        margin-left: 32px;
+    }
+}
+
 .alert-more {
     margin-top: 4px;
     font-family: var(--font-sans);
@@ -241,6 +274,10 @@ body {
 
 .anomaly-item.critical .anomaly-icon {
     color: var(--state-alert);
+}
+
+.anomaly-item.info .anomaly-icon {
+    color: var(--fg-muted);
 }
 
 .anomaly-text {
@@ -4503,7 +4540,8 @@ body {
     visibility: hidden;
 }
 
-.is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert) {
+.is-booting :is(#sensor-alert, #anomalies-alert, #connection-alert),
+.is-booting #grow-notice {
     display: none !important;
 }
 

@@ -49,8 +49,10 @@ function isAnomaliesDismissed() {
 function updateAnomalies(data) {
     if (data.error) return;
 
+    // The severity is the backend's: an item it re-read as a warning stays one.
+    // The key it sits under is only the fallback for an item that carries none.
     anomalyItems = [
-        ...(data.anomalies || []).map(a => ({...a, severity: 'critical'})),
+        ...(data.anomalies || []).map(a => ({...a, severity: a.severity || 'critical'})),
         ...(data.warnings || []).map(w => ({...w, severity: w.severity || 'warning'})),
     ];
     setAnomalies(anomalyItems, { dismissed: isAnomaliesDismissed() });
