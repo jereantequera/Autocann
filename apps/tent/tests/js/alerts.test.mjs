@@ -10,8 +10,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    alertDecision, healthChecks, isBroken, noGrowNotice, verdictFor, worstSeverity,
-} from '../../autocann/web/static/js/health.js';
+    alertDecision, isBroken, noGrowNotice, ownedByBanner, worstSeverity,
+} from '../../autocann/web/static/js/alerts.js';
+import { healthChecks, verdictFor } from '../../autocann/web/static/js/health.js';
 
 const posting = { role: 'primary', state: 'posting', level: 'ok', label: 'A' };
 const healthy = {
@@ -167,4 +168,59 @@ test('a backend that does not answer is a failed check, whatever health last sai
 
 test('before the first answer the page says it is checking, not that all is well', () => {
     assert.equal(verdictFor(null, healthChecks(null, { offline: false })), 'Consultando el estado');
+});
+
+// ---------------------------------------------------------------------------
+// Un dueño por hecho (#65)
+// ---------------------------------------------------------------------------
+
+test('a history that stopped saving with the loop running is the red banner, not an anomaly', () => {
+    const stalled = {
+        ...healthy,
+        level: 'error',
+        headline: 'No se está guardando el histórico',
+        history: { state: 'stalled', level: 'error', label: 'No se está guardando' },
+    };
+    assert.equal(isBroken(stalled), true);
+    const decision = alertDecision({ health: stalled, anomalies: [] });
+    assert.equal(decision.mode, 'broken');
+    assert.equal(decision.title, 'No se está guardando el histórico');
+});
+
+test('a dead primary is one alert: the banner owns "nothing is being stored", even in the count', () => {
+    const dead = {
+        ...healthy,
+        headline: 'Sensor A (el que controla) no está posteando',
+        sensors: [{ ...posting, state: 'stale' }],
+    };
+    const stale = { type: 'stale_data', severity: 'critical', message: 'Último dato guardado hace 40 min.' };
+    const frozen = { type: 'stuck_temperature', severity: 'warning', message: 'Clavada', ongoing: true };
+    const decision = alertDecision({ health: dead, anomalies: [stale, frozen] });
+    assert.equal(decision.mode, 'broken');
+    assert.equal(decision.more, 0);
+});
+
+test('when broken, data-quality items still count as "+N advertencias"', () => {
+    const dead = { ...healthy, sensors: [{ ...posting, state: 'missing' }] };
+    const invalid = { type: 'invalid_temperature', severity: 'critical', message: 'Temperatura inválida: 12 lecturas' };
+    const pastFreeze = { type: 'stuck_humidity', severity: 'warning', message: 'Clavada', ongoing: false };
+    const decision = alertDecision({ health: dead, anomalies: [invalid, pastFreeze] });
+    assert.equal(decision.more, 2);
+});
+
+test('without a banner, the box keeps what health could not explain', () => {
+    const stale = { type: 'stale_data', severity: 'warning', message: 'Último dato guardado hace 20 min' };
+    const decision = alertDecision({ health: healthy, anomalies: [stale] });
+    assert.equal(decision.mode, 'warnings');
+    assert.equal(decision.items.length, 1);
+});
+
+test('ownedByBanner names only the facts the banner says', () => {
+    assert.equal(ownedByBanner({ type: 'no_data' }), true);
+    assert.equal(ownedByBanner({ type: 'stale_data' }), true);
+    assert.equal(ownedByBanner({ type: 'stuck_temperature', ongoing: true }), true);
+    assert.equal(ownedByBanner({ type: 'stuck_temperature' }), false);
+    assert.equal(ownedByBanner({ type: 'data_gap' }), false);
+    assert.equal(ownedByBanner({ type: 'temperature_spike' }), false);
+    assert.equal(ownedByBanner(null), false);
 });

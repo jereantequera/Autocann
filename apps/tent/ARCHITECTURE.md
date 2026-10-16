@@ -46,6 +46,11 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
   desenergiza.
 - `feeding.py`: la aritmética de la grilla de fertilización. Semanas contadas
   dentro de la etapa, como se imprimen los feed charts.
+- `anomalies.py`: el detector de `/api/anomalies` sobre las filas guardadas
+  (huecos, valores imposibles, saltos, valores clavados). Un ítem por tipo con
+  su cuenta y su rango, mensajes que terminan en qué hacer, y todos los
+  umbrales con su justificación. La tabla de decisiones está en `USAGE.md`
+  ("Alertas: qué dice cada una y quién la dice").
 
 ### `hardware/`
 
@@ -65,6 +70,9 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `diagnostics.py`: "¿anda la instalación?" en una sola respuesta
   (`/api/health`), más el log que los nodos postean. Existe porque el panel
   contestaba esa pregunta desde tres fuentes que podían contradecirse.
+- `alert_owners.py`: un dueño por hecho. Saca de las anomalías lo que la salud
+  ya dice (sensor primario caído, lazo caído, histórico frenado, pausa, sin
+  cultivo), para que cada cosa la diga un solo cartel.
 
 ### Front
 
@@ -76,8 +84,9 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - Navegación: barra lateral colapsable (`partials/sidebar.html`, `sidebar.js`)
   con la carpa, las vistas y el estado del lazo; en el celular se parte en una
   barra arriba y la barra de pestañas abajo.
-- `autocann/web/static/js/`: 25 módulos ES, sin bundler. Los nuevos con lógica
-  pura y tests: `status.js` (la frase del panel), `vpdchart.js` (la carta de
+- `autocann/web/static/js/`: 26 módulos ES, sin bundler. Los nuevos con lógica
+  pura y tests: `status.js` (la frase del panel), `alerts.js` (qué cartel de
+  arriba se muestra), `vpdchart.js` (la carta de
   VPD, cuya franja sale de `/api/vpd-band` con la misma cuenta que el lazo),
   `logbook.js`, `grow-model.js`, `stats-math.js`, `theme.js`.
 - `autocann/web/templates/`: `index.html` y `login.html`, más 12 parciales.

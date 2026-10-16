@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
+from autocann.control.anomalies import find_anomalies
 from autocann.control.feeding import WATER_ONLY_STAGES
 from autocann.control.vpd_math import (
     HUMIDITY_RANGES,
@@ -2259,11 +2260,7 @@ def detect_anomalies(
     grow_id=None,
 ) -> Dict:
     """
-    Detect anomalies in sensor data:
-    - Sensor disconnected (no data for extended period)
-    - Sudden spikes/drops in temperature or humidity
-    - Values outside physically possible ranges
-    - Stuck values (sensor malfunction)
+    The stored rows of the last `hours`, run through `control.anomalies`.
 
     Scoped like the rest, and with no active grow it reports no anomalies at
     all, under `status: "no_grow"`, rather than falling back to every grow.
@@ -2273,11 +2270,7 @@ def detect_anomalies(
     a fault to raise in red.
     """
     try:
-        anomalies = []
-        warnings = []
-
-        current_time = datetime.now(ARGENTINA_TZ)
-        end_timestamp = int(current_time.timestamp())
+        end_timestamp = int(datetime.now(ARGENTINA_TZ).timestamp())
         start_timestamp = end_timestamp - (hours * 3600)
 
         resolved = _resolve_grow_filter(grow_id)
@@ -2294,175 +2287,27 @@ def detect_anomalies(
         conn = _open(row_factory=True)
         cursor = conn.cursor()
 
-        # Query to get data ordered by timestamp
         query = """
-            SELECT timestamp, datetime, temperature, humidity, vpd, 
-                   outside_temperature, outside_humidity
+            SELECT timestamp, datetime, temperature, humidity
             FROM sensor_data
             WHERE timestamp >= ? AND timestamp <= ?
         """
         params: List[object] = [start_timestamp, end_timestamp]
-
         if grow_id is not None:
             query = query.replace("WHERE", "WHERE grow_id = ? AND")
             params.insert(0, grow_id)
-
         query += " ORDER BY timestamp ASC"
-
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-
-        if len(rows) == 0:
-            anomalies.append({
-                "type": "no_data",
-                "severity": "critical",
-                "message": f"No hay datos en las últimas {hours} horas",
-                "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-            })
-            conn.close()
-            return {"anomalies": anomalies, "warnings": warnings, "status": "critical"}
-
-        # Samples are written every 5 minutes, so flag a gap of 3 missed samples.
-        max_gap = 900
-
-        prev_timestamp = None
-        for row in rows:
-            if prev_timestamp is not None:
-                gap = row["timestamp"] - prev_timestamp
-                if gap > max_gap:
-                    gap_minutes = gap // 60
-                    gap_time = datetime.fromtimestamp(prev_timestamp, ARGENTINA_TZ)
-                    warnings.append({
-                        "type": "data_gap",
-                        "severity": "warning",
-                        "message": f"Sin datos por {gap_minutes} minutos",
-                        "timestamp": gap_time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "gap_minutes": gap_minutes,
-                    })
-            prev_timestamp = row["timestamp"]
-
-        # Check time since last sample
-        last_sample_time = rows[-1]["timestamp"]
-        time_since_last = end_timestamp - last_sample_time
-        if time_since_last > max_gap:
-            minutes_ago = time_since_last // 60
-            anomalies.append({
-                "type": "stale_data",
-                "severity": "critical",
-                "message": f"Último dato hace {minutes_ago} minutos - sensor posiblemente desconectado",
-                "timestamp": datetime.fromtimestamp(last_sample_time, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                "minutes_ago": minutes_ago,
-            })
-
-        # Check for physically impossible values
-        for row in rows:
-            # Temperature checks (realistic range: -10 to 60°C)
-            if row["temperature"] is not None:
-                if row["temperature"] < -10 or row["temperature"] > 60:
-                    anomalies.append({
-                        "type": "invalid_temperature",
-                        "severity": "critical",
-                        "message": f"Temperatura inválida: {row['temperature']}°C",
-                        "timestamp": row["datetime"],
-                        "value": row["temperature"],
-                    })
-
-            # Humidity checks (0-100%)
-            if row["humidity"] is not None:
-                if row["humidity"] < 0 or row["humidity"] > 100:
-                    anomalies.append({
-                        "type": "invalid_humidity",
-                        "severity": "critical",
-                        "message": f"Humedad inválida: {row['humidity']}%",
-                        "timestamp": row["datetime"],
-                        "value": row["humidity"],
-                    })
-
-        # Check for sudden spikes (change > 10°C or 30% in 5 minutes)
-        temp_threshold = 10  # °C
-        humidity_threshold = 30  # %
-
-        prev_row = None
-        for row in rows:
-            if prev_row is not None:
-                time_diff = row["timestamp"] - prev_row["timestamp"]
-                if time_diff <= 600:  # Within 10 minutes
-                    if row["temperature"] is not None and prev_row["temperature"] is not None:
-                        temp_change = abs(row["temperature"] - prev_row["temperature"])
-                        if temp_change > temp_threshold:
-                            warnings.append({
-                                "type": "temperature_spike",
-                                "severity": "warning",
-                                "message": f"Cambio brusco de temperatura: {temp_change:.1f}°C en {time_diff // 60} min",
-                                "timestamp": row["datetime"],
-                                "change": temp_change,
-                                "from_value": prev_row["temperature"],
-                                "to_value": row["temperature"],
-                            })
-
-                    if row["humidity"] is not None and prev_row["humidity"] is not None:
-                        humidity_change = abs(row["humidity"] - prev_row["humidity"])
-                        if humidity_change > humidity_threshold:
-                            warnings.append({
-                                "type": "humidity_spike",
-                                "severity": "warning",
-                                "message": f"Cambio brusco de humedad: {humidity_change:.1f}% en {time_diff // 60} min",
-                                "timestamp": row["datetime"],
-                                "change": humidity_change,
-                                "from_value": prev_row["humidity"],
-                                "to_value": row["humidity"],
-                            })
-            prev_row = row
-
-        # Check for stuck values (same value for > 30 minutes = sensor malfunction)
-        stuck_threshold = 6  # 6 samples of 5 min = 30 minutes
-
-        temp_values = [r["temperature"] for r in rows if r["temperature"] is not None]
-        humidity_values = [r["humidity"] for r in rows if r["humidity"] is not None]
-
-        def check_stuck(values, name):
-            if len(values) < stuck_threshold:
-                return None
-            for i in range(len(values) - stuck_threshold + 1):
-                window = values[i:i + stuck_threshold]
-                if len(set(window)) == 1:  # All values identical
-                    return {
-                        "type": f"stuck_{name}",
-                        "severity": "warning",
-                        "message": f"{name.capitalize()} estancado en {window[0]} por >30 min - posible fallo de sensor",
-                        "value": window[0],
-                    }
-            return None
-
-        stuck_temp = check_stuck(temp_values, "temperature")
-        if stuck_temp:
-            warnings.append(stuck_temp)
-
-        stuck_humidity = check_stuck(humidity_values, "humidity")
-        if stuck_humidity:
-            warnings.append(stuck_humidity)
-
+        rows = [dict(row) for row in cursor.execute(query, params).fetchall()]
         conn.close()
 
-        # Determine overall status
-        if anomalies:
-            status = "critical"
-        elif warnings:
-            status = "warning"
-        else:
-            status = "ok"
-
-        return {
-            "status": status,
-            "anomalies": anomalies,
-            "warnings": warnings,
-            "checked_period": {
-                "hours": hours,
-                "samples_checked": len(rows),
-                "start": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                "end": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-            },
+        report = find_anomalies(rows, end_timestamp, hours=hours)
+        report["checked_period"] = {
+            "hours": hours,
+            "samples_checked": len(rows),
+            "start": datetime.fromtimestamp(start_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            "end": datetime.fromtimestamp(end_timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         }
+        return report
 
     except Exception as e:
         print(f"Error detecting anomalies: {e}")

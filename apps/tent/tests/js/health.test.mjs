@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { moreWarningsLabel, sensorsBadge } from '../../autocann/web/static/js/health.js';
+import { moreWarningsLabel } from '../../autocann/web/static/js/alerts.js';
+import { sensorsBadge } from '../../autocann/web/static/js/health.js';
 import { readRate, signalLabel } from '../../autocann/web/static/js/nodes.js';
 
 const posting = { controls: true, state: 'posting' };

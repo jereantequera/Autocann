@@ -85,10 +85,10 @@ from autocann.hardware.outputs import (
 from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
+from autocann.web.alert_owners import reframe_history_anomalies
 from autocann.web.auth import register_auth
 from autocann.web.diagnostics import (
     health_snapshot,
-    reframe_history_anomalies,
     register_diagnostics,
 )
 

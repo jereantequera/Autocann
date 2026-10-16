@@ -42,6 +42,7 @@ from autocann.config import (
     indoor_sensors_from_env,
     is_valid_sensor_id,
 )
+from autocann.control.anomalies import CHECK_SERVICE, MAX_GAP_SECONDS
 from autocann.db import ALL_GROWS, get_active_grow, get_sensor_data_range, get_setting
 from autocann.time import ARGENTINA_TZ
 
@@ -57,10 +58,10 @@ LOOP_MAX_AGE_SECONDS = 30
 #: The node reports itself every 30 s, so three missed reports is silence.
 NODE_MAX_AGE_SECONDS = 100
 
-#: The loop writes an aggregated row every 5 minutes. Three missed writes with
-#: the loop running means the history is stalling, which is worth saying
-#: *before* somebody goes looking for a week that was never recorded.
-HISTORY_MAX_AGE_SECONDS = 15 * 60
+#: Three missed 5-minute writes with the loop running means the history is
+#: stalling, worth saying *before* somebody goes looking for a week that was
+#: never recorded. The anomaly detector's threshold, so the two cannot disagree.
+HISTORY_MAX_AGE_SECONDS = MAX_GAP_SECONDS
 
 #: How much of each node's log is kept, and how much of it one report may carry.
 #: The node holds a few lines between reports; this is the scrollback a person
@@ -229,7 +230,7 @@ def loop_verdict(payload: Optional[Dict], age_seconds: Optional[float],
             "level": "error",
             "label": "No está corriendo",
             "detail": "El lazo de control no publicó nada. Los relés no se están "
-                      "moviendo y lo que ves en pantalla no se está actualizando.",
+                      f"moviendo y lo que ves en pantalla no se está actualizando. {CHECK_SERVICE}",
             "age_seconds": age_seconds,
             "paused_since": None,
             "paused_seconds": None,
@@ -241,7 +242,7 @@ def loop_verdict(payload: Optional[Dict], age_seconds: Optional[float],
             "level": "error",
             "label": "No está corriendo",
             "detail": f"La última decisión del lazo es de {describe_age(age_seconds)}. "
-                      "Revisá el servicio en la Raspberry (make status).",
+                      + CHECK_SERVICE,
             "age_seconds": age_seconds,
             "paused_since": None,
             "paused_seconds": None,
@@ -309,9 +310,9 @@ def history_verdict(age_seconds: Optional[float], loop_state: str,
             "level": "error",
             "label": "No se está guardando",
             "detail": f"La última muestra guardada es de {describe_age(age_seconds)} "
-                      + ("y el monitoreo dice estar guardando."
+                      + ("y el monitoreo dice estar guardando. "
                          if loop_state == MODE_MONITOR else
-                         "y el lazo dice estar corriendo."),
+                         "y el lazo dice estar corriendo. ") + CHECK_SERVICE,
             "age_seconds": age_seconds,
         }
 
@@ -346,12 +347,12 @@ def overall_verdict(sensors: List[Dict], loop: Dict, history: Dict,
     elif primary_broken:
         sensor = primary_broken[0]
         headline = f"{sensor['label']} (el que controla) no está posteando"
-        detail = sensor["state_detail"]
+        detail = f"{sensor['state_detail']} {sensor.get('action') or ''}".strip()
     elif history["state"] == "stalled":
         headline, detail = "No se está guardando el histórico", history["detail"]
     elif broken:
         headline = f"{broken[0]['label']} no está posteando"
-        detail = broken[0]["state_detail"]
+        detail = f"{broken[0]['state_detail']} {broken[0].get('action') or ''}".strip()
     elif any(s["state"] == "suspect" for s in sensors):
         suspect = next(s for s in sensors if s["state"] == "suspect")
         headline = f"{suspect['label']} mide algo raro"
@@ -507,91 +508,6 @@ def node_report(status: Optional[Dict], now: int, *, name: str) -> Dict:
     }
     report.update(node_verdict(status if received_at is not None else None, now))
     return report
-
-
-# ---------------------------------------------------------------------------
-# Anomalies that are about the history, not about the sensors
-# ---------------------------------------------------------------------------
-
-#: The anomaly types `detect_anomalies` raises by looking at the database alone.
-#: Each one is a statement about stored rows.
-HISTORY_ANOMALY_TYPES = ("no_data", "stale_data", "data_gap")
-
-#: Of those, the ones that speak in the present tense and name the sensor as the
-#: suspect. A `data_gap` is a hole *between* two stored rows, so it is already
-#: in the past and says only "sin datos por N minutos", which stays true and
-#: blames nobody; adding "pero los sensores están posteando" to it would answer
-#: a question about last night with the state of right now.
-ONGOING_ANOMALY_TYPES = ("no_data", "stale_data")
-
-
-def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
-    """
-    Stop the alert strip from calling a working sensor disconnected.
-
-    The anomaly detector reads the database, which is the right place to look
-    for a hole in the history and the wrong place to look for a dead sensor: the
-    two are the same row count. With the system paused there are no rows by
-    design, so a tent that is posting fine raised a red "sensor posiblemente
-    desconectado" that grew by a minute every minute — and sat above two green
-    sensor cards saying the opposite.
-
-    So the gaps are re-read against what is actually happening right now: dropped
-    when the pause or a missing grow explains them, and re-worded to blame the
-    recorder rather than the sensors when the sensors are demonstrably alive.
-    A re-worded item is a warning, and it moves to `warnings` so that the key it
-    sits under and the severity it carries cannot disagree.
-    """
-    if not isinstance(report, dict):
-        return report
-
-    paused = health.get("loop", {}).get("state") == "paused"
-    no_grow = bool(health.get("no_active_grow") or report.get("no_active_grow"))
-    recorder = ("el monitoreo" if health.get("loop", {}).get("state") == MODE_MONITOR
-                else "el lazo de control")
-    live = [s for s in health.get("sensors", []) if s.get("state") in ("posting", "suspect")]
-    sensors_live = bool(live)
-
-    def rewrite(issue):
-        if not isinstance(issue, dict) or issue.get("type") not in HISTORY_ANOMALY_TYPES:
-            return issue
-        if no_grow:
-            return None  # nothing is written without a grow; the notice says so
-        if paused:
-            return None  # the pause bar already says this, in the right words
-        if not sensors_live:
-            return issue  # no rows and no readings: it really is the sensor
-        issue = dict(issue)
-        issue["severity"] = "warning"
-        issue["about"] = "history"
-        if issue["type"] in ONGOING_ANOMALY_TYPES:
-            issue["message"] = (
-                f"{issue.get('message', '')} — pero los sensores están posteando, "
-                f"así que el que no está guardando es {recorder}."
-            ).strip()
-        return issue
-
-    # Sorted by the severity each item carries, falling back to the key it came
-    # under, which is what the detector means when it leaves severity out.
-    critical, rest = [], []
-    for key, default in (("anomalies", "critical"), ("warnings", "warning")):
-        for issue in report.get(key) or []:
-            issue = rewrite(issue)
-            if not issue:
-                continue
-            severity = issue.get("severity", default) if isinstance(issue, dict) else default
-            (critical if severity == "critical" else rest).append(issue)
-
-    out = dict(report)
-    out["anomalies"], out["warnings"] = critical, rest
-    # `status` drives the colour of the whole strip, so it has to be recomputed
-    # from what is left: dropping or downgrading every critical item and leaving
-    # "critical" behind would keep the banner red with nothing red in it.
-    out["status"] = ("critical" if critical else "warning" if rest
-                     else "no_grow" if no_grow else "ok")
-    if no_grow:
-        out["no_active_grow"] = True
-    return out
 
 
 # ---------------------------------------------------------------------------

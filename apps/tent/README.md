@@ -365,8 +365,9 @@ El detector de anomalías sigue leyendo la base — que es el lugar correcto par
 buscar un hueco en el histórico y el equivocado para buscar un sensor muerto: los
 dos son la misma cantidad de filas. Lo que encuentra se relee contra lo que está
 pasando ahora antes de salir: con el sistema en pausa el hueco es esperado y no
-se informa, y con los sensores posteando el cartel dice que el que no está
-guardando es el lazo, en vez de acusar al sensor.
+se informa, y con el sensor que controla caído, el lazo caído o el histórico
+frenado lo dice sólo el cartel rojo de arriba, no también la caja de anomalías.
+Cada hecho tiene un solo cartel; la tabla está en `USAGE.md`.
 
 ### El log del nodo, desde el navegador
 
