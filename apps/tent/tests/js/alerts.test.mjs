@@ -9,7 +9,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { alertDecision, healthChecks, isBroken, verdictFor } from '../../autocann/web/static/js/health.js';
+import {
+    alertDecision, healthChecks, isBroken, noGrowNotice, verdictFor, worstSeverity,
+} from '../../autocann/web/static/js/health.js';
 
 const posting = { role: 'primary', state: 'posting', level: 'ok', label: 'A' };
 const healthy = {
@@ -76,8 +78,75 @@ test('a dismissed list shows nothing when fine, and only the count when broken',
 });
 
 test('nothing wrong and nothing found is no alert at all', () => {
-    assert.deepEqual(alertDecision({ health: healthy, anomalies: [] }), { mode: 'none' });
-    assert.deepEqual(alertDecision({ health: null, anomalies: [] }), { mode: 'none' });
+    assert.deepEqual(alertDecision({ health: healthy, anomalies: [] }), { mode: 'none', notice: null });
+    assert.deepEqual(alertDecision({ health: null, anomalies: [] }), { mode: 'none', notice: null });
+});
+
+test('a critical item makes the box red and says so', () => {
+    const decision = alertDecision({
+        health: healthy, anomalies: [anomaly('warning', 'a'), anomaly('critical', 'b')],
+    });
+    assert.equal(decision.severity, 'critical');
+    assert.equal(decision.title, 'Problemas críticos detectados');
+    assert.equal(decision.tone, '');
+    assert.equal(decision.icon, 'siren');
+});
+
+test('warnings alone are amber and never called critical', () => {
+    // El defecto: una advertencia releída por el backend seguía saliendo como
+    // "Problemas críticos detectados".
+    const decision = alertDecision({ health: healthy, anomalies: [anomaly('warning', 'a')] });
+    assert.equal(decision.severity, 'warning');
+    assert.equal(decision.critical, false);
+    assert.equal(decision.title, 'Advertencias detectadas');
+    assert.equal(decision.tone, 'warn');
+});
+
+test('information alone is neutral', () => {
+    const decision = alertDecision({ health: healthy, anomalies: [anomaly('info', 'a')] });
+    assert.equal(decision.severity, 'info');
+    assert.equal(decision.tone, 'info');
+    assert.notEqual(decision.title, 'Advertencias detectadas');
+});
+
+test('an item without a known severity counts as a warning, not as nothing', () => {
+    assert.equal(worstSeverity([{ message: 'x' }]), 'warning');
+    assert.equal(worstSeverity([anomaly('info', 'a'), anomaly('bogus', 'b')]), 'warning');
+    assert.equal(worstSeverity([anomaly('info', 'a')]), 'info');
+});
+
+const noGrow = {
+    ...healthy,
+    no_active_grow: true,
+    headline: 'Sin cultivo activo',
+    history: { state: 'no_grow', level: 'warn', label: 'Sin cultivo activo' },
+};
+
+test('no active grow is a notice, not an alert, and nothing in it is critical', () => {
+    const decision = alertDecision({ health: noGrow, anomalies: [] });
+    assert.equal(decision.mode, 'none');
+    assert.equal(decision.notice.kind, 'no_grow');
+    assert.match(decision.notice.text, /^No hay cultivo activo: no se guardan datos\./);
+    assert.match(decision.notice.text, /Creá un cultivo/);
+});
+
+test('the no-grow notice is shown paused and monitoring too, worded for monitoring', () => {
+    const paused = { ...noGrow, loop: { state: 'paused', level: 'warn' } };
+    assert.equal(noGrowNotice(paused).kind, 'no_grow');
+    const monitoring = { ...noGrow, loop: { state: 'monitor', level: 'ok' } };
+    assert.match(noGrowNotice(monitoring).text, /el monitoreo no guarda datos/);
+});
+
+test('dismissing the anomalies does not hide the no-grow notice', () => {
+    const decision = alertDecision({ health: noGrow, anomalies: [anomaly('warning', 'a')], dismissed: true });
+    assert.equal(decision.mode, 'none');
+    assert.equal(decision.notice.kind, 'no_grow');
+});
+
+test('the notice goes as soon as health reports a grow', () => {
+    assert.equal(alertDecision({ health: { ...noGrow, no_active_grow: false } }).notice, null);
+    assert.equal(noGrowNotice({ ...noGrow, error: 'x' }), null);
+    assert.equal(noGrowNotice(null), null);
 });
 
 test('the verdict is "Todo anda" only when every check is ok, else the worst headline', () => {

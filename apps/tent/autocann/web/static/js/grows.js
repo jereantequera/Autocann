@@ -3,6 +3,7 @@ import { alertDialog, closeModal, confirmDialog, showModal, toast } from './moda
 import { getVpdChart, renderStageMarkers } from './charts.js';
 import { fetchDatabaseStats, fetchHistoricalData, fetchPeriodSummary } from './dashboard.js';
 import { fetchVpdScore } from './analytics.js';
+import { fetchHealth } from './health.js';
 import { config, state } from './state.js';
 import { escapeHtml, icon } from './util.js';
 import { paintTent } from './sidebar.js';
@@ -291,6 +292,8 @@ async function createGrow() {
             fetchDatabaseStats();
             fetchGrowFilter();
             fetchHistoricalData(state.period, state.interval, state.hours);
+            // The "no hay cultivo activo" notice goes now, not ten seconds later.
+            fetchHealth();
         } else {
             await alertDialog({
                 title: 'No se pudo crear el cultivo',

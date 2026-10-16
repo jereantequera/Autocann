@@ -602,15 +602,18 @@ def test_the_vpd_score_counts_only_the_grow_it_is_about(temp_db):
     assert temp_db.get_vpd_score(days=1, grow_id=closed)["stage"] == "flowering"
 
 
-def test_anomalies_with_no_active_grow_report_the_outage(temp_db):
+def test_anomalies_with_no_active_grow_are_a_state_not_an_outage(temp_db):
     """
-    Reading a closed grow's last rows as "the tent is fine" is the opposite of
-    what a detector is for: with no active grow nothing is being written.
+    With no active grow nothing is written, by design. That is not a fault to
+    raise in red, and reading a closed grow's last rows as "the tent is fine"
+    would be wrong too: no grow, no anomalies, and a status that says why.
     """
     now = anchored_now(3000)
     _two_grows(temp_db, now)
     temp_db.end_grow(temp_db.get_active_grow()["id"])
 
     report = temp_db.detect_anomalies(hours=24)
-    assert report["status"] == "critical"
-    assert [a["type"] for a in report["anomalies"]] == ["no_data"]
+    assert report["status"] == "no_grow"
+    assert report["no_active_grow"] is True
+    assert report["anomalies"] == []
+    assert report["warnings"] == []

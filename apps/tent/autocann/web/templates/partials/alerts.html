@@ -1,7 +1,7 @@
         <!--
-             Una sola ranura de alertas, arriba del contenido. Los tres carteles
-             son `.ac-alert` y ninguno se ve sin su clase `show`: el de conexión
-             lo prende api.js, los otros dos health.js (que decide cuál).
+             Una sola ranura de alertas, arriba del contenido. Los carteles son
+             `.ac-alert` y ninguno se ve sin su clase `show`: el de conexión lo
+             prende api.js, los otros health.js (que decide cuáles).
 
              Por qué uno solo: un cartel rojo de sensores y otro de anomalías
              pegados decían lo mismo dos veces. Cuando algo está roto, las
@@ -28,7 +28,22 @@
             <a class="ac-btn ac-btn--secondary" href="#/sistema">Ver sistema</a>
         </div>
 
-        <div id="anomalies-alert" class="ac-alert alert-box alert-box--warn" role="status" aria-live="polite">
+        <!-- Not an alert: a state with an obvious next step. It does not share the
+             anomalies' box because "Descartar" there must not hide it — it goes
+             away by creating a grow, and only then. -->
+        <div id="grow-notice" class="ac-alert alert-box alert-box--info" role="status" aria-live="polite">
+            <span class="alert-icon" aria-hidden="true">{{ icon("sprout") }}</span>
+            <div class="ac-alert__body">
+                <div class="ac-alert__text" id="grow-notice-text">No hay cultivo activo: no se guardan datos. Creá un cultivo para empezar a registrar.</div>
+            </div>
+            <button type="button" class="ac-btn ac-btn--secondary" data-action="new-grow">
+                {{ icon("plus") }}Crear cultivo
+            </button>
+        </div>
+
+        <!-- The tone (alert-box--warn, --info, or none for the red one) is set by
+             health.js from the most serious item in the list. -->
+        <div id="anomalies-alert" class="ac-alert alert-box" role="status" aria-live="polite">
             <span class="alert-icon" id="anomalies-icon" aria-hidden="true">{{ icon("triangle-alert") }}</span>
             <div class="ac-alert__body">
                 <!-- The button lives in the title row, not beside the body: there it

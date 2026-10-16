@@ -19,6 +19,7 @@
  */
 
 import { apiGet, connection } from './api.js';
+import { MODE_MONITOR } from './state.js';
 import {
     escapeHtml, fmtNum, fmtSigned, formatAge, icon, iconText, stampLastUpdate,
 } from './util.js';
@@ -151,37 +152,88 @@ function isBroken(health) {
         sensor => sensor.role === 'primary' && (sensor.state === 'missing' || sensor.state === 'stale'));
 }
 
+/** Severities, least serious first, so the box takes the tone of the worst one. */
+const SEVERITIES = ['info', 'warning', 'critical'];
+
+/**
+ * The anomalies box's title, icon and tone for the most serious item in it.
+ *
+ * The colour follows the words: a red box titled "Advertencias" or an amber one
+ * titled "Problemas críticos" says two things at once, and the reader believes
+ * whichever is worse.
+ */
+const ANOMALY_LOOKS = {
+    critical: { title: 'Problemas críticos detectados', icon: 'siren', tone: '' },
+    warning: { title: 'Advertencias detectadas', icon: 'triangle-alert', tone: 'warn' },
+    info: { title: 'Para tener en cuenta', icon: 'circle-alert', tone: 'info' },
+};
+
+/** The worst severity among `issues`; an unknown or missing one counts as a warning. */
+function worstSeverity(issues) {
+    return issues.reduce((worst, issue) => {
+        const severity = SEVERITIES.includes(issue?.severity) ? issue.severity : 'warning';
+        return SEVERITIES.indexOf(severity) > SEVERITIES.indexOf(worst) ? severity : worst;
+    }, 'info');
+}
+
+/**
+ * The "no hay cultivo activo" notice, or null when there is a grow.
+ *
+ * Not an anomaly: nothing is broken, the loop just has nowhere to file the
+ * samples. It is shown in every mode — paused or monitoring, it is still true
+ * that nothing is being stored — and worded for monitoring, where the grower
+ * might think the mode itself was recording.
+ */
+function noGrowNotice(health) {
+    if (!health || health.error || !health.no_active_grow) return null;
+    const text = health.loop?.state === MODE_MONITOR
+        ? 'No hay cultivo activo: el monitoreo no guarda datos. Creá un cultivo para empezar a registrar.'
+        : 'No hay cultivo activo: no se guardan datos. Creá un cultivo para empezar a registrar.';
+    return { kind: 'no_grow', text };
+}
+
 /**
  * Qué cartel de arriba se muestra, dados el veredicto y las anomalías.
  *
  * - Roto: sólo el cartel de roto. Las anomalías no tienen caja propia: se
  *   suman como una línea "+N advertencias", para que el que lee vea que hay
  *   más sin tener dos carteles pegados.
- * - Sano con anomalías: el cartel de advertencia, más calmo, con hasta tres.
+ * - Sano con anomalías: el cartel de anomalías, con hasta tres, con el título
+ *   y el color del más grave que muestra.
  * - Nada: ningún cartel.
+ *
+ * Aparte, `notice`: el aviso de que no hay cultivo, que no es una alerta y no
+ * se descarta. Sale de la salud y no de las anomalías, así que "Descartar" no
+ * lo esconde y se va en cuanto hay un cultivo.
  *
  * Pura, así que lo que se ve queda probado sin el DOM.
  */
 function alertDecision({ health, anomalies = [], dismissed = false }) {
     const issues = dismissed ? [] : anomalies;
+    const notice = noGrowNotice(health);
     if (isBroken(health)) {
         return {
             mode: 'broken',
             title: health.headline || 'Problema con sensores',
             text: health.detail || '',
             more: issues.length,
+            notice,
         };
     }
     if (issues.length) {
+        const severity = worstSeverity(issues);
         return {
             mode: 'warnings',
             total: issues.length,
-            critical: issues.some(issue => issue.severity === 'critical'),
+            severity,
+            critical: severity === 'critical',
+            ...ANOMALY_LOOKS[severity],
             items: issues.slice(0, 3),
             hidden: Math.max(0, issues.length - 3),
+            notice,
         };
     }
-    return { mode: 'none' };
+    return { mode: 'none', notice };
 }
 
 /**
@@ -460,6 +512,13 @@ function renderAlerts() {
         }
     }
 
+    const notice = document.getElementById('grow-notice');
+    if (notice) {
+        notice.classList.toggle('show', !!decision.notice);
+        const text = document.getElementById('grow-notice-text');
+        if (decision.notice && text) text.textContent = decision.notice.text;
+    }
+
     const warnings = document.getElementById('anomalies-alert');
     const list = document.getElementById('anomalies-list');
     const title = document.getElementById('anomalies-title-text');
@@ -467,11 +526,12 @@ function renderAlerts() {
     const showWarnings = decision.mode === 'warnings';
     if (warnings) warnings.classList.toggle('show', showWarnings);
     if (showWarnings) {
-        if (title) {
-            title.textContent = decision.critical
-                ? 'Problemas críticos detectados' : 'Advertencias detectadas';
+        if (warnings) {
+            warnings.classList.toggle('alert-box--warn', decision.tone === 'warn');
+            warnings.classList.toggle('alert-box--info', decision.tone === 'info');
         }
-        if (iconEl) iconEl.innerHTML = icon(decision.critical ? 'siren' : 'triangle-alert');
+        if (title) title.textContent = decision.title;
+        if (iconEl) iconEl.innerHTML = icon(decision.icon);
         if (list) {
             list.innerHTML = decision.items.map(issue => `
                 <div class="anomaly-item ${escapeHtml(issue.severity || 'warning')}">
@@ -570,7 +630,7 @@ if (typeof document !== 'undefined') {
 }
 
 export {
-    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, moreWarningsLabel, renderAlerts,
-    sensorsBadge, setAnomalies, verdictFor, SENSOR_READ_CELLS, CALIB_CELLS,
+    alertDecision, fetchHealth, healthChecks, isBroken, latestHealth, moreWarningsLabel, noGrowNotice,
+    renderAlerts, sensorsBadge, setAnomalies, verdictFor, worstSeverity, SENSOR_READ_CELLS, CALIB_CELLS,
     SENSOR_ROLES, DRIFT_FLAG_LABELS,
 };
