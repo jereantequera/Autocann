@@ -3,8 +3,6 @@ from __future__ import annotations
 import sqlite3
 import time
 
-import pytest
-
 import autocann.cli.vpd as cli_vpd
 import autocann.control.vpd_math as vpd_math
 import autocann.web.app as web
