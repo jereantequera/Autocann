@@ -332,6 +332,108 @@
     border-color: var(--state-warn);
 }
 
+/* Phones: each sensor becomes a card instead of nine columns running past the
+   right edge. The markup is the same, so the ids, input names and save wiring
+   are too; only the layout changes. Every value names its column through
+   data-label (set by the renderers), since the header row is hidden. */
+@media (max-width: 599px) {
+    .sensors-table {
+        display: block;
+        min-width: 0;
+    }
+
+    /* Hidden, but still in the DOM for screen readers. */
+    .sensors-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .sensors-table tbody,
+    .sensors-table tr {
+        display: block;
+    }
+
+    /* Six columns: name and role full width, the three readings a third each
+       of two columns, the corrections half a card each, the note full width. */
+    .sensors-table tr[data-sensor-row] {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px 10px;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--hairline-faint);
+    }
+
+    .sensors-table tr[data-sensor-row] > td {
+        display: block;
+        min-width: 0;
+        padding: 0;
+        border-bottom: none;
+    }
+
+    .sensors-table tr[data-sensor-row] > td:nth-child(-n+2),
+    .sensors-table tr[data-sensor-row] > td:nth-child(8) {
+        grid-column: 1 / -1;
+    }
+
+    .sensors-table tr[data-sensor-row] > td:nth-child(n+3):nth-child(-n+5) {
+        grid-column: span 2;
+    }
+
+    .sensors-table tr[data-sensor-row] > td:nth-child(6),
+    .sensors-table tr[data-sensor-row] > td:nth-child(7) {
+        grid-column: span 3;
+    }
+
+    .sensors-table td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--fg-subtle);
+    }
+
+    .sensors-table .ac-field__input--num {
+        width: 100%;
+    }
+
+    /* The note wraps: the field takes the full width and "Poner en 0" drops
+       under it as a plain text button. */
+    .sensors-table .calib-note {
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .sensors-table .calib-note .ac-field__input {
+        flex: 1 1 100%;
+    }
+
+    .sensors-table .calib-note .ac-btn {
+        height: auto;
+        padding: 4px 0;
+        border: none;
+        background: none;
+        font-size: 13px;
+        color: var(--fg-secondary);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    /* The diagnostic under a card stays full width, with the caption type. */
+    .sensors-table .sensor-why-row,
+    .sensors-table .sensor-why-row > td {
+        display: block;
+    }
+
+    .sensors-table .sensor-why-row > td {
+        padding: 0 0 14px;
+    }
+}
+
 .sensors-drift {
     display: flex;
     flex-wrap: wrap;

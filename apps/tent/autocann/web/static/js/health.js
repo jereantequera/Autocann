@@ -207,10 +207,10 @@ const SENSOR_READ_CELLS = `
     <td class="sensor-name">
         <span class="sensor-name-line"><span class="ac-dot" data-f="dot"></span><span data-f="name"></span></span>
     </td>
-    <td data-f="role"></td>
-    <td class="ac-num" data-f="temp"></td>
-    <td class="ac-num" data-f="hum"></td>
-    <td class="ac-num" data-f="age"></td>`;
+    <td data-f="role" data-label="Rol"></td>
+    <td class="ac-num" data-f="temp" data-label="Temp."></td>
+    <td class="ac-num" data-f="hum" data-label="Humedad"></td>
+    <td class="ac-num" data-f="age" data-label="Última"></td>`;
 
 function fillCells(row, values) {
     for (const [field, value] of Object.entries(values)) {
@@ -336,9 +336,9 @@ function renderSensorRows(tbody, sensors) {
 
 /** Las tres celdas de corrección; system.js las llena. Acá sólo existen. */
 const CALIB_CELLS = `
-    <td class="ac-num" data-calib-cell="temperature"></td>
-    <td class="ac-num" data-calib-cell="humidity"></td>
-    <td data-calib-cell="notes"></td>`;
+    <td class="ac-num" data-calib-cell="temperature" data-label="Corrección °C"></td>
+    <td class="ac-num" data-calib-cell="humidity" data-label="Corrección %"></td>
+    <td data-calib-cell="notes" data-label="Nota"></td>`;
 
 /** La línea de deriva bajo la tabla: sólo cuando hay testigo que comparar. */
 function driftLineHtml(payload) {
