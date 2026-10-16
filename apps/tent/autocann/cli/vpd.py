@@ -52,6 +52,7 @@ from autocann.control.humidity import (
     decide,
 )
 from autocann.control.quiet import blocked_actions, windows_from_dict
+from autocann.control.reading_age import parse_esp32_sample
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, Calibration, SampleAccumulator
 from autocann.control.vpd_math import (
     LEAF_TEMP_OFFSET_C,
@@ -697,6 +698,7 @@ class Sensors:
         #: this the loop would act on old samples forever and the failsafe would
         #: never trip.
         self.last_reading_at: Optional[float] = None
+        self._payload_ages: Dict[str, float] = {}
         self._last_warned: Dict[str, float] = {}
         #: Last outdoor sample, written by the reader thread and read by the
         #: control loop, so it is guarded. Starts empty: no reading is the
@@ -894,27 +896,25 @@ class Sensors:
     # -- ESP32 over Redis --------------------------------------------------
 
     def _read_esp32_key(self, key: str, label: str) -> Tuple[Optional[float], Optional[float]]:
+        self._payload_ages.pop(key, None)
         try:
             raw = redis_client.get(key)
             if raw is None:
                 return None, None
-
-            payload = json.loads(raw)
-            age = int(_now_local().timestamp()) - int(payload.get("timestamp", 0))
-            if age > ESP32_MAX_AGE_SECONDS:
+            sample = parse_esp32_sample(raw, _now_local().timestamp())
+            if sample.age > ESP32_MAX_AGE_SECONDS:
                 self._warn_throttled(
                     f"esp32_stale_{key}",
-                    f"⚠️ ESP32 {label} data is stale: '{key}' is {age}s old "
+                    f"⚠️ ESP32 {label} data is stale: '{key}' is {sample.age}s old "
                     f"(max {ESP32_MAX_AGE_SECONDS}s). A key nobody writes any more "
                     f"looks exactly like a dead sensor, so the key is named here.",
                 )
                 return None, None
 
-            temperature = payload.get("temperature")
-            humidity = payload.get("humidity")
-            if temperature is None or humidity is None:
+            if sample.temperature is None or sample.humidity is None:
                 return None, None
-            return float(temperature), float(humidity)
+            self._payload_ages[key] = sample.data_age
+            return float(sample.temperature), float(sample.humidity)
         except Exception as e:
             print(f"⚠️ Error reading ESP32 {label} data: {e}")
             return None, None
@@ -1006,7 +1006,7 @@ class Sensors:
                 self.indoor_source = "dht22_local"
 
         if temperature is not None and humidity is not None:
-            self.last_reading_at = monotonic()
+            self.last_reading_at = monotonic() - self._payload_ages.get(self.indoor_sensors.primary_key, 0.0)
 
         # Median-filter the indoor readings the control decision depends on.
         temperature = self.indoor_temp.push(temperature)
