@@ -1,4 +1,4 @@
-.PHONY: help install install-rpi sync update run-vpd run-backend clean logs status test test-js lint check pull-data inspect-data compact-remote compact-remote-dry compact-local ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
+.PHONY: help install install-rpi sync update run-vpd run-backend sim clean logs status test test-js lint check pull-data inspect-data compact-remote compact-remote-dry compact-local ssh ssh-setup ssh-logs ssh-status ssh-restart deploy
 
 # nvm only puts node on PATH in interactive shells, so make would not find it.
 # Prefer nvm's node (the newest one unless NVM_BIN is set) when it exists.
@@ -77,6 +77,7 @@ help:
 	@echo "  Ejecución local:"
 	@echo "    make run-vpd       - Ejecuta el control de VPD (early_veg por defecto)"
 	@echo "    make run-backend   - Ejecuta el servidor web"
+	@echo "    make sim           - Simulador de la carpa con sensores y relés falsos (SCENARIO=, SPEED=, DURATION=)"
 	@echo "    make logs          - Muestra los últimos logs"
 	@echo "    make status        - Muestra qué procesos están corriendo"
 	@echo "    make test          - Corre los tests (Python + JS)"
@@ -142,6 +143,17 @@ run-vpd:
 run-backend:
 	@echo "Iniciando servidor web..."
 	uv run python -m autocann.cli.backend
+
+# Tent simulator: backend, control loop and fake sensor and relay nodes in an
+# isolated sandbox (its own Redis DB, SQLite file and port; relays are always
+# remote, never GPIO). Extra flags go through ARGS, e.g. ARGS=--interval 10.
+#   make sim SCENARIO=humid SPEED=10 DURATION=120
+SCENARIO ?= normal
+SPEED ?= 1
+DURATION ?=
+
+sim:
+	uv run python -m autocann.cli.simulate --scenario $(SCENARIO) --speed $(SPEED) $(if $(DURATION),--duration $(DURATION)) $(ARGS)
 
 clean:
 	@echo "Limpiando archivos temporales..."
