@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from time import monotonic, sleep
 
@@ -295,3 +296,101 @@ def test_an_unreachable_redis_does_not_stop_startup(paired, monkeypatch):
     monkeypatch.setattr(vpd.redis_client, "get", boom)
     paired.load_drift_baseline()
     assert paired.drift.baseline is None
+
+
+class _ClockedEsp32:
+    """
+    An ESP32 sensor behind a fake Redis, on a fake clock.
+
+    `wall` is the epoch second the module sees through `_now_local`, `mono` the
+    monotonic reading it sees through `monotonic`. Both move only when a test
+    says so, so no test sleeps.
+    """
+
+    def __init__(self, monkeypatch):
+        from datetime import datetime, timezone
+
+        import autocann.cli.vpd as vpd
+
+        self.wall = 1_700_000_000.0
+        self.mono = 5_000.0
+        self.value = None
+        monkeypatch.setattr(vpd, "redis_client", self)
+        monkeypatch.setattr(vpd, "monotonic", lambda: self.mono)
+        monkeypatch.setattr(vpd, "_now_local",
+                            lambda: datetime.fromtimestamp(self.wall, timezone.utc))
+
+    def get(self, key):
+        return self.value
+
+    def post(self, temperature=24.0, humidity=60.0, age=0.0):
+        """The sensor posts now, `age` seconds ago by the wall clock."""
+        self.value = json.dumps({
+            "temperature": temperature, "humidity": humidity,
+            "timestamp": int(self.wall - age),
+        }).encode()
+
+    def advance(self, seconds):
+        self.wall += seconds
+        self.mono += seconds
+
+
+@pytest.fixture
+def clocked(monkeypatch):
+    s = Sensors(use_esp32_indoor=True)
+    monkeypatch.setattr(s, "_read_dht22", lambda *a, **k: (None, None))
+    return s, _ClockedEsp32(monkeypatch)
+
+
+def test_an_esp32_reading_is_aged_from_its_post_not_from_the_read(clocked):
+    sensors, esp32 = clocked
+    esp32.post(age=50)
+    data = sensors.read()
+
+    assert data["indoor_source"] == "esp32"
+    assert sensors.reading_age_seconds == pytest.approx(50.0)
+
+
+def test_re_reading_an_old_payload_keeps_counting_from_its_post(clocked):
+    sensors, esp32 = clocked
+    esp32.post(age=50)
+    sensors.read()
+
+    esp32.advance(80)                 # same payload, now 130 s old: too old to accept
+    sensors.read()
+
+    assert sensors.reading_age_seconds == pytest.approx(130.0)
+    assert sensors.reading_age_seconds > 120.0    # the failsafe threshold
+
+
+def test_the_failsafe_trips_120_seconds_after_the_last_post(clocked):
+    """
+    The sensor posts once and then goes silent. The loop reads every 3 s. The
+    last accepted read is at 60 s (the ESP32 freshness limit), and the age must
+    still count from the post, so it crosses 120 s at 123 s, not 183 s.
+    """
+    sensors, esp32 = clocked
+    esp32.post()
+    trips_at = None
+    for second in range(0, 240, 3):
+        if second:
+            esp32.advance(3)
+        sensors.read()
+        if sensors.reading_age_seconds > 120.0:
+            trips_at = second
+            break
+
+    assert trips_at == 123
+
+
+def test_a_fresh_post_resets_the_age(clocked):
+    sensors, esp32 = clocked
+    esp32.post(age=50)
+    sensors.read()
+
+    esp32.advance(80)
+    esp32.post(temperature=25.0)      # the sensor posts again, just now
+    data = sensors.read()
+
+    assert data["indoor_source"] == "esp32"
+    assert sensors.reading_age_seconds == pytest.approx(0.0)
