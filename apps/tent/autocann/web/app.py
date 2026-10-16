@@ -6,7 +6,6 @@ from datetime import datetime
 from flask import Flask, jsonify, render_template, request
 from markupsafe import Markup, escape
 
-from autocann import __version__
 from autocann.config import (
     CONTROL_MODES,
     DESIRED_OUTPUTS_KEY,
@@ -87,11 +86,13 @@ from autocann.paths import STATIC_DIR, TEMPLATES_DIR
 from autocann.redis_pool import pooled_client
 from autocann.time import ARGENTINA_TZ
 from autocann.web.alert_owners import reframe_history_anomalies
+from autocann.web.assets import static_asset_version
 from autocann.web.auth import register_auth
 from autocann.web.diagnostics import (
     health_snapshot,
     register_diagnostics,
 )
+from autocann.web.pwa import register_pwa
 
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
@@ -283,36 +284,6 @@ def _indoor_delta(readings):
         "humidity": round(witness["humidity"] - primary["humidity"], 2),
     }
 
-
-
-def static_asset_version() -> str:
-    """
-    A cache-busting token that changes when the files behind it do.
-
-    It used to be `__version__`, which has read "0.1.0" since the first commit
-    and has never been bumped once. Every stylesheet and every module shipped
-    since then went out behind the same query string, so the promise in
-    index.html - that a deploy busts the browser cache - had never been kept:
-    the tablet on the tent wall kept its old app.css against freshly deployed
-    markup, which is worse than no cache-busting, because it looks like the
-    deploy broke the page.
-
-    The newest mtime under static/ answers it exactly, and without anyone
-    having to remember anything: `git pull` stamps every file it rewrites, so
-    the token moves on the deploys that changed an asset and stays put on the
-    ones that did not. The version stays in front of it so the string is still
-    recognisable as this app's.
-    """
-    try:
-        newest = max(
-            (path.stat().st_mtime for path in STATIC_DIR.rglob("*") if path.is_file()),
-            default=0.0,
-        )
-    except OSError:
-        # An unreadable static dir is a problem, but not this function's to
-        # report: serving a stale token is better than failing to build the app.
-        return __version__
-    return f"{__version__}-{int(newest):x}" if newest else __version__
 
 def icon(name: str, extra_class: str = "") -> Markup:
     """
@@ -1747,6 +1718,7 @@ def create_app() -> Flask:
     # registrada después que se le escape. Sin AUTOCANN_PIN no instala nada y
     # todo se comporta exactamente como antes.
     register_auth(app)
+    register_pwa(app, asset_version)
 
     return app
 
