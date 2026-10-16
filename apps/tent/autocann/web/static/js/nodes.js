@@ -52,7 +52,7 @@ function readRate(sensor) {
     if (!total) return { text: 'sin lecturas', bad: true };
     const pct = (failed / total) * 100;
     return {
-        text: `${ok} ok · ${failed} fallidas (${fmtNum(pct, 1)} %)`,
+        text: `${ok} ok · ${failed} ${failed === 1 ? 'fallida' : 'fallidas'} (${fmtNum(pct, 1)} %)`,
         bad: pct >= 20 || Number(sensor.consecutive_failed) >= 3,
     };
 }
@@ -69,7 +69,7 @@ function nodeSensorHtml(sensor) {
             <span class="node-sensor-id">${escapeHtml(String(sensor.id || '?').toUpperCase())}</span>
             <span class="node-sensor-pin">GPIO ${escapeHtml(String(sensor.pin ?? '--'))}</span>
             <span class="node-sensor-rate">${escapeHtml(rate.text)}</span>
-            ${posts ? `<span class="node-sensor-posts">${posts} POST fallidos</span>` : ''}
+            ${posts ? `<span class="node-sensor-posts">${posts} ${posts === 1 ? 'POST fallido' : 'POST fallidos'}</span>` : ''}
         </div>`;
 }
 
