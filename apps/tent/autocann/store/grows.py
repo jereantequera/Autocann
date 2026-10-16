@@ -8,8 +8,9 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from autocann.store.connection import _open
-from autocann.store.migrations import _parse_local_datetime
+from autocann.store.migrations import _parse_local_datetime, snapshot_profile_stages
 from autocann.store.schema import ensure_schema
+from autocann.store.seeds import BUILTIN_PROFILE_ID, BUILTIN_TENT_ID
 from autocann.time import ARGENTINA_TZ
 
 #: Ask for every grow at once, on purpose.
@@ -124,38 +125,61 @@ def _grow_day_counters(grow: Dict, now: Optional[int] = None) -> Dict:
         return empty
 
 
-def create_grow(name: str, stage: str = "early_veg", notes: str = "") -> Optional[int]:
+def create_grow(name: str, stage: str = "early_veg", notes: str = "",
+                profile_id: str = BUILTIN_PROFILE_ID, tent_id: int = BUILTIN_TENT_ID) -> Optional[int]:
     """
-    Create a new grow and set it as active.
+    Create a grow in a tent, from a profile, and set it as active.
+
+    The profile's stages are copied into `grow_stages` in the same transaction,
+    so editing the profile later does not change this grow. Only the other
+    active grows of the same tent are deactivated.
+
+    Returns None, and writes nothing, when `stage` is not a stage of the profile
+    or the profile or the tent does not exist.
     """
     try:
         current_time = datetime.now(ARGENTINA_TZ)
+        started_at = int(current_time.timestamp())
+        stamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
 
         ensure_schema()
         conn = _open()
-        cursor = conn.cursor()
+        try:
+            # Under the write lock, so the checks and the inserts see the same rows.
+            conn.execute("BEGIN IMMEDIATE")
+            stage_keys = {row[0] for row in conn.execute(
+                "SELECT key FROM profile_stages WHERE profile_id = ?", (profile_id,))}
+            tent_exists = conn.execute("SELECT 1 FROM tents WHERE id = ?", (tent_id,)).fetchone()
+            if stage not in stage_keys or tent_exists is None:
+                conn.rollback()
+                print(f"Error creating grow: stage '{stage}' is not in profile '{profile_id}', "
+                      f"or tent {tent_id} does not exist")
+                return None
 
-        # Deactivate all other grows
-        cursor.execute("UPDATE grows SET is_active = 0")
-
-        # Create new grow
-        cursor.execute(
-            """
-            INSERT INTO grows (name, stage, start_date, is_active, notes)
-            VALUES (?, ?, ?, 1, ?)
-        """,
-            (name, stage, current_time.strftime("%Y-%m-%d %H:%M:%S"), notes),
-        )
-
-        grow_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-
-        if grow_id is not None:
-            record_stage_event(int(grow_id), stage,
-                               started_at=int(current_time.timestamp()),
-                               notes="Inicio del cultivo")
-        return int(grow_id) if grow_id is not None else None
+            conn.execute("UPDATE grows SET is_active = 0 WHERE tent_id = ?", (tent_id,))
+            cursor = conn.execute(
+                """
+                INSERT INTO grows (name, stage, start_date, is_active, notes, tent_id, profile_id)
+                VALUES (?, ?, ?, 1, ?, ?, ?)
+            """,
+                (name, stage, stamp, notes, tent_id, profile_id),
+            )
+            grow_id = int(cursor.lastrowid)
+            snapshot_profile_stages(conn, grow_id, profile_id)
+            conn.execute(
+                """
+                INSERT INTO stage_events (grow_id, stage, started_at, datetime, notes)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (grow_id, stage, started_at, stamp, "Inicio del cultivo"),
+            )
+            conn.commit()
+            return grow_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
     except Exception as e:
         print(f"Error creating grow: {e}")
         return None

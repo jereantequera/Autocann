@@ -9,11 +9,20 @@ from datetime import datetime
 from autocann.store import connection
 from autocann.store.connection import _open
 from autocann.store.migrations import (
+    _backfill_grow_stages,
     _backfill_stage_events,
+    _migrate_grow_links,
     _migrate_nullable_outdoor_columns,
     _migrate_sample_detail_columns,
+    snapshot_profile_stages,
 )
-from autocann.store.seeds import _seed_builtin_profiles, _seed_feed_plan
+from autocann.store.seeds import (
+    BUILTIN_PROFILE_ID,
+    BUILTIN_TENT_ID,
+    _seed_builtin_profiles,
+    _seed_feed_plan,
+    _seed_tents,
+)
 from autocann.time import ARGENTINA_TZ
 
 _schema_ready = False
@@ -290,6 +299,40 @@ def init_database() -> None:
     """
     )
 
+    # Tents: the grow spaces. Tent 1 is seeded below.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tents (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TEXT
+        )
+    """
+    )
+
+    # A grow's own copy of its profile's stages, taken when it starts. The
+    # control loop and the dashboard read this, never the profile, so editing a
+    # profile cannot change a grow that is already running. Same columns as
+    # profile_stages, keyed by grow.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS grow_stages (
+            grow_id INTEGER NOT NULL,
+            key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            expected_days INTEGER,
+            vpd_min REAL,
+            vpd_max REAL,
+            rh_min REAL,
+            rh_max REAL,
+            water_only INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (grow_id, key),
+            FOREIGN KEY (grow_id) REFERENCES grows(id) ON DELETE CASCADE
+        )
+    """
+    )
+
     conn.commit()
 
     _migrate_nullable_outdoor_columns(conn)
@@ -297,6 +340,9 @@ def init_database() -> None:
     _backfill_stage_events(conn)
     _seed_feed_plan(conn)
     _seed_builtin_profiles(conn)
+    _seed_tents(conn)
+    _migrate_grow_links(conn, BUILTIN_TENT_ID, BUILTIN_PROFILE_ID)
+    _backfill_grow_stages(conn)
 
     # Create default grow if none exists
     cursor.execute("SELECT COUNT(*) FROM grows")
@@ -306,16 +352,19 @@ def init_database() -> None:
         stamp = current_time.strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
             """
-            INSERT INTO grows (name, stage, start_date, is_active, notes)
-            VALUES (?, ?, ?, 1, ?)
+            INSERT INTO grows (name, stage, start_date, is_active, notes, tent_id, profile_id)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
         """,
             (
                 "Cultivo #1",
                 "early_veg",
                 stamp,
                 "Cultivo inicial creado automáticamente",
+                BUILTIN_TENT_ID,
+                BUILTIN_PROFILE_ID,
             ),
         )
+        snapshot_profile_stages(conn, cursor.lastrowid, BUILTIN_PROFILE_ID)
         # Its opening stage event, written here rather than left to the
         # backfill: that already ran, a few lines above, when this grow did not
         # exist yet. Without this the default grow has no day counter until the
