@@ -18,6 +18,7 @@ from autocann.db import (
     record_irrigation,
     replace_feed_plan,
 )
+from autocann.store import schema as store_schema
 
 
 class FakeRedis:
@@ -123,7 +124,7 @@ def test_a_deleted_product_does_not_come_back(temp_db):
     plan = get_feed_plan()
     assert replace_feed_plan([p for p in plan if p["name"] != "Overdrive"])
 
-    temp_db._schema_ready = False
+    store_schema._schema_ready = False
     temp_db.ensure_schema()
     assert "Overdrive" not in [p["name"] for p in get_feed_plan()]
 

@@ -12,6 +12,7 @@ from autocann.control.vpd_math import (
     VPD_RANGES,
     humidity_range_bounds_for_stage,
 )
+from autocann.store import connection as store_conn
 
 # Fixtures `client` and `temp_db` come from conftest.py.
 
@@ -24,7 +25,7 @@ _LEAF_AT_IMPORT = vpd_math.LEAF_TEMP_OFFSET_C
 
 
 def _control_event(db, timestamp, event_type, value):
-    conn = sqlite3.connect(db.DB_PATH)
+    conn = sqlite3.connect(store_conn.DB_PATH)
     conn.execute(
         "INSERT INTO control_events (timestamp, datetime, event_type, value) VALUES (?, ?, ?, ?)",
         (timestamp, "2000-01-01 00:00:00", event_type, value),
@@ -34,7 +35,7 @@ def _control_event(db, timestamp, event_type, value):
 
 
 def _set_columns(db, table, row_id, column, value):
-    conn = sqlite3.connect(db.DB_PATH)
+    conn = sqlite3.connect(store_conn.DB_PATH)
     conn.execute(f"UPDATE {table} SET {column} = ? WHERE id = ?", (value, row_id))
     conn.commit()
     conn.close()
@@ -207,7 +208,7 @@ def _relay_rows(items):
 
 
 def _first_stage_event_id(db, grow_id):
-    conn = sqlite3.connect(db.DB_PATH)
+    conn = sqlite3.connect(store_conn.DB_PATH)
     row_id = conn.execute(
         "SELECT id FROM stage_events WHERE grow_id = ? ORDER BY id ASC LIMIT 1", (grow_id,)
     ).fetchone()[0]

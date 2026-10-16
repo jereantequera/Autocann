@@ -6,6 +6,8 @@ import time
 import pytest
 
 from autocann.control.vpd_math import VPD_RANGES
+from autocann.store import connection as store_conn
+from autocann.store import schema as store_schema
 
 BUCKET_SECONDS = 3600
 
@@ -69,13 +71,13 @@ def test_wal_mode_is_enabled_so_readers_and_the_control_loop_do_not_block(temp_d
 
 def test_a_concurrent_writer_waits_instead_of_erroring(temp_db, monkeypatch):
     """A second writer used to fail instantly with 'database is locked'."""
-    monkeypatch.setattr(temp_db, "BUSY_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(store_conn, "BUSY_TIMEOUT_SECONDS", 2.0)
     holder = temp_db._open()
     holder.execute("BEGIN EXCLUSIVE")
     try:
         with pytest.raises(sqlite3.OperationalError):
             # Proves the lock is real: a connection with no timeout gives up at once.
-            bare = sqlite3.connect(temp_db.DB_PATH, timeout=0)
+            bare = sqlite3.connect(store_conn.DB_PATH, timeout=0)
             bare.execute("BEGIN EXCLUSIVE")
     finally:
         holder.rollback()
@@ -127,9 +129,9 @@ def test_importing_the_db_module_does_not_create_a_database(tmp_path, monkeypatc
     """Schema creation used to run as an import side effect."""
     import importlib
 
-    import autocann.db as fresh
-    monkeypatch.setattr(fresh, "DB_PATH", tmp_path / "untouched.db")
-    monkeypatch.setattr(fresh, "_schema_ready", False)
+    importlib.import_module("autocann.db")
+    monkeypatch.setattr(store_conn, "DB_PATH", tmp_path / "untouched.db")
+    monkeypatch.setattr(store_schema, "_schema_ready", False)
     importlib.reload(importlib.import_module("autocann.control.vpd_math"))
     assert not (tmp_path / "untouched.db").exists()
 
@@ -430,8 +432,8 @@ def test_migrating_a_legacy_database_preserves_every_row(tmp_path, monkeypatch):
     conn.close()
 
     import autocann.db as db
-    monkeypatch.setattr(db, "DB_PATH", legacy)
-    monkeypatch.setattr(db, "_schema_ready", False)
+    monkeypatch.setattr(store_conn, "DB_PATH", legacy)
+    monkeypatch.setattr(store_schema, "_schema_ready", False)
     db.ensure_schema()
     db.ensure_schema()                      # second run must be a no-op
 

@@ -13,13 +13,15 @@ from autocann.control.vpd_math import (
     STAGE_NAMES,
     VPD_RANGES,
 )
+from autocann.store import connection as store_conn
+from autocann.store import schema as store_schema
 
 
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     """Point the database layer at a throwaway file."""
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    monkeypatch.setattr(db, "_schema_ready", False)
+    monkeypatch.setattr(store_conn, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(store_schema, "_schema_ready", False)
     db.ensure_schema()
     return db
 
