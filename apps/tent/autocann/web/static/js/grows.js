@@ -242,8 +242,10 @@ function drawStageBar() {
     });
 
     box.style.gridTemplateColumns = cells.map(cell => `${cell.flex}fr`).join(' ');
-    box.innerHTML = cells.map(cell => `
-        <div class="ac-stage is-${cell.state}">
+    // --col places the bar segment; --row places the label row under the bar
+    // on narrow screens (see cultivo.css). Desktop ignores both.
+    box.innerHTML = cells.map((cell, index) => `
+        <div class="ac-stage is-${cell.state}" style="--col: ${index + 1}; --row: ${index + 2}">
             <div class="ac-stage__bar"><div class="ac-stage__fill" style="width: ${cell.fill.toFixed(1)}%"></div></div>
             <div class="ac-stage__name">${escapeHtml(cell.name)}</div>
             <div class="ac-stage__meta">${escapeHtml(cell.meta)}</div>
