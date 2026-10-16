@@ -26,8 +26,9 @@
 #   OUT_DIR/<slug>-desktop.png   1440x1000
 #   OUT_DIR/<slug>-mobile.png    390x844
 #
-# Requirements: bash, python3 (or the app venv), curl, chromium, and the
-# app's .venv (app root or /home/claudio/Autocann/apps/tent/.venv).
+# Requirements: bash, curl, chromium, and uv when the app's .venv
+# (APP_ROOT/.venv) does not exist yet: the script then runs `uv sync` once in
+# the app root. uv is looked up on PATH, then in ~/.local/bin and ~/.cargo/bin.
 #
 # Environment:
 #   AUTOCANN_DB  If set, passed to the backend so a copy of real data is used.
@@ -71,12 +72,22 @@ OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 readonly OUT_DIR
 
 # --- Python interpreter for the backend -------------------------------------
-if [[ -x "$APP_ROOT/.venv/bin/python" ]]; then
-    PY="$APP_ROOT/.venv/bin/python"
-elif [[ -x /home/claudio/Autocann/apps/tent/.venv/bin/python ]]; then
-    PY=/home/claudio/Autocann/apps/tent/.venv/bin/python
-else
-    die "no executable venv python found at $APP_ROOT/.venv/bin/python or /home/claudio/Autocann/apps/tent/.venv/bin/python"
+PY="$APP_ROOT/.venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+    # Fresh checkout (e.g. a new worktree): create the venv with uv. The
+    # backend is still started with $PY directly, not through `uv run`, so
+    # $! stays the backend's own PID.
+    UV=""
+    for candidate in "$(command -v uv 2>/dev/null || true)" "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+        if [[ -n "$candidate" && -x "$candidate" ]]; then
+            UV="$candidate"
+            break
+        fi
+    done
+    [[ -n "$UV" ]] || die "no venv at $PY and uv not found on PATH, ~/.local/bin or ~/.cargo/bin; install uv or run 'uv sync' in $APP_ROOT"
+    echo "no venv at $PY; running uv sync in $APP_ROOT" >&2
+    (cd "$APP_ROOT" && "$UV" sync) || die "uv sync failed in $APP_ROOT"
+    [[ -x "$PY" ]] || die "uv sync did not create $PY"
 fi
 readonly PY
 
