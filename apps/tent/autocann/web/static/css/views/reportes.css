@@ -292,3 +292,21 @@
         grid-template-columns: 84px minmax(0, 1fr) 48px;
     }
 }
+
+/* Phones: the time-in-range readout keeps the first row to itself and the
+   other two share the second, so their labels get a column each. */
+@media (max-width: 600px) {
+    .view[data-view="reportes"] .rpt-readouts {
+        grid-auto-flow: row;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .view[data-view="reportes"] .rpt-readouts > :nth-child(n + 2) {
+        border-top: 1px solid var(--hairline);
+    }
+
+    .view[data-view="reportes"] .rpt-readouts > :nth-child(2) {
+        padding-left: 0;
+        border-left: 0;
+    }
+}
