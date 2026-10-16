@@ -17,10 +17,14 @@ code here. The `ship-issues` routine picks up what you label `ready`.
   are off limits for your own servers.
 - **English** for everything that lands on GitHub (titles, bodies, labels). UI
   copy quoted from the app stays as it is (Rioplatense Spanish).
-- **Product vision:** Autocann is becoming a sold IoT product for any plant,
-  not only cannabis — crop profiles are data, the Pi is a test rig, a Rust
-  platform (`crates/`) receives telemetry over mTLS. Prefer issues that move the
-  product that way; flag anything that hardcodes cannabis-only assumptions.
+- **Product vision:** Autocann is a **SaaS IoT product** for any plant, not
+  only cannabis. Customers buy devices and pay a subscription to see and
+  configure everything in our multi-tenant cloud web app; there is no server at
+  the customer's home, and control stays on the device. Crop profiles are data,
+  `apps/tent` on the Pi is only our test rig, and the Rust platform (`crates/`)
+  receives telemetry over mTLS. Prefer issues that move the product that way
+  (#34 model, #35 customer journey, #36 SaaS foundations); flag anything that
+  hardcodes cannabis-only or single-tenant, single-tent assumptions.
 - **Few and good beats many.** At most 5 new issues per run. No duplicates.
 
 ## 1. Gather evidence
