@@ -24,7 +24,6 @@ LIMIT = 400
 #: Today's offenders, relative to apps/tent, with their line counts as ceilings.
 ALLOWLIST: dict[str, int] = {
     "autocann/cli/simulate.py": 746,
-    "autocann/cli/vpd.py": 1485,
     "autocann/config.py": 446,
     "autocann/web/diagnostics.py": 912,
     "autocann/web/static/js/charts.js": 435,
