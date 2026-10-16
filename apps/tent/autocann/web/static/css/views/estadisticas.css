@@ -272,3 +272,24 @@
         font-size: 28px;
     }
 }
+
+/* Phones: nine range buttons cannot fit one row, so the group scrolls
+   sideways and each label stays on one line. The scrollbar is hidden; the
+   row is still swiped or dragged. */
+@media (max-width: 600px) {
+    .view[data-view="stats"] .time-selector .ac-segmented {
+        display: flex;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .view[data-view="stats"] .time-selector .ac-segmented::-webkit-scrollbar {
+        display: none;
+    }
+
+    .view[data-view="stats"] .time-btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+}
