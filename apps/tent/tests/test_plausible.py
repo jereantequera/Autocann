@@ -126,10 +126,23 @@ class _Frozen(datetime):
         return datetime.fromtimestamp(NOW, tz)
 
 
+def _freeze_store_clock(monkeypatch):
+    """Freeze datetime.now() in every store module (they used to be one module, db.py)."""
+    import importlib
+    import pkgutil
+
+    import autocann.store as store
+
+    for info in pkgutil.iter_modules(store.__path__):
+        module = importlib.import_module(f"autocann.store.{info.name}")
+        if hasattr(module, "datetime"):
+            monkeypatch.setattr(module, "datetime", _Frozen)
+
+
 @pytest.fixture
 def mixed(temp_db, monkeypatch):
     """Four good rows at 24 °C / 60 %, and three broken ones of each kind."""
-    monkeypatch.setattr(temp_db, "datetime", _Frozen)
+    _freeze_store_clock(monkeypatch)
     now = NOW - 60
     _insert(temp_db, [
         (now - 0 * 300, 24.0, 60.0, 24.0),
@@ -209,7 +222,7 @@ def test_the_limits_are_the_same_everywhere():
 @pytest.fixture
 def outdoor_mixed(temp_db, monkeypatch):
     """Three rows with a good indoor reading; one has an impossible outdoor value each."""
-    monkeypatch.setattr(temp_db, "datetime", _Frozen)
+    _freeze_store_clock(monkeypatch)
     now = NOW - 60
     grow_id = temp_db.get_active_grow()["id"]
     conn = temp_db._open()
