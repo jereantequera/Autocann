@@ -260,6 +260,24 @@ body {
     color: var(--fg-muted);
 }
 
+/* The title row of an alert whose action belongs to the whole list. */
+.ac-alert__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* As tall as the title line, so the row is no taller than a title alone, and
+   pulled out by its own padding so the word ends on the same edge as the
+   timestamps below it. The padding stays for the hover background. */
+.ac-alert__head .ac-btn {
+    flex: none;
+    height: auto;
+    padding: 0 8px;
+    margin-right: -8px;
+}
+
 
 /* Grow Control Bar */
 .grow-info {
@@ -2712,6 +2730,54 @@ body {
 
 .ac-sidebar .system-state-action {
     margin-left: auto;
+}
+
+/* On the desktop sidebar, two rows on purpose: the state on the first, the
+   verb under its words and how long on the second. The sidebar is too narrow
+   for all three on one line in any state, and letting them wrap put the verb,
+   with its divider, alone at the right edge of a second line - a different
+   shape in each state. On a phone the same markup is a one-line top bar. */
+@media (min-width: 769px) {
+    .ac-sidebar .system-state {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "dot text text"
+            ".   verb since";
+        align-items: center;
+        column-gap: 8px;
+        row-gap: 2px;
+        text-align: left;
+    }
+
+    .ac-sidebar .system-state .status-dot {
+        grid-area: dot;
+    }
+
+    .ac-sidebar .system-state-text {
+        grid-area: text;
+    }
+
+    .ac-sidebar .system-state-since {
+        grid-area: since;
+    }
+
+    .ac-sidebar .system-state-action {
+        grid-area: verb;
+        padding-left: 0;
+        margin-left: 0;
+        border-left: 0;
+    }
+
+    /* Collapsed it is the dot alone, centred in its 40px square. */
+    .ac-sidebar.is-collapsed .system-state {
+        display: flex;
+    }
+
+    /* Under the chip's dot, not under its border: border plus padding. */
+    .ac-sidebar__status .last-update {
+        padding-left: 15px;
+    }
 }
 
 .ac-sidebar__status .last-update {

@@ -31,10 +31,15 @@
         <div id="anomalies-alert" class="ac-alert alert-box alert-box--warn" role="status" aria-live="polite">
             <span class="alert-icon" id="anomalies-icon" aria-hidden="true">{{ icon("triangle-alert") }}</span>
             <div class="ac-alert__body">
-                <div class="ac-alert__title" id="anomalies-title-text">Advertencias detectadas</div>
+                <!-- The button lives in the title row, not beside the body: there it
+                     floated between the title and the list, and the list stopped
+                     short of it, leaving the card with two right edges. -->
+                <div class="ac-alert__head">
+                    <div class="ac-alert__title" id="anomalies-title-text">Advertencias detectadas</div>
+                    <button type="button" class="ac-btn ac-btn--ghost" data-action="dismiss-anomalies">Descartar</button>
+                </div>
                 <div class="anomalies-list" id="anomalies-list">
                     <!-- Anomalies will be inserted here -->
                 </div>
             </div>
-            <button type="button" class="ac-btn ac-btn--ghost" data-action="dismiss-anomalies">Descartar</button>
         </div>
