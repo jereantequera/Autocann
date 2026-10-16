@@ -100,6 +100,30 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `python -m autocann.cli.inspect_db` (reporte sobre una base traída de producción)
 - `python -m autocann.cli.compact_db` (compactar el `control_events` viejo)
 
+## Code structure
+
+Rules for where code lives. The splits in progress follow them, and new code
+should too. `tests/test_structure.py` enforces the size limit.
+
+- **Functional core, imperative shell.** Decisions are pure functions in
+  `autocann/control/` (humidity, stages, feeding, drift). I/O (Redis, SQLite,
+  GPIO, HTTP) lives at the edges and passes data into the core as parameters.
+- **Store.** Database access lives in `autocann/store/`, one module per area
+  (grows, samples, irrigations, feed, profiles, settings, analytics), plus
+  `schema.py` for tables and migrations. One `connect()` helper. The schema is
+  ensured once at startup, not on every call. Functions raise on database
+  errors instead of printing and returning empty values; the web layer turns
+  errors into HTTP responses.
+- **Web.** Flask blueprints in `autocann/web/api/`, one per area.
+  `create_app` only wires the blueprints and the shared clients (Redis, store).
+- **Control loop.** `cli/vpd.py` is a thin entry point. Orchestration, sensor
+  readers and output drivers are separate modules.
+- **Logging over print.** New or moved code uses `logging`, not `print`.
+- **400 lines per file.** A module that needs more is two modules. Enforced by
+  `tests/test_structure.py` for `autocann/**/*.py` and the dashboard JS. Files
+  that are already over the limit are allowlisted with a ceiling that can only
+  go down; when one drops under 400 its entry is removed.
+
 ## Deuda conocida
 
 - `autocann/cli/vpd.py` tiene ~1480 líneas y es lo único que queda sin partir:
