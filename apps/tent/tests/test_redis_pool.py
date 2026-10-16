@@ -182,9 +182,9 @@ def test_the_backend_builds_its_client_through_the_factory(monkeypatch):
 
 
 def test_the_control_loop_client_is_pooled():
-    import autocann.cli.vpd as vpd
+    import autocann.runtime.redis as runtime_redis
 
-    pool = vpd.redis_client.connection_pool
+    pool = runtime_redis.redis_client.connection_pool
     assert isinstance(pool, redis.BlockingConnectionPool)
     assert pool.max_connections == MAX_CONNECTIONS
     assert pool.connection_kwargs["socket_timeout"] == SOCKET_TIMEOUT_SECONDS

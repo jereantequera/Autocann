@@ -22,6 +22,8 @@ JS_DIR = STATIC_DIR / "js"
 JS_TEST_DIR = Path(__file__).parent / "js"
 #: The two modules the control-mode tests read as text.
 VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
+#: Where the monitoring, pause and history code lives now that the loop is split out of `VPD_PY`.
+LOOP_PY = Path(__file__).parent.parent / "autocann" / "runtime" / "loop.py"
 APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
 #: Partials kept on disk on purpose with no page including them yet. None now:
 #: the Exterior card moved into Estadísticas, and its partial went with it. The
@@ -894,7 +896,7 @@ def test_monitoring_records_history_and_the_pause_still_does_not():
     decided. A monitoring branch that forgot to flush would look identical to a
     pause and silently throw away the data it exists to collect.
     """
-    vpd = _strip_js_comments(VPD_PY.read_text())
+    vpd = _strip_js_comments(LOOP_PY.read_text())
 
     monitor = vpd[vpd.index("def run_monitor_cycle("):]
     monitor = monitor[: monitor.index("\ndef ", 1)]
@@ -914,7 +916,7 @@ def test_monitoring_records_no_decision_it_did_not_make():
     aiming at something. Nothing is. That is also what makes a monitoring
     stretch recognisable afterwards without inventing a flag for it.
     """
-    vpd = VPD_PY.read_text()
+    vpd = LOOP_PY.read_text()
     monitor = vpd[vpd.index("def run_monitor_cycle("):]
     monitor = monitor[: monitor.index("\ndef ", 1)]
     for field in ('"stage": None', '"target_humidity": None', '"control_action": None'):
@@ -926,8 +928,8 @@ def test_one_writer_for_the_history_rather_than_two():
     Both regimes store; two copies of the interval arithmetic is how one of
     them quietly starts summarising differently from the other.
     """
-    vpd = _strip_js_comments(
-        VPD_PY.read_text())
+    # Both files together: the history is written in runtime/loop.py, and the loop in cli/vpd.py calls it.
+    vpd = _strip_js_comments(VPD_PY.read_text() + LOOP_PY.read_text())
     assert vpd.count("store_sensor_sample(") == 1
     assert vpd.count("flush_history(") >= 3  # the def, and both call sites
 

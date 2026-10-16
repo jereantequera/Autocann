@@ -63,11 +63,11 @@ class _FakeRedis:
 def test_the_loop_treats_an_impossible_esp32_reading_as_a_failed_read(monkeypatch):
     now = int(datetime.now(ARGENTINA_TZ).timestamp())
     sensors = Sensors(use_esp32_indoor=True)
-    monkeypatch.setattr("autocann.cli.vpd.redis_client",
+    monkeypatch.setattr("autocann.hardware.indoor.redis_client",
                         _FakeRedis({"temperature": 80.0, "humidity": 60.0, "timestamp": now}))
     assert sensors._read_esp32_key("esp32_indoor", "indoor") == (None, None)
 
-    monkeypatch.setattr("autocann.cli.vpd.redis_client",
+    monkeypatch.setattr("autocann.hardware.indoor.redis_client",
                         _FakeRedis({"temperature": 24.0, "humidity": 60.0, "timestamp": now}))
     assert sensors._read_esp32_key("esp32_indoor", "indoor") == (24.0, 60.0)
 
@@ -91,8 +91,8 @@ class _FakeDHT:
 
 
 def test_a_local_dht22_railed_at_minus_40_is_a_failed_read(monkeypatch):
-    monkeypatch.setattr("autocann.cli.vpd.DHT_READ_ATTEMPTS", 2)
-    monkeypatch.setattr("autocann.cli.vpd.DHT_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("autocann.hardware.dht.DHT_READ_ATTEMPTS", 2)
+    monkeypatch.setattr("autocann.hardware.dht.DHT_RETRY_DELAY_SECONDS", 0)
     assert Sensors()._read_dht22(_FakeDHT(), "outdoor") == (None, None)
 
 
@@ -277,7 +277,7 @@ def test_chart_rows_blank_only_the_impossible_outdoor_fields(outdoor_mixed):
 
 def test_the_outdoor_reader_never_caches_an_impossible_value(monkeypatch):
     sensors = Sensors()
-    monkeypatch.setattr("autocann.cli.vpd.DHT_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr("autocann.hardware.dht.DHT_RETRY_DELAY_SECONDS", 0)
     sensors._dht_out = _FakeDHT()          # answers -40 °C
     assert sensors.refresh_outdoor() is None
     assert sensors.outdoor_reading() == (None, None)
