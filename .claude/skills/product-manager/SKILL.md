@@ -101,7 +101,9 @@ Make sure the labels exist (idempotent):
 
 ```bash
 gh label create ready       --color 0e8a16 --description "Scoped and safe for the ship-issues routine" 2>/dev/null
-gh label create needs-human --color d93f0b --description "Needs a decision or hands-on work from a person" 2>/dev/null
+gh label create needs-human --color d93f0b --description "PR by the routine, a person decides and merges" 2>/dev/null
+gh label create epic --color 3e4b9e --description "Tracking issue; work happens in its slices" 2>/dev/null
+gh label create hardware --color 6f4e37 --description "Needs hands-on work with the physical tent" 2>/dev/null
 gh label create control     --color b60205 --description "Changes what the control loop or relays do" 2>/dev/null
 gh label create from-pm     --color 5319e7 --description "Filed by the product-manager skill" 2>/dev/null
 gh label create p1 --color b60205 2>/dev/null; gh label create p2 --color fbca04 2>/dev/null; gh label create p3 --color c5def5 2>/dev/null
@@ -134,11 +136,22 @@ Labels: a type (`bug` / `enhancement` / `documentation`), a priority
 
 - `ready` — self-contained, one PR, no product decision pending, small enough
   for a Haiku agent with a clear spec (roughly ≤ 300 changed lines).
-- `needs-human` — needs a decision, hardware, a deploy, secrets, or is large.
-  Say in the body what decision is needed.
+- `needs-human` — needs a decision or a person's review. The `ship-issues`
+  routine still builds it with its best assumptions and opens a PR with the
+  questions, but never merges it. Put a "Questions for review" section in the
+  body, and keep it buildable (one PR, or say which first slice to build).
 
-Add `control` whenever the change alters control-loop behaviour (setpoints,
-VPD math, relay logic, watchdogs). The routine never auto-merges those.
+Plus, when they apply:
+
+- `epic` — a tracking issue too big or too open for one PR. List its slices
+  (each its own issue) in a comment; the routine never works the epic itself.
+- `hardware` — needs hands on the physical tent (wiring, flashing, measuring);
+  the routine skips it.
+- `control` — the change alters control-loop behaviour (setpoints, VPD math,
+  relay logic, watchdogs). The routine opens the PR, a person merges it.
+
+When a slice needs another one merged first, write `Depends on #<n>` in its
+body; the routine waits for it.
 
 ## 5. Report
 
