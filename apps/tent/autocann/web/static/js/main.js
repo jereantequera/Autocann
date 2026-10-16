@@ -19,6 +19,7 @@ import {
 import { closeModal, initModals } from './modals.js';
 import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
+import { registerServiceWorker } from './pwa.js';
 import { wireQuiet } from './quiet.js';
 import { wireSidebar } from './sidebar.js';
 import { applyTheme, readTheme } from './theme.js';
@@ -35,6 +36,9 @@ import { currentView, initViews, showInitialView } from './views.js';
 // element, so doing it here, at module evaluation, is the earliest a file of
 // ours can run (index.html has no inline script for it, by design).
 applyTheme(readTheme());
+
+// Service worker: installable, and the shell opens with the Raspberry down.
+registerServiceWorker();
 
 // ---------------------------------------------------------------------------
 // Polling

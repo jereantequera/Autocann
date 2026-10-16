@@ -61,6 +61,11 @@ EXEMPT: Tuple[Tuple[str, str], ...] = (
 #: Paths the PIN gate lets through so the login page can render and be answered.
 _LOGIN_PATHS = ("/api/login", "/api/auth")
 
+#: The manifest and the service worker must load before anyone has typed the PIN:
+#: the browser fetches them on its own, and a 401 there means no install and no
+#: offline shell. Neither holds a secret.
+_PWA_PATHS = ("/manifest.webmanifest", "/sw.js")
+
 #: How long a session lasts before the PIN is asked for again.
 PIN_SESSION_DAYS = 30
 
@@ -152,7 +157,7 @@ def is_exempt(method: str, path: str) -> bool:
     """Whether a request is one the PIN must never stand in front of."""
     if path.startswith("/static/"):
         return True            # the login page's own stylesheet
-    if path in _LOGIN_PATHS:
+    if path in _LOGIN_PATHS or path in _PWA_PATHS:
         return True
     return (method.upper(), path) in EXEMPT
 
