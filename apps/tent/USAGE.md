@@ -545,3 +545,48 @@ Todas estas funcionalidades están integradas en el dashboard web:
 El dashboard actualiza automáticamente:
 - VPD Score: cada 5 minutos
 - Anomalías: cada 1 minuto
+
+## Tent simulator
+
+`make sim` runs the whole stack without the hardware: the backend, the control
+loop, and fake sensor and relay nodes that talk to them the way the firmware
+does (`firmware/sensor_node`, `firmware/relay_node`). A simple model of the tent
+responds to the outputs, so the dashboard and the loop can be exercised in
+situations that are hard to produce on demand.
+
+```bash
+make sim                                  # normal scenario, until Ctrl-C
+make sim SCENARIO=humid SPEED=10 DURATION=120
+make tent-sim SCENARIO=dry                # from the repository root
+make sim ARGS="--interval 10"             # any other flag of the simulator
+```
+
+The printed dashboard URL (`http://127.0.0.1:<port>/`) is the one to open. A
+status line every 10 s shows the model's temperature, humidity, VPD and the
+outputs that are on. `SPEED` accelerates the tent model, not the loop: the
+loop's own timers (minimum on/off times) still run in wall-clock seconds, so at
+high speeds the model overshoots more. Use 1 to 3 when judging control
+behaviour.
+
+The simulator is isolated from the real tent, which may be running on the same
+machine. The backend and the loop get their own Redis database (15 by default;
+database 0 is refused), a fresh SQLite file in a temp directory (`--db PATH`
+must name a file that does not exist), a free `127.0.0.1` port (5000 and 5055
+are refused), and relays in remote mode, so GPIO is never touched. The
+simulator only stops the processes it started, by PID. Run one simulator at a
+time: they share Redis DB 15, and each start empties it.
+
+### Scenarios
+
+| Scenario        | What it shows                                                                                          |
+|-----------------|--------------------------------------------------------------------------------------------------------|
+| `normal`        | Starts a little dry of the band. The loop turns the humidifier on and RH climbs into the band.        |
+| `humid`         | Starts at 88 % RH. The loop turns the dehumidifier on and RH falls into the band, then the loop idles. |
+| `dry`           | Starts at 38 % RH. The humidifier runs for longer than in `normal`.                                    |
+| `stale`         | Sensors go silent after 60 s. The loop logs the stale key from about 60 s on. In the last run the humidifier stayed on past the 120 s failsafe window, so this scenario is also a check on the loop's failsafe. |
+| `spike`         | One reading 25 °C too hot at 60 s. The median filter in the loop should ignore it.                     |
+| `drift`         | Two sensors: `b` is the witness and drifts 2 °C per model hour away from `a`. The drift detector should flag it. |
+| `offline-relay` | The relay node never polls. The loop asks for outputs the tent never sees, so the RH does not respond. |
+
+The sensor node posts every `--interval` seconds (default 5). The relay node
+polls every 2 s and applies the answer, including the failsafe answer.
