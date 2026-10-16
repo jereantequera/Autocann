@@ -127,13 +127,13 @@ function orphanRowHtml(sensorId) {
             <span class="sensor-name-line"><span class="ac-dot ac-dot--idle"></span><span>${escapeHtml(sensorLabel(sensorId))}</span></span>
             <span class="sensor-why"><span>Ningún sensor está posteando con este id: esta corrección no se le aplica a nada.</span></span>
         </td>
-        <td>—</td>
-        <td class="ac-num">—</td>
-        <td class="ac-num">—</td>
-        <td class="ac-num">—</td>
-        <td data-calib-cell="temperature"></td>
-        <td data-calib-cell="humidity"></td>
-        <td data-calib-cell="notes"></td>`;
+        <td data-label="Rol">—</td>
+        <td class="ac-num" data-label="Temp.">—</td>
+        <td class="ac-num" data-label="Humedad">—</td>
+        <td class="ac-num" data-label="Última">—</td>
+        <td data-calib-cell="temperature" data-label="Corrección °C"></td>
+        <td data-calib-cell="humidity" data-label="Corrección %"></td>
+        <td data-calib-cell="notes" data-label="Nota"></td>`;
 }
 
 /**

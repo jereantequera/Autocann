@@ -319,6 +319,25 @@ def test_every_poller_names_a_view_that_exists():
     assert named <= views, f"pollers apuntando a vistas inexistentes: {named - views}"
 
 
+def test_the_sensor_cells_name_their_column_for_the_phone_cards():
+    """
+    On a phone the header row is hidden and each sensor is a card, so every
+    value gets its column name from data-label. The correction cells are
+    written by system.js, the reading cells by health.js: both must carry it.
+    """
+    health = (JS_DIR / "health.js").read_text()
+    system_js = (JS_DIR / "system.js").read_text()
+    for label in ("Rol", "Temp.", "Humedad", "Última", "Corrección °C", "Corrección %", "Nota"):
+        assert f'data-label="{label}"' in health
+    assert 'data-label="Corrección °C"' in system_js
+    assert 'data-label="Corrección %"' in system_js
+
+    css = (STATIC_DIR / "css" / "views" / "sistema.css").read_text()
+    phone = css.split("@media (max-width: 599px)", 1)[1]
+    assert "td[data-label]::before" in phone
+    assert "content: attr(data-label)" in phone
+
+
 def test_the_calibration_editor_is_wired_to_the_endpoint():
     """
     Both verbs have been routed and validated since the backend audit with no
