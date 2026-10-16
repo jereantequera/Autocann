@@ -11,8 +11,10 @@ the reviewer: Haiku agents write the code, you spec, check and decide.
 
 ## Ground rules
 
-- **Never touch production.** The production backend (port 5055 on this Pi) and control
-  loop run as plain processes on this Pi. Never restart, stop, deploy, or
+- **Never touch the live tent.** There is no production yet, but this Pi runs
+  the local test tent: its control loop drives real relays, and its backend
+  (port 5000, sometimes a preview on 5055) runs as plain processes here. Never
+  restart, stop, deploy, or
   `pkill`/`killall` anything by name; stop your own servers by PID only. Ports
   5000 and 5055 are off limits. Merging does **not** deploy — say so in the
   report.

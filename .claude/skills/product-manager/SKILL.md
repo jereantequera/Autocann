@@ -11,8 +11,10 @@ code here. The `ship-issues` routine picks up what you label `ready`.
 
 ## Ground rules
 
-- **Read-only on production.** The production backend (port 5055 on this Pi) and the
-  control loop run as plain processes on this Pi. Only ever `GET` its API. Never
+- **Read-only on the live tent.** There is no production yet; this Pi runs the
+  local test tent, whose control loop drives real relays. Its backend (port
+  5000, sometimes a preview on 5055) and loop run as plain processes here. Only
+  ever `GET` its API. Never
   POST/PUT/DELETE, never restart, stop or `pkill` anything. Ports 5000 and 5055
   are off limits for your own servers.
 - **English** for everything that lands on GitHub (titles, bodies, labels). UI
@@ -39,13 +41,14 @@ if the current checkout is on another branch: `git worktree add
    ```
    (See the script header for the valid views. It starts its own server on a
    free port and stops it by PID.) Look at each image yourself with Read.
-   To see real data instead of an empty database, copy the production DB to
+   To see real data instead of an empty database, copy the tent's DB to
    your scratchpad first and pass `AUTOCANN_DB=<copy>`; never point it at the
    live file.
-2. **Production health, read-only:** `curl -s localhost:5055/api/<endpoint>` for
-   the status/health/diagnostics endpoints in `apps/tent/autocann/web/`. If
-   nothing answers on 5055, that is the first finding — report it to the user
-   directly, don't file an issue for an outage.
+2. **Test tent health, read-only:** `curl -s localhost:5000/api/<endpoint>`
+   (or 5055) for the status/health/diagnostics endpoints in
+   `apps/tent/autocann/web/`. If nothing answers or the loop is down, mention
+   it in the report as a note about the local rig — not an outage, and not an
+   issue.
 3. **Quality gates:** `make test` and `make lint`. Any failure on `main` is a
    `bug` issue with the output.
 4. **Plans and history:** `apps/tent/ROADMAP.md`, `apps/tent/CHANGELOG.md`,
@@ -140,5 +143,5 @@ VPD math, relay logic, watchdogs). The routine never auto-merges those.
 ## 5. Report
 
 End with a short summary to the user (in their language, Spanish): what you
-looked at, existing issues you triaged or commented on, the issues filed with links and labels, anything urgent (e.g. the
-loop or production backend down), and what you deliberately didn't file.
+looked at, existing issues you triaged or commented on, the issues filed with links and labels, anything urgent, a short note on the
+local test tent's state, and what you deliberately didn't file.
