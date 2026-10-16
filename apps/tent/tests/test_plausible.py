@@ -199,3 +199,78 @@ def test_old_impossible_rows_raise_no_alert(mixed):
 def test_the_limits_are_the_same_everywhere():
     assert f"BETWEEN {plausible.TEMPERATURE_MIN_C} AND {plausible.TEMPERATURE_MAX_C}" in plausible.VALID_ROW_SQL
     assert f"BETWEEN {plausible.HUMIDITY_MIN_PERCENT} AND {plausible.HUMIDITY_MAX_PERCENT}" in plausible.VALID_ROW_SQL
+
+
+# ---------------------------------------------------------------------------
+# Outdoor: per column, never the whole row
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def outdoor_mixed(temp_db, monkeypatch):
+    """Three rows with a good indoor reading; one has an impossible outdoor value each."""
+    monkeypatch.setattr(temp_db, "datetime", _Frozen)
+    now = NOW - 60
+    grow_id = temp_db.get_active_grow()["id"]
+    conn = temp_db._open()
+    for i, (indoor_t, out_t, out_h) in enumerate([(24.0, 15.0, 70.0),
+                                                   (26.0, -40.0, 70.0),   # railed outdoor DHT22
+                                                   (25.0, 17.0, 140.0)]):  # impossible outdoor RH
+        ts = now - i * 300
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature, humidity, vpd,"
+            " outside_temperature, outside_humidity, outside_temperature_raw, outside_humidity_raw)"
+            " VALUES (?, ?, ?, ?, 60.0, 1.0, ?, ?, ?, ?)",
+            (grow_id, ts, datetime.fromtimestamp(ts, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+             indoor_t, out_t, out_h, out_t, out_h),
+        )
+    conn.commit()
+    conn.close()
+    return temp_db, now
+
+
+def test_an_impossible_outdoor_value_does_not_drop_the_rows_indoor_data(outdoor_mixed):
+    temp_db, now = outdoor_mixed
+    summary = temp_db.get_period_summary(now - 3600, now)
+    assert summary["sample_count"] == 3
+    assert summary["temperature"] == {"avg": 25.0, "min": 24.0, "max": 26.0}
+    # ...while the outdoor statistics skip only the impossible value.
+    assert summary["outside_temperature"] == {"avg": 16.0, "min": 15.0, "max": 17.0}
+    assert summary["outside_humidity"]["avg"] == 70.0
+
+
+def test_the_hourly_aggregate_skips_impossible_outdoor_values_per_column(outdoor_mixed):
+    temp_db, now = outdoor_mixed
+    [bucket] = temp_db.get_aggregated_data(now - 3600, now, 3600)
+    assert bucket["sample_count"] == 3
+    assert bucket["temperature"] == 25.0
+    assert bucket["outside_temperature"] == 16.0
+    assert bucket["outside_humidity"] == 70.0
+
+
+def test_chart_rows_blank_only_the_impossible_outdoor_fields(outdoor_mixed):
+    temp_db, now = outdoor_mixed
+    rows = {r["temperature"]: r for r in temp_db.get_sensor_data_range(now - 3600, now)}
+    assert set(rows) == {24.0, 25.0, 26.0}
+    assert rows[26.0]["outside_temperature"] is None
+    assert rows[26.0]["outside_temperature_raw"] is None
+    assert rows[26.0]["outside_humidity"] == 70.0
+    assert rows[25.0]["outside_humidity"] is None
+    assert rows[25.0]["outside_temperature"] == 17.0
+    assert rows[24.0]["outside_temperature"] == 15.0
+    raw = temp_db.get_sensor_data_range(now - 3600, now, valid_only=False)
+    assert sorted(r["outside_temperature"] for r in raw) == [-40.0, 15.0, 17.0]
+
+
+def test_the_outdoor_reader_never_caches_an_impossible_value(monkeypatch):
+    sensors = Sensors()
+    monkeypatch.setattr("autocann.cli.vpd.DHT_RETRY_DELAY_SECONDS", 0)
+    sensors._dht_out = _FakeDHT()          # answers -40 °C
+    assert sensors.refresh_outdoor() is None
+    assert sensors.outdoor_reading() == (None, None)
+
+
+def test_the_outdoor_sql_uses_the_same_limits():
+    assert plausible.OUTSIDE_TEMPERATURE_SQL == (
+        f"CASE WHEN outside_temperature BETWEEN {plausible.TEMPERATURE_MIN_C} "
+        f"AND {plausible.TEMPERATURE_MAX_C} THEN outside_temperature END")

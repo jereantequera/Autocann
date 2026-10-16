@@ -7,7 +7,8 @@ as an alert, so such a reading is simply not a reading: the endpoint refuses
 it, the control loop treats it as a failed read (the median filter keeps the
 last good value and the stale-data failsafe still trips if they keep coming),
 nothing of it is stored, and every statistic skips rows stored before this
-existed. The limits live here so those four places cannot disagree.
+existed — the whole row for an impossible indoor value, only the column for an
+impossible outdoor one. The limits live here so those places cannot disagree.
 """
 
 from __future__ import annotations
@@ -57,3 +58,39 @@ VALID_ROW_SQL = " AND ".join([
 
 #: The same, ready to append to a WHERE clause.
 AND_VALID_ROW = f" AND {VALID_ROW_SQL}"
+
+
+# ---------------------------------------------------------------------------
+# Outdoor values, per column
+# ---------------------------------------------------------------------------
+# The outdoor DHT22 is the same part and fails the same way, but its value does
+# not make the row's indoor reading any less true. So an impossible outdoor
+# value is dropped from that column only, never the whole row.
+
+#: Outdoor columns and the check each one gets; the `_raw` ones are what the
+#: sensor said before calibration, and are as impossible as the corrected ones.
+OUTDOOR_COLUMNS = {
+    "outside_temperature": (TEMPERATURE_MIN_C, TEMPERATURE_MAX_C),
+    "outside_humidity": (HUMIDITY_MIN_PERCENT, HUMIDITY_MAX_PERCENT),
+    "outside_temperature_raw": (TEMPERATURE_MIN_C, TEMPERATURE_MAX_C),
+    "outside_humidity_raw": (HUMIDITY_MIN_PERCENT, HUMIDITY_MAX_PERCENT),
+}
+
+
+def plausible_column_sql(column: str, low: float, high: float) -> str:
+    """The column where it is possible and NULL where it is not, for AVG/MIN/MAX."""
+    return f"CASE WHEN {column} BETWEEN {low} AND {high} THEN {column} END"
+
+
+#: Ready to aggregate: `AVG({OUTSIDE_TEMPERATURE_SQL})` skips impossible values.
+OUTSIDE_TEMPERATURE_SQL = plausible_column_sql("outside_temperature", TEMPERATURE_MIN_C, TEMPERATURE_MAX_C)
+OUTSIDE_HUMIDITY_SQL = plausible_column_sql("outside_humidity", HUMIDITY_MIN_PERCENT, HUMIDITY_MAX_PERCENT)
+
+
+def scrub_outdoor(row: dict) -> dict:
+    """A stored row with every impossible outdoor value set to None, in place."""
+    for column, (low, high) in OUTDOOR_COLUMNS.items():
+        value = row.get(column)
+        if value is not None and not low <= value <= high:
+            row[column] = None
+    return row

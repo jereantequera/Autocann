@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from autocann.control.anomalies import find_anomalies
 from autocann.control.feeding import WATER_ONLY_STAGES
-from autocann.control.plausible import AND_VALID_ROW
+from autocann.control.plausible import AND_VALID_ROW, OUTSIDE_HUMIDITY_SQL, OUTSIDE_TEMPERATURE_SQL, scrub_outdoor
 from autocann.control.vpd_math import (
     HUMIDITY_RANGES,
     STAGE_EXPECTED_DAYS,
@@ -1620,7 +1620,7 @@ def get_sensor_data_range(
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-        result = [dict(row) for row in rows]
+        result = [scrub_outdoor(dict(row)) if valid_only else dict(row) for row in rows]
         conn.close()
 
         return result
@@ -1652,15 +1652,15 @@ def get_aggregated_data(
         conn = _open(row_factory=True)
         cursor = conn.cursor()
 
-        query = """
+        query = f"""
             SELECT
                 (timestamp / ?) * ? as interval_start,
                 grow_id as grow_id,
                 AVG(temperature) as avg_temperature,
                 AVG(humidity) as avg_humidity,
                 AVG(vpd) as avg_vpd,
-                AVG(outside_temperature) as avg_outside_temperature,
-                AVG(outside_humidity) as avg_outside_humidity,
+                AVG({OUTSIDE_TEMPERATURE_SQL}) as avg_outside_temperature,
+                AVG({OUTSIDE_HUMIDITY_SQL}) as avg_outside_humidity,
                 AVG(leaf_temperature) as avg_leaf_temperature,
                 AVG(leaf_vpd) as avg_leaf_vpd,
                 MIN(temperature) as min_temperature,
@@ -1789,7 +1789,7 @@ def get_period_summary(
         conn = _open(row_factory=True)
         cursor = conn.cursor()
 
-        query = """
+        query = f"""
             SELECT
                 AVG(temperature) as avg_temp,
                 MIN(temperature) as min_temp,
@@ -1800,10 +1800,10 @@ def get_period_summary(
                 AVG(vpd) as avg_vpd,
                 MIN(vpd) as min_vpd,
                 MAX(vpd) as max_vpd,
-                AVG(outside_temperature) as avg_outside_temp,
-                MIN(outside_temperature) as min_outside_temp,
-                MAX(outside_temperature) as max_outside_temp,
-                AVG(outside_humidity) as avg_outside_humidity,
+                AVG({OUTSIDE_TEMPERATURE_SQL}) as avg_outside_temp,
+                MIN({OUTSIDE_TEMPERATURE_SQL}) as min_outside_temp,
+                MAX({OUTSIDE_TEMPERATURE_SQL}) as max_outside_temp,
+                AVG({OUTSIDE_HUMIDITY_SQL}) as avg_outside_humidity,
                 AVG(target_humidity) as avg_target_humidity,
                 COUNT(*) as sample_count
             FROM sensor_data

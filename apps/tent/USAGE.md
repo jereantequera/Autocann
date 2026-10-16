@@ -519,7 +519,12 @@ endpoint del ESP32 la rechaza con 400 (queda en el log del nodo), el lazo la
 trata como una lectura que no llegó (el filtro de mediana sigue con la última
 buena y, si no llegan más buenas, salta el failsafe y el cartel de "dejó de
 postear"), no se guarda, y todas las estadísticas, gráficos y reportes saltean
-las filas viejas que la tengan (`VALID_ROW_SQL`), sin tocar la base. Un valor
+las filas viejas que la tengan, sin tocar la base: la fila entera si lo
+imposible es el interior (`VALID_ROW_SQL`), y sólo esa columna si es el
+exterior (`OUTSIDE_TEMPERATURE_SQL`, `OUTSIDE_HUMIDITY_SQL` en los promedios y
+mínimos/máximos, `scrub_outdoor` en las filas crudas de los gráficos), así un
+DHT22 exterior roto no borra el dato interior de esa fila. El sensor exterior
+del lazo descarta lo imposible igual que el interior. Un valor
 **quieto** tampoco es alerta: si está siempre, no avisa de nada.
 
 #### Alertas: qué dice cada una y quién la dice
