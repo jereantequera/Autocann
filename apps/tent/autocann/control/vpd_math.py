@@ -38,6 +38,17 @@ HUMIDITY_RANGES: Dict[str, Tuple[float, float]] = {
 
 STAGES = tuple(VPD_RANGES.keys())
 
+#: Spanish display names of the stages, served by /api/config and used in the
+#: logbook. Lives next to the bands so the database seed and the web app read
+#: the same names.
+STAGE_NAMES: Dict[str, str] = {
+    "seedling": "Plántula",
+    "early_veg": "Vegetativo Temprano",
+    "late_veg": "Vegetativo Tardío",
+    "flowering": "Floración",
+    "dry": "Secado",
+}
+
 #: Typical length of each stage, in days. Used to show "day 12 of ~56" and to
 #: estimate a harvest date; purely indicative, a grow is driven by the plant.
 STAGE_EXPECTED_DAYS: Dict[str, int] = {

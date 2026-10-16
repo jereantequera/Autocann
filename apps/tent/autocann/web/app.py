@@ -38,6 +38,7 @@ from autocann.control.sampling import insert_gaps
 from autocann.control.vpd_math import (
     LEAF_TEMP_OFFSET_C,
     STAGE_EXPECTED_DAYS,
+    STAGE_NAMES,
     STAGES,
     VPD_RANGES,
     calculate_vpd,
@@ -99,16 +100,6 @@ MANUAL_OVERRIDE_MAX_SECONDS = 2 * 60 * 60
 #: How often the control loop writes a sample. Used to tell a real outage from
 #: the normal spacing between points.
 SAMPLE_INTERVAL_SECONDS = 300
-
-#: Spanish display names of the stages, served by /api/config and used in the
-#: logbook. One dict so the two cannot disagree about what a stage is called.
-STAGE_NAMES = {
-    "seedling": "Plántula",
-    "early_veg": "Vegetativo Temprano",
-    "late_veg": "Vegetativo Tardío",
-    "flowering": "Floración",
-    "dry": "Secado",
-}
 
 #: Air temperature span of the VPD chart. Wide enough to show every band the
 #: dashboard can draw; 0.5 °C steps match the resolution of the sensors.

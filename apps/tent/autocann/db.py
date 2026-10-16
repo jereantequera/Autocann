@@ -7,7 +7,13 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from autocann.control.vpd_math import VPD_RANGES
+from autocann.control.feeding import WATER_ONLY_STAGES
+from autocann.control.vpd_math import (
+    HUMIDITY_RANGES,
+    STAGE_EXPECTED_DAYS,
+    STAGE_NAMES,
+    VPD_RANGES,
+)
 from autocann.paths import DB_PATH
 from autocann.time import ARGENTINA_TZ
 
@@ -330,6 +336,121 @@ def _seed_feed_plan(conn: sqlite3.Connection) -> None:
         raise
 
 
+#: The built-in profile every install gets. Its stages are built from the
+#: constants in `vpd_math`, so the two cannot drift apart.
+BUILTIN_PROFILE_ID = "cannabis-photoperiod"
+BUILTIN_PROFILE_NAME = "Cannabis fotoperiódico"
+
+
+def _builtin_profile_stage_rows() -> List[Tuple]:
+    """The built-in profile's stages as `profile_stages` rows, in cycle order."""
+    rows = []
+    for position, (key, (vpd_min, vpd_max)) in enumerate(VPD_RANGES.items()):
+        humidity = HUMIDITY_RANGES.get(key)
+        rh_min, rh_max = humidity if humidity else (None, None)
+        rows.append((
+            key,
+            STAGE_NAMES[key],
+            position,
+            STAGE_EXPECTED_DAYS[key],
+            vpd_min,
+            vpd_max,
+            rh_min,
+            rh_max,
+            int(key in WATER_ONLY_STAGES),
+        ))
+    return rows
+
+
+def _seed_builtin_profiles(conn: sqlite3.Connection) -> None:
+    """
+    Write the built-in profile, once. Never overwrites it.
+
+    Skipped as soon as a profile with its id exists, so a person who edits its
+    stages later keeps their changes. The check and the inserts share one
+    BEGIN IMMEDIATE transaction for the same reason `_seed_feed_plan` does: the
+    web app and the control loop both start the schema, and the loser of the
+    lock must see the winner's rows and stop.
+    """
+    conn.commit()  # an earlier migration may still hold an implicit transaction
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM crop_profiles WHERE id = ?", (BUILTIN_PROFILE_ID,)
+        ).fetchone()
+        if exists:
+            conn.rollback()
+            return
+
+        conn.execute(
+            "INSERT INTO crop_profiles (id, name, kind, created_at) VALUES (?, ?, 'builtin', ?)",
+            (
+                BUILTIN_PROFILE_ID,
+                BUILTIN_PROFILE_NAME,
+                datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+        conn.executemany(
+            "INSERT INTO profile_stages (profile_id, key, name, position, expected_days, "
+            "vpd_min, vpd_max, rh_min, rh_max, water_only) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(BUILTIN_PROFILE_ID, *row) for row in _builtin_profile_stage_rows()],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def get_profiles() -> List[Dict]:
+    """Every crop profile, built-in first then by name. Each is `id`, `name`, `kind`."""
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        try:
+            rows = conn.execute(
+                "SELECT id, name, kind FROM crop_profiles ORDER BY kind = 'builtin' DESC, name ASC"
+            ).fetchall()
+        finally:
+            conn.close()
+        return [dict(row) for row in rows]
+    except sqlite3.Error as e:
+        print(f"Error getting crop profiles: {e}")
+        return []
+
+
+def get_profile(profile_id: str) -> Optional[Dict]:
+    """
+    One profile with its `stages` in position order, or None when it does not exist.
+
+    Each stage is a dict with every `profile_stages` column; `water_only` is a bool.
+    """
+    try:
+        ensure_schema()
+        conn = _open(row_factory=True)
+        try:
+            profile = conn.execute(
+                "SELECT id, name, kind FROM crop_profiles WHERE id = ?", (profile_id,)
+            ).fetchone()
+            if profile is None:
+                return None
+            stages = conn.execute(
+                "SELECT profile_id, key, name, position, expected_days, vpd_min, vpd_max, "
+                "rh_min, rh_max, water_only FROM profile_stages "
+                "WHERE profile_id = ? ORDER BY position ASC",
+                (profile_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return {
+            **dict(profile),
+            "stages": [{**dict(row), "water_only": bool(row["water_only"])} for row in stages],
+        }
+    except sqlite3.Error as e:
+        print(f"Error getting crop profile '{profile_id}': {e}")
+        return None
+
+
 def init_database() -> None:
     """
     Initialize the database and create tables if they don't exist.
@@ -560,12 +681,46 @@ def init_database() -> None:
     """
     )
 
+    # Crop profiles: what a crop needs, as data. Nothing reads these yet; the
+    # control loop still uses the constants in vpd_math until a later step.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crop_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('builtin', 'custom')),
+            created_at TEXT
+        )
+    """
+    )
+    # A stage has either a VPD band or an RH band (or both); which one is
+    # enforced by `autocann.control.profiles.validate_profile_stages`, not here.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS profile_stages (
+            profile_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            expected_days INTEGER,
+            vpd_min REAL,
+            vpd_max REAL,
+            rh_min REAL,
+            rh_max REAL,
+            water_only INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (profile_id, key),
+            FOREIGN KEY (profile_id) REFERENCES crop_profiles(id) ON DELETE CASCADE
+        )
+    """
+    )
+
     conn.commit()
 
     _migrate_nullable_outdoor_columns(conn)
     _migrate_sample_detail_columns(conn)
     _backfill_stage_events(conn)
     _seed_feed_plan(conn)
+    _seed_builtin_profiles(conn)
 
     # Create default grow if none exists
     cursor.execute("SELECT COUNT(*) FROM grows")
