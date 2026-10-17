@@ -16,17 +16,19 @@ def record_irrigation(grow_id: int, litres: float, items: List[Dict],
                       date: Optional[str] = None, ph: Optional[float] = None,
                       ec: Optional[float] = None, stage: Optional[str] = None,
                       week: Optional[int] = None,
-                      notes: str = "") -> Optional[int]:
+                      notes: str = "", timestamp: Optional[int] = None) -> Optional[int]:
     """
     Log one watering. Returns its id, or None if it could not be stored.
 
     `items` are the products actually poured, each `{name, unit, dose}` and
     optionally `product_id` and `on_plan`. An empty list is a plain-water
-    watering, which is worth recording during a flush.
+    watering, which is worth recording during a flush. `timestamp` (epoch
+    seconds) stamps it at another time than now; only the simulator does.
     """
     try:
         ensure_schema()
-        now = datetime.now(ARGENTINA_TZ)
+        now = datetime.now(ARGENTINA_TZ) if timestamp is None \
+            else datetime.fromtimestamp(timestamp, ARGENTINA_TZ)
         if not date:
             date = now.strftime("%Y-%m-%d")
 

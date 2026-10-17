@@ -14,9 +14,13 @@ from autocann.store.schema import ensure_schema
 from autocann.time import ARGENTINA_TZ
 
 
-def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None) -> bool:
+def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None,
+                        at: Optional[int] = None) -> bool:
     """
     Store a single sensor reading in the database.
+
+    `at` is the epoch second the reading is stamped with; the loop leaves it
+    out and gets the current time. Only the simulator's history passes it.
     """
     try:
         if grow_id is None:
@@ -26,7 +30,7 @@ def store_sensor_sample(sensor_data: Dict, grow_id: Optional[int] = None) -> boo
                 return False
             grow_id = int(active_grow["id"])
 
-        current_time = datetime.now(ARGENTINA_TZ)
+        current_time = datetime.now(ARGENTINA_TZ) if at is None else datetime.fromtimestamp(at, ARGENTINA_TZ)
         current_timestamp = int(current_time.timestamp())
 
         ensure_schema()

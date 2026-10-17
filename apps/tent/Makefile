@@ -77,7 +77,7 @@ help:
 	@echo "  Ejecución local:"
 	@echo "    make run-vpd       - Ejecuta el control de VPD (early_veg por defecto)"
 	@echo "    make run-backend   - Ejecuta el servidor web"
-	@echo "    make sim           - Simulador de la carpa con sensores y relés falsos (SCENARIO=, SPEED=, DURATION=)"
+	@echo "    make sim           - Simulador de la carpa con sensores y relés falsos (SCENARIO=, SPEED=, DURATION=, HISTORY=, HISTORY_GAPS=)"
 	@echo "    make logs          - Muestra los últimos logs"
 	@echo "    make status        - Muestra qué procesos están corriendo"
 	@echo "    make test          - Corre los tests (Python + JS)"
@@ -153,7 +153,7 @@ SPEED ?= 1
 DURATION ?=
 
 sim:
-	uv run python -m autocann.cli.simulate --scenario $(SCENARIO) --speed $(SPEED) $(if $(DURATION),--duration $(DURATION)) $(ARGS)
+	uv run python -m autocann.cli.simulate --scenario $(SCENARIO) --speed $(SPEED) $(if $(DURATION),--duration $(DURATION)) $(if $(HISTORY),--history $(HISTORY)) $(if $(HISTORY_GAPS),--history-gaps) $(ARGS)
 
 clean:
 	@echo "Limpiando archivos temporales..."
