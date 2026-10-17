@@ -40,6 +40,8 @@ from autocann.config import RELAY_MODE_REMOTE, redis_config_from_env
 from autocann.control.vpd_math import calculate_vpd
 from autocann.hardware.outputs import OUTPUT_NAMES
 from autocann.paths import DATA_DIR, PROJECT_ROOT
+from autocann.sim import nodes
+from autocann.sim.nodes import NodeStatus, Reading, attempt, build_sensor_payload
 from autocann.sim.seed import seed_sandbox_history
 
 # ---------------------------------------------------------------------------
@@ -225,15 +227,6 @@ def witness_offset_c(model_seconds: float) -> float:
     return min(DRIFT_MAX_C, DRIFT_RATE_C_PER_HOUR * hours)
 
 
-@dataclass(frozen=True)
-class Reading:
-    """One sensor post: the values a sensor node would send."""
-
-    sensor_id: str
-    temperature: float
-    humidity: float
-
-
 def _jitter(value: float, rng: Optional[random.Random]) -> float:
     return value if rng is None else value + rng.uniform(-SENSOR_NOISE, SENSOR_NOISE)
 
@@ -298,15 +291,6 @@ def apply_desired(payload: Mapping[str, Any]) -> Dict[str, bool]:
         return {name: False for name in OUTPUT_NAMES}
     outputs = payload.get("outputs") or {}
     return {name: bool(outputs.get(name, False)) for name in OUTPUT_NAMES}
-
-
-def build_sensor_payload(reading: Reading) -> Dict[str, Any]:
-    """The JSON body `POST /api/sensor/indoor` expects, as the firmware sends it."""
-    return {
-        "temperature": round(reading.temperature, 2),
-        "humidity": round(reading.humidity, 2),
-        "sensor_id": reading.sensor_id,
-    }
 
 
 def status_line(elapsed: float, model: TentModel, outputs: Mapping[str, bool]) -> str:
@@ -488,7 +472,7 @@ class TentWorld:
 
 
 class FakeSensorNode(threading.Thread):
-    """Posts readings to the backend the way firmware/sensor_node does, every `interval` s."""
+    """Posts readings and its own status the way firmware/sensor_node does, every `interval` s."""
 
     def __init__(self, base_url: str, scenario: str, world: TentWorld, interval: float,
                  halt: threading.Event, rng: random.Random) -> None:
@@ -500,8 +484,13 @@ class FakeSensorNode(threading.Thread):
         self._halt = halt
         self._rng = rng
         self._silent_reported = False
+        dropouts = nodes.DROPOUT_CHANCE if scenario in ("drift", "spike") else 0.0
+        self._status = NodeStatus(nodes.SENSOR_NODE_NAME, ip=nodes.SENSOR_NODE_IP, sensors=nodes.SENSOR_PINS,
+                                  firmware=nodes.FW_VERSION, rng=rng, dropout_chance=dropouts)
 
     def run(self) -> None:
+        print(nodes.WIFI_CONNECTING_SERIAL_LINE)
+        self._status.boot_log()
         started = time.monotonic()
         prev_t: Optional[float] = None
         while not self._halt.is_set():
@@ -513,10 +502,14 @@ class FakeSensorNode(threading.Thread):
                     self._silent_reported = True
                     print(f"[sensors] silent from now on ({self._scenario} scenario)")
             for reading in readings or ():
-                try:
-                    http_json("POST", f"{self._base_url}/api/sensor/indoor", build_sensor_payload(reading))
-                except (OSError, ValueError) as e:
-                    print(f"[sensor {reading.sensor_id}] post failed: {e}")
+                if self._status.read(reading.sensor_id, reading.temperature, reading.humidity):
+                    code = attempt(lambda r=reading: http_json(
+                        "POST", f"{self._base_url}/api/sensor/indoor", build_sensor_payload(r)))
+                    self._status.posted(reading.sensor_id, code)
+            report = self._status.due_report()
+            if report is not None:
+                self._status.report_sent(attempt(lambda r=report: http_json(
+                    "POST", f"{self._base_url}/api/node/log", r)))
             self._halt.wait(self._interval)
 
 
