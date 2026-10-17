@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    alertDecision, isBroken, noGrowNotice, ownedByBanner, worstSeverity,
+    alertDecision, anomalyIcon, isBroken, noGrowNotice, ownedByBanner, worstSeverity,
 } from '../../autocann/web/static/js/alerts.js';
 import { healthChecks, verdictFor } from '../../autocann/web/static/js/health.js';
 
@@ -223,4 +223,20 @@ test('ownedByBanner names only the facts the banner says', () => {
     assert.equal(ownedByBanner({ type: 'data_gap' }), false);
     assert.equal(ownedByBanner({ type: 'temperature_spike' }), false);
     assert.equal(ownedByBanner(null), false);
+});
+
+test('an info notice gets the calm circle, not the warning triangle', () => {
+    assert.equal(anomalyIcon('info'), 'circle-alert');
+    assert.equal(anomalyIcon('critical'), 'circle-alert');
+    assert.equal(anomalyIcon('warning'), 'triangle-alert');
+    assert.equal(anomalyIcon(undefined), 'triangle-alert');
+});
+
+test('a lone awaiting-first-sample notice is an info box, not a warning one', () => {
+    const issue = { type: 'awaiting_first_sample', severity: 'info', message: 'Todavía no se guardó nada.' };
+    const decision = alertDecision({ health: healthy, anomalies: [issue] });
+    assert.equal(decision.mode, 'warnings');
+    assert.equal(decision.severity, 'info');
+    assert.equal(decision.tone, 'info');
+    assert.equal(decision.critical, false);
 });

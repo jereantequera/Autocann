@@ -604,3 +604,44 @@ def test_a_reading_posted_under_a_sensor_id_is_the_one_health_reads(client, monk
 
     assert indoor_sensor_key("a") in client.redis.store
     assert client.get("/api/health").get_json()["sensors"][0]["temperature"] == 21.5
+
+
+def test_a_fresh_grow_with_no_samples_yet_is_an_info_notice_not_no_data(client, temp_db, monkeypatch):
+    """
+    Right after "Nuevo cultivo" the loop has not saved its first sample yet. The
+    Panel must say so calmly, and not raise the "no data in 24 h" alarm.
+    """
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    temp_db.end_grow(temp_db.get_active_grow()["id"])
+    client.post("/api/grows", json={"name": "Nuevo", "stage": "seedling"})
+
+    data = client.get("/api/anomalies").get_json()
+
+    assert data["status"] == "ok"
+    assert data["anomalies"] == []
+    assert [i["type"] for i in data["warnings"]] == ["awaiting_first_sample"]
+    assert data["warnings"][0]["severity"] == "info"
+
+
+def test_an_old_grow_with_no_samples_still_reports_no_data(client, temp_db, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from autocann.store.connection import _open
+    from autocann.time import ARGENTINA_TZ
+
+    monkeypatch.setenv("AUTOCANN_INDOOR_PRIMARY", "a")
+    temp_db.end_grow(temp_db.get_active_grow()["id"])
+    client.post("/api/grows", json={"name": "Viejo", "stage": "seedling"})
+    twenty_minutes_ago = datetime.now(ARGENTINA_TZ) - timedelta(minutes=20)
+    conn = _open()
+    conn.execute("UPDATE grows SET start_date = ? WHERE is_active = 1",
+                 (twenty_minutes_ago.strftime("%Y-%m-%d %H:%M:%S"),))
+    conn.commit()
+    conn.close()
+
+    # The detector itself, not the endpoint: with no sensor posting, the health
+    # reframe hands the "nothing stored" fact to the red banner and drops it here.
+    data = temp_db.detect_anomalies(hours=24)
+
+    assert data["status"] == "critical"
+    assert [i["type"] for i in data["anomalies"]] == ["no_data"]

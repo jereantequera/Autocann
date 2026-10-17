@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Dict
 
 from autocann.config import MODE_MONITOR, PRIMARY
-from autocann.control.anomalies import history_message
+from autocann.control.anomalies import history_message, status_of
 
 #: The anomaly types the detector raises about stored rows existing at all.
 HISTORY_ANOMALY_TYPES = ("no_data", "stale_data", "data_gap")
@@ -110,8 +110,9 @@ def reframe_history_anomalies(report: Dict, health: Dict) -> Dict:
     # `status` drives the colour of the whole strip, so it has to be recomputed
     # from what is left: dropping or downgrading every critical item and leaving
     # "critical" behind would keep the banner red with nothing red in it.
-    out["status"] = ("critical" if critical else "warning" if rest
-                     else "no_grow" if no_grow else "ok")
+    out["status"] = status_of(critical, rest)
+    if no_grow and out["status"] == "ok":
+        out["status"] = "no_grow"
     if no_grow:
         out["no_active_grow"] = True
     return out
