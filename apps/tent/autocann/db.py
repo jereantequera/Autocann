@@ -59,8 +59,16 @@ from autocann.store.migrations import (
     _parse_local_datetime,
 )
 from autocann.store.profiles import (
+    ProfileError,
+    ProfileInUse,
+    ProfileNotFound,
+    ProfileReadOnly,
+    copy_profile,
+    delete_profile,
     get_profile,
     get_profiles,
+    profile_in_use,
+    update_profile,
 )
 from autocann.store.samples import (
     cleanup_old_data,
@@ -123,9 +131,15 @@ __all__ = [
     "_seed_builtin_profiles",
     "_seed_feed_plan",
     "_seed_tents",
+    "ProfileError",
+    "ProfileInUse",
+    "ProfileNotFound",
+    "ProfileReadOnly",
     "cleanup_old_data",
+    "copy_profile",
     "create_grow",
     "delete_irrigation",
+    "delete_profile",
     "detect_anomalies",
     "end_grow",
     "ensure_schema",
@@ -152,6 +166,7 @@ __all__ = [
     "get_weekly_report",
     "init_database",
     "last_irrigation_litres",
+    "profile_in_use",
     "record_irrigation",
     "record_stage_event",
     "rename_tent",
@@ -162,4 +177,5 @@ __all__ = [
     "store_control_event",
     "store_sensor_sample",
     "update_grow_stage",
+    "update_profile",
 ]
