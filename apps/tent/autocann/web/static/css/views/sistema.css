@@ -95,6 +95,18 @@
     color: var(--fg-muted);
 }
 
+.sys-tent-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 420px;
+}
+.sys-tent-error {
+    margin: 0;
+    font-size: 13px;
+    color: var(--state-alert);
+}
+
 .sys-note,
 .sensors-note {
     margin: 12px 0 0;

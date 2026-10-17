@@ -58,15 +58,16 @@ test('a grow with no name at all has no monogram rather than a made-up one', () 
 
 test('the tent label is the same words the expanded block shows', () => {
     assert.equal(
-        tentLabel({ name: 'Cultivo #1', stage: 'Vegetativo temprano', day: 1, expected: 21 }),
-        'Carpa principal · Cultivo #1 · Vegetativo temprano · día 1 de ~21',
+        tentLabel({ tent: 'Carpa del balcón', name: 'Cultivo #1', stage: 'Vegetativo temprano', day: 1, expected: 21 }),
+        'Carpa del balcón · Cultivo #1 · Vegetativo temprano · día 1 de ~21',
     );
 });
 
 test('the tent label leaves out what is not known, and never says NaN', () => {
-    assert.equal(tentLabel({ name: 'Cultivo #1', stage: 'Floración', day: 4 }), 'Carpa principal · Cultivo #1 · Floración · día 4');
-    assert.equal(tentLabel({ name: 'Cultivo #1', stage: 'Floración', day: NaN }), 'Carpa principal · Cultivo #1 · Floración');
-    assert.equal(tentLabel({}), 'Carpa principal');
+    assert.equal(tentLabel({ tent: 'Carpa principal', name: 'Cultivo #1', stage: 'Floración', day: 4 }), 'Carpa principal · Cultivo #1 · Floración · día 4');
+    assert.equal(tentLabel({ tent: 'Carpa principal', name: 'Cultivo #1', stage: 'Floración', day: NaN }), 'Carpa principal · Cultivo #1 · Floración');
+    assert.equal(tentLabel({ tent: 'Carpa principal' }), 'Carpa principal');
+    assert.equal(tentLabel({}), '', 'with no tent name there is nothing to say');
 });
 
 test('the status button says its state and then its verb', () => {

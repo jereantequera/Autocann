@@ -7,6 +7,8 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, render_template
 
 from autocann.store.grow_stages import active_stage_table
+from autocann.store.seeds import BUILTIN_TENT_ID
+from autocann.store.tents import get_tent
 
 bp = Blueprint("system", __name__)
 
@@ -16,7 +18,10 @@ def index():
     """
     Serve the main dashboard page.
     """
-    return render_template("index.html")
+    # The sidebar names the tent on first paint, so the name is written here
+    # rather than fetched after the page has shown a placeholder.
+    tent = get_tent(BUILTIN_TENT_ID)
+    return render_template("index.html", tent_name=tent["name"] if tent else "Carpa")
 
 
 @bp.route("/api/config", methods=["GET"])

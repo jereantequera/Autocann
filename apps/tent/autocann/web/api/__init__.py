@@ -17,6 +17,7 @@ from autocann.web.api.outputs import bp as outputs_bp
 from autocann.web.api.profiles import bp as profiles_bp
 from autocann.web.api.sensors import bp as sensors_bp
 from autocann.web.api.system import bp as system_bp
+from autocann.web.api.tents import bp as tents_bp
 from autocann.web.api.test_mode import bp as test_mode_bp
 
 ALL_BLUEPRINTS = (
@@ -30,4 +31,5 @@ ALL_BLUEPRINTS = (
     logbook_bp,
     feeding_bp,
     profiles_bp,
+    tents_bp,
 )
