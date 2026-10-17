@@ -13,9 +13,11 @@ import {
     savePlan, togglePlanEditor, wireFeeding,
 } from './feeding.js';
 import {
-    activateGrow, createGrow, endGrow, fetchActiveGrow, showNewGrowModal,
+    activateGrow, createGrow, endGrow, fetchActiveGrow,
     showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
+import { openNewGrowForm, wireNewGrowForm } from './growform.js';
+import { wireTentName } from './tent-name.js';
 import { closeModal, initModals } from './modals.js';
 import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
@@ -180,7 +182,7 @@ function handleTimeBtnClick(clickedBtn) {
 const ACTIONS = {
     'weekly-report': showWeeklyReport,
     'show-stage': showStageModal,
-    'new-grow': showNewGrowModal,
+    'new-grow': openNewGrowForm,
     'create-grow': createGrow,
     'update-stage': updateStage,
     'dismiss-anomalies': dismissAnomalies,
@@ -270,6 +272,8 @@ async function start() {
     wireCalendar();
     wirePanel();
     wireSystem();
+    wireTentName();
+    wireNewGrowForm();
     wireQuiet();
     wireNodes();
     updateSummaryPeriodLabel();

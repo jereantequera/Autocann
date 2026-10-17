@@ -15,6 +15,7 @@
             <div class="sys-layout">
                 <nav class="sys-index" aria-label="Secciones de sistema">
                     <a class="sys-index-link is-current" href="#sys-estado" data-sys-jump="sys-estado">Estado</a>
+                    <a class="sys-index-link" href="#sys-carpa" data-sys-jump="sys-carpa">Carpa</a>
                     <a class="sys-index-link" href="#sys-sensores" data-sys-jump="sys-sensores">Sensores</a>
                     <a class="sys-index-link" href="#sys-nodos" data-sys-jump="sys-nodos">Nodos ESP32</a>
                     <a class="sys-index-link" href="#sys-silencio" data-sys-jump="sys-silencio">Horarios de silencio</a>
@@ -36,6 +37,8 @@
                             <div class="loading">Consultando estado</div>
                         </div>
                     </section>
+
+{% include "partials/tent-name.html" %}
 
 {% include "partials/sensors.html" %}
 

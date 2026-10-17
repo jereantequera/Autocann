@@ -73,8 +73,9 @@ export function monogram(name) {
  * grow, what stage, and the day. Collapsed, these are only ever read through
  * the title and the accessible name, so they have to say everything.
  */
-export function tentLabel({ name, stage, day, expected }) {
-    const parts = ['Carpa principal'];
+export function tentLabel({ tent, name, stage, day, expected }) {
+    const parts = [];
+    if (tent) parts.push(tent);
     if (name) parts.push(name);
     if (stage) parts.push(stage);
     if (Number.isFinite(day)) {
@@ -83,16 +84,36 @@ export function tentLabel({ name, stage, day, expected }) {
     return parts.join(' · ');
 }
 
+/** The tent's name, and the grow last painted, so either can change without the other. */
+let tentName = '';
+let activeGrow = {};
+
+/** Writes the block's words from the tent's name and the grow that is active. */
+function paintLabel() {
+    const block = document.querySelector('.ac-sidebar__tent');
+    if (!block) return;
+    const label = tentLabel({ tent: tentName, ...activeGrow });
+    block.title = label;
+    block.setAttribute('aria-label', label);
+}
+
+/**
+ * Shows the tent's name: on start-up the one the server rendered, and after a
+ * rename the one just saved, so the sidebar is right without a reload.
+ */
+export function setTentName(name) {
+    tentName = name;
+    const text = document.getElementById('tent-name');
+    if (text) text.textContent = name;
+    paintLabel();
+}
+
 /** Writes the tent's monogram and its words from the grow that is active. */
 export function paintTent(grow) {
-    const block = document.querySelector('.ac-sidebar__tent');
+    activeGrow = grow;
     const mark = document.getElementById('tent-mono');
     if (mark) mark.textContent = monogram(grow.name);
-    if (block) {
-        const label = tentLabel(grow);
-        block.title = label;
-        block.setAttribute('aria-label', label);
-    }
+    paintLabel();
 }
 
 /** What the status button says on its own: the state, then the verb that changes it. */
@@ -186,6 +207,10 @@ export function wireSidebar() {
     const sidebar = document.querySelector('.ac-sidebar');
     const button = document.querySelector('[data-action="toggle-sidebar"]');
     if (!sidebar || !button) return;
+
+    // The name the server rendered; setTentName() takes it from here on.
+    tentName = document.getElementById('tent-name')?.textContent.trim() ?? '';
+    paintLabel();
 
     const narrow = window.matchMedia(NARROW_QUERY).matches;
     setCollapsed(sidebar, button, startsCollapsed(readStored(), narrow));

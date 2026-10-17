@@ -7,6 +7,7 @@ import { fetchHealth } from './health.js';
 import { config, state } from './state.js';
 import { escapeHtml, icon } from './util.js';
 import { paintTent } from './sidebar.js';
+import { buildGrowRequest, selectedProfile } from './growform.js';
 import {
     durationLabel, formatLongDate, formatShortDate, growDays, growLine, nextStage,
     stageBarModel,
@@ -20,13 +21,6 @@ import {
  * changing a stage are still modals, which is what a dialog is for: a short
  * form, answered and dismissed.
  */
-
-function showNewGrowModal() {
-    document.getElementById('newGrowName').value = '';
-    document.getElementById('newGrowStage').value = 'seedling';
-    document.getElementById('newGrowNotes').value = '';
-    showModal('newGrowModal');
-}
 
 /**
  * Open the stage dialog, preselected: on the next stage when the primary button
@@ -277,7 +271,7 @@ async function createGrow() {
         const response = await fetch('/api/grows', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, stage, notes })
+            body: JSON.stringify(buildGrowRequest({ name, profileId: selectedProfile(), stage, notes }))
         });
 
         const result = await response.json();
@@ -593,7 +587,7 @@ function wireGrowListActions() {
 }
 
 export {
-    fetchStageTimeline, showNewGrowModal, showStageModal, loadGrowsList, fetchActiveGrow,
+    fetchStageTimeline, showStageModal, loadGrowsList, fetchActiveGrow,
     createGrow, updateStage, activateGrow, endGrow, wireGrowListActions,
     renderGrowFilter, wireGrowFilter,
 };

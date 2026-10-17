@@ -44,9 +44,9 @@
                  word in it is hidden; JS writes the words to title and
                  aria-label so the collapsed bar still says what it is.
             -->
-            <div class="ac-sidebar__tent" role="group" title="Carpa principal" aria-label="Carpa principal">
+            <div class="ac-sidebar__tent" role="group" title="{{ tent_name }}" aria-label="{{ tent_name }}">
                 <span class="ac-sidebar__tent-mono" id="tent-mono" aria-hidden="true"></span>
-                <span class="ac-sidebar__tent-name">Carpa principal</span>
+                <span class="ac-sidebar__tent-name" id="tent-name">{{ tent_name }}</span>
                 <!-- Crop and stage on one line. The stage chip is plain text here. -->
                 <div class="grow-info">
                     <span class="grow-name" id="grow-name">Cargando...</span>

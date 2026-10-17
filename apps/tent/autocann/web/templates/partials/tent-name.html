@@ -1,0 +1,18 @@
+                    <!--
+                         The tent's name is what the sidebar says above every
+                         view, so it is set here, with the rest of the installation.
+                    -->
+                    <section id="sys-carpa" class="sys-section" aria-labelledby="sys-carpa-title">
+                        <h2 class="sys-h2" id="sys-carpa-title">Carpa</h2>
+                        <form class="sys-tent-form" id="tent-name-form" novalidate>
+                            <div class="ac-field">
+                                <label class="ac-field__label" for="tent-name-input">Nombre</label>
+                                <input type="text" id="tent-name-input" class="ac-field__input"
+                                       value="{{ tent_name }}" autocomplete="off"
+                                       aria-describedby="tent-name-hint tent-name-error">
+                            </div>
+                            <p class="sys-note" id="tent-name-hint">Entre 1 y 60 caracteres. Se muestra en la barra lateral.</p>
+                            <p class="sys-tent-error" id="tent-name-error" role="alert" hidden></p>
+                            <button type="submit" class="ac-btn ac-btn--primary">Guardar nombre</button>
+                        </form>
+                    </section>

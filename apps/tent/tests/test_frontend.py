@@ -145,8 +145,10 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
         for where, text in blocks.items():
             if f"{stage}:" not in text:
                 missing.append(f"{stage} falta en {where}")
-        if modals.count(f'value="{stage}"') != 2:
-            missing.append(f"{stage} no está en los dos selects de etapa")
+        # The "Nuevo cultivo" select is filled from the chosen profile (growform.js),
+        # so only the stage-change select carries the options in the page.
+        if modals.count(f'value="{stage}"') != 1:
+            missing.append(f"{stage} no está en el select de cambiar etapa")
         if f".grow-stage.{stage}" not in css:
             missing.append(f"{stage} no tiene color de chapita en app.css")
     assert missing == [], missing

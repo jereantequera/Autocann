@@ -258,6 +258,18 @@
     ]
   },
   {
+    "rule": "/api/tents/<int:tent_id>",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/tents/<int:tent_id>",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
     "rule": "/api/test-mode",
     "methods": [
       "GET"
