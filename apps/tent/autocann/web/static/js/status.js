@@ -36,6 +36,20 @@ function fmtBand(value) {
     return Number.isInteger(value) ? String(value) : fmtComma(value, 1);
 }
 
+/**
+ * What an in-range tent with an output on is doing, for the subtitle. The
+ * humidity relays come first: they are the ones that move the reading, the
+ * extractor only runs alongside them. Null when nothing is on.
+ */
+function rangeActivity(outputs, target) {
+    const on = name => outputNamed(outputs, name)?.state === true;
+    const aim = Number.isFinite(target) ? ` hacia ${fmtBand(target)} %` : '';
+    if (on('humidity_up')) return `humidificando${aim}`;
+    if (on('humidity_down')) return `deshumidificando${aim}`;
+    if (on('ventilation')) return 'ventilando';
+    return null;
+}
+
 function outputNamed(outputs, name) {
     return (outputs || []).find(output => output.name === name) || null;
 }
@@ -71,7 +85,8 @@ function outputRowState(output, now = Date.now()) {
         const minutes = minutesSince(output.since, now);
         return {
             state: 'on',
-            text: minutes === null ? 'prendido' : `prendido · ${minutes} min`,
+            text: minutes === null ? 'prendido'
+                : minutes < 1 ? 'prendido · recién' : `prendido · ${minutes} min`,
         };
     }
     if (typeof output?.held_seconds === 'number' && output.held_seconds > 0) {
@@ -131,10 +146,13 @@ function panelStatus(current, health, mode, outputs = [], stageNames = {}, now =
     const stage = stageNames[current.stage] || current.stage || 'esta etapa';
 
     if (current.vpd_in_range === true) {
+        const activity = rangeActivity(outputs, current.target_humidity);
         return {
             level: 'ok',
             title: 'En rango',
-            text: `Temperatura y humedad dentro de lo que pide ${stage}.`,
+            text: activity
+                ? `Dentro de la franja · ${activity}`
+                : `Temperatura y humedad dentro de lo que pide ${stage}.`,
         };
     }
 
