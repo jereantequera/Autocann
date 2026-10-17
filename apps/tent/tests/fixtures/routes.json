@@ -186,6 +186,36 @@
     ]
   },
   {
+    "rule": "/api/profiles",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/profiles/<profile_id>",
+    "methods": [
+      "DELETE"
+    ]
+  },
+  {
+    "rule": "/api/profiles/<profile_id>",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/profiles/<profile_id>",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
+    "rule": "/api/profiles/<profile_id>/copy",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
     "rule": "/api/quiet-hours",
     "methods": [
       "GET"

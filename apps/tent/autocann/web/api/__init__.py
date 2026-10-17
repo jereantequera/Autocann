@@ -14,6 +14,7 @@ from autocann.web.api.grows import bp as grows_bp
 from autocann.web.api.history import bp as history_bp
 from autocann.web.api.logbook import bp as logbook_bp
 from autocann.web.api.outputs import bp as outputs_bp
+from autocann.web.api.profiles import bp as profiles_bp
 from autocann.web.api.sensors import bp as sensors_bp
 from autocann.web.api.system import bp as system_bp
 from autocann.web.api.test_mode import bp as test_mode_bp
@@ -28,4 +29,5 @@ ALL_BLUEPRINTS = (
     analytics_bp,
     logbook_bp,
     feeding_bp,
+    profiles_bp,
 )
