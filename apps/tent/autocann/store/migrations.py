@@ -227,3 +227,24 @@ def _backfill_grow_stages(conn: sqlite3.Connection) -> None:
     conn.commit()
     if rows:
         logger.info("grow_stages: snapshot taken for %d grow(s)", len(rows))
+
+
+#: Column added to `grows` for the watering interval, in days. NULL means the
+#: grow has no interval configured. Nullable, so SQLite adds it in place.
+_IRRIGATION_INTERVAL_COLUMN = ("irrigation_interval_days", "INTEGER")
+
+
+def _migrate_irrigation_interval(conn: sqlite3.Connection) -> None:
+    """
+    Add `grows.irrigation_interval_days`, the watering interval of each grow.
+
+    Idempotent: the column is added once, and a database that has it is left
+    alone. Existing grows start with NULL, which reads as "not configured".
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(grows)")}
+    name, kind = _IRRIGATION_INTERVAL_COLUMN
+    if name in existing:
+        return
+    conn.execute(f"ALTER TABLE grows ADD COLUMN {name} {kind}")
+    conn.commit()
+    logger.info("grows: added column %s", name)

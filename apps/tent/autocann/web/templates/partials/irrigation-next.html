@@ -1,0 +1,22 @@
+        <!-- Próximo riego: when the next watering is due, and the interval that says so -->
+        <!--
+             The date is worked out by the server from the last watering, so a
+             missed day reads as overdue and moves on by itself. Nothing here is
+             stored: the interval is the only thing the grower sets.
+        -->
+        <section class="irrigation-next" aria-labelledby="irrigation-next-title">
+            <h2 class="irrigation-next__title" id="irrigation-next-title">Próximo riego</h2>
+            <p class="irrigation-next__headline" id="irrigation-next-headline">--</p>
+            <p class="ac-field__hint irrigation-next__detail" id="irrigation-next-detail"></p>
+
+            <form class="irrigation-next__form" id="irrigation-interval-form" novalidate>
+                <div class="ac-field irrigation-next__field">
+                    <label class="ac-field__label" for="irrigation-interval">Cada cuántos días</label>
+                    <input type="number" id="irrigation-interval" class="ac-field__input ac-field__input--num"
+                           min="1" max="30" step="1" inputmode="numeric" placeholder="ej. 2"
+                           aria-describedby="irrigation-interval-error">
+                </div>
+                <button type="submit" class="ac-btn ac-btn--secondary">Guardar</button>
+            </form>
+            <p class="ac-field__hint irrigation-next__error" id="irrigation-interval-error" role="alert"></p>
+        </section>

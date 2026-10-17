@@ -120,6 +120,18 @@
     ]
   },
   {
+    "rule": "/api/irrigation/interval",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
+    "rule": "/api/irrigation/next",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
     "rule": "/api/irrigations",
     "methods": [
       "GET"

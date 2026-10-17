@@ -44,6 +44,11 @@ from autocann.store.history import (
     get_database_stats,
     get_period_summary,
 )
+from autocann.store.irrigation_schedule import (
+    get_irrigation_interval,
+    last_irrigation_date,
+    set_irrigation_interval,
+)
 from autocann.store.irrigations import (
     delete_irrigation,
     get_irrigations,
@@ -151,6 +156,7 @@ __all__ = [
     "get_database_stats",
     "get_feed_plan",
     "get_grow_stages",
+    "get_irrigation_interval",
     "get_irrigations",
     "get_latest_sensor_data",
     "get_logbook",
@@ -165,6 +171,7 @@ __all__ = [
     "get_vpd_score",
     "get_weekly_report",
     "init_database",
+    "last_irrigation_date",
     "last_irrigation_litres",
     "profile_in_use",
     "record_irrigation",
@@ -173,6 +180,7 @@ __all__ = [
     "replace_feed_plan",
     "set_active_grow",
     "set_calibration",
+    "set_irrigation_interval",
     "set_setting",
     "store_control_event",
     "store_sensor_sample",

@@ -115,9 +115,18 @@ async function doGet(url, { key = url } = {}) {
  * mienta sobre lo que pidió el usuario.
  */
 async function apiPost(url, body) {
+    return apiWrite('POST', url, body);
+}
+
+/** PUT, with the same error unwrapping as apiPost. */
+async function apiPut(url, body) {
+    return apiWrite('PUT', url, body);
+}
+
+async function apiWrite(method, url, body) {
     try {
         const response = await fetch(url, {
-            method: 'POST',
+            method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body ?? {}),
         });
@@ -131,9 +140,9 @@ async function apiPost(url, body) {
         if (!response.ok) return { ok: false, error: data.error || `HTTP ${response.status}` };
         return { ok: true, data };
     } catch (error) {
-        console.error(`Error posting ${url}:`, error);
+        console.error(`${method} ${url} failed:`, error);
         return { ok: false, error: 'No se pudo contactar al backend' };
     }
 }
 
-export { connection, renderConnectionState, apiGet, apiPost, whenSettled };
+export { connection, renderConnectionState, apiGet, apiPost, apiPut, whenSettled };

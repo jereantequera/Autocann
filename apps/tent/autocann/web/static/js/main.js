@@ -19,6 +19,7 @@ import {
 import { openNewGrowForm, wireNewGrowForm } from './growform.js';
 import { wireTentName } from './tent-name.js';
 import { closeModal, initModals } from './modals.js';
+import { fetchIrrigationNext, wireIrrigationNext } from './irrigation-next.js';
 import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
@@ -72,6 +73,7 @@ const POLLERS = [
     // a log entry made from another device. The panel shows how long it has
     // been since the last one, so it is needed there too.
     { fn: fetchFeeding, every: 60000, views: ['panel', 'riego'] },
+    { fn: fetchIrrigationNext, every: 60000, views: ['riego'] },
     { fn: fetchActiveGrow, every: 60000 },
     { fn: fetchAnomalies, every: 60000 },
     // El log del nodo se mira mientras pasa algo: alguien abre Sistema
@@ -269,6 +271,7 @@ async function start() {
     wireGrowListActions();
     wireGrowFilter();
     wireFeeding();
+    wireIrrigationNext();
     wireCalendar();
     wirePanel();
     wireSystem();
