@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from autocann.control.plausible import AND_VALID_ROW, OUTSIDE_HUMIDITY_SQL, OUTSIDE_TEMPERATURE_SQL
 from autocann.store import connection
 from autocann.store.connection import _open
+from autocann.store.day_night import day_night_summaries
 from autocann.store.grows import _NO_GROW, _resolve_grow_filter
 from autocann.store.schema import ensure_schema
 from autocann.time import ARGENTINA_TZ
@@ -170,7 +171,7 @@ def get_period_summary(
         conn.close()
 
         if row and row["sample_count"] > 0:
-            return {
+            result = {
                 "temperature": {
                     "avg": round(row["avg_temp"], 1) if row["avg_temp"] is not None else None,
                     "min": round(row["min_temp"], 1) if row["min_temp"] is not None else None,
@@ -201,6 +202,10 @@ def get_period_summary(
                 "start_timestamp": start_timestamp,
                 "end_timestamp": end_timestamp,
             }
+            # Added beside the fields above, never in place of them: a caller
+            # that does not know about day and night reads the same numbers.
+            result.update(day_night_summaries(start_timestamp, end_timestamp, grow_id))
+            return result
         return {"sample_count": 0}
     except Exception as e:
         print(f"Error getting period summary: {e}")

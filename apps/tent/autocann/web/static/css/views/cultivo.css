@@ -293,3 +293,27 @@
         margin-right: auto;
     }
 }
+
+/* Fotoperíodo: two hour selects and the save button, one row that wraps. */
+.view[data-view="cultivo"] .grow-photoperiod {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-8);
+}
+
+.view[data-view="cultivo"] .photoperiod-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+}
+
+.view[data-view="cultivo"] .photoperiod-row .ac-field {
+    min-width: 120px;
+}
+
+.view[data-view="cultivo"] .photoperiod-status {
+    margin: 0;
+    min-height: 1.4em;
+}

@@ -1,0 +1,24 @@
+<!--
+     Fotoperíodo: the hours the lights come on and go off, per grow. The day
+     and night statistics are split by it when they are read, so a change
+     applies to the history already stored too; the hint says so.
+-->
+<section class="grow-photoperiod" aria-labelledby="photoperiod-title">
+    <h2 class="grow-all-title" id="photoperiod-title">Fotoperíodo</h2>
+    <div class="photoperiod-row">
+        <div class="ac-field">
+            <label class="ac-field__label" for="photoperiod-on">Se encienden</label>
+            <select class="ac-field__input" id="photoperiod-on"></select>
+        </div>
+        <div class="ac-field">
+            <label class="ac-field__label" for="photoperiod-off">Se apagan</label>
+            <select class="ac-field__input" id="photoperiod-off"></select>
+        </div>
+        <button class="ac-btn ac-btn--primary" type="button" id="photoperiod-save">Guardar</button>
+    </div>
+    <p class="ac-field__hint" id="photoperiod-hint">
+        Horas de tu reloj. Las estadísticas separan día y noche con este horario,
+        también en lo ya guardado.
+    </p>
+    <p class="ac-field__hint photoperiod-status" id="photoperiod-status" role="status"></p>
+</section>

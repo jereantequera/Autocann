@@ -102,6 +102,17 @@
     margin-bottom: var(--space-8);
 }
 
+/* The day and night second line under a stat tile: muted, one line, and
+   digits that do not jump when a number changes. */
+.view[data-view="stats"] .stats-split {
+    display: block;
+    font-variant-numeric: tabular-nums;
+}
+
+.view[data-view="stats"] .stats-split:empty {
+    display: none;
+}
+
 /* Charts. */
 .view[data-view="stats"] .stats-charts {
     display: flex;

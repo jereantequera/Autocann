@@ -11,8 +11,10 @@ from autocann.db import (
     end_grow,
     get_active_grow,
     get_all_grows,
+    get_photoperiod,
     get_stage_timeline,
     set_active_grow,
+    set_photoperiod,
     update_grow_stage,
 )
 from autocann.store.grow_stages import profile_stage_table, stage_table
@@ -103,6 +105,41 @@ def grow_timeline(grow_id: int):
         return jsonify({"grow_id": grow_id, "timeline": get_stage_timeline(grow_id)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@bp.route("/api/grows/<int:grow_id>/photoperiod", methods=["GET"])
+def get_photoperiod_endpoint(grow_id: int):
+    """The local hours the lights come on and go off, and whether the grow set them."""
+    try:
+        found = get_photoperiod(grow_id)
+        if found is None:
+            return jsonify({"error": f"Grow {grow_id} not found"}), 404
+        return jsonify(found)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/grows/<int:grow_id>/photoperiod", methods=["PUT"])
+def set_photoperiod_endpoint(grow_id: int):
+    """
+    Set the photoperiod: `{"on": 6, "off": 0}`, hours 0-23 in local time.
+
+    A window that crosses midnight is fine (on 18, off 12). `on` and `off` must
+    differ, since equal hours would be no window at all.
+    """
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or "on" not in data or "off" not in data:
+            return jsonify({"error": "'on' and 'off' are required"}), 400
+        try:
+            saved = set_photoperiod(grow_id, data["on"], data["off"])
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if saved is None:
+            return jsonify({"error": f"Grow {grow_id} not found"}), 404
+        return jsonify(saved)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @bp.route("/api/grows/<int:grow_id>/stage", methods=["PUT"])
 def update_stage_endpoint(grow_id: int):
