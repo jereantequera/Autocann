@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import datetime, timedelta
 
 import pytest
 
 from autocann.control.vpd_math import VPD_RANGES
+from autocann.store import analytics
 from autocann.store import connection as store_conn
 from autocann.store import schema as store_schema
+from autocann.store.grow_stages import grow_vpd_band
+from autocann.time import ARGENTINA_TZ
 
 BUCKET_SECONDS = 3600
 
@@ -575,6 +579,72 @@ def test_the_period_summary_does_not_average_across_grows(temp_db):
     everything = temp_db.get_period_summary(now - 90 * 86400, now, temp_db.ALL_GROWS)
     assert everything["sample_count"] == 12
     assert everything["temperature"]["avg"] == 20.0
+
+
+# A Wednesday, so "this week" is Monday to now and "last week" is the Monday
+# before it in full.
+FROZEN_NOW = ARGENTINA_TZ.localize(datetime(2026, 10, 14, 12, 0))
+
+
+def _freeze_the_report_clock(monkeypatch):
+    """The weekly report reads the wall clock; freeze it where it is read."""
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(FROZEN_NOW.timestamp(), tz)
+
+    monkeypatch.setattr(analytics, "datetime", _Frozen)
+
+
+def _a_week_of_samples(temp_db, grow_id, week_start, temperature, humidity, vpd, count):
+    """`count` readings, one per 5 minutes, starting an hour after `week_start`."""
+    conn = temp_db._open()
+    for i in range(count):
+        ts = int(week_start.timestamp()) + 3600 + i * 300
+        local = datetime.fromtimestamp(ts, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO sensor_data (grow_id, timestamp, datetime, temperature,"
+            " humidity, vpd) VALUES (?, ?, ?, ?, ?, ?)",
+            (grow_id, ts, local, temperature, humidity, vpd),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _report_grow(temp_db):
+    grow_id = temp_db.create_grow("Reporte", "early_veg")
+    low, high = grow_vpd_band(grow_id, "early_veg")
+    return grow_id, (low + high) / 2, high + 1  # in range, out of range
+
+
+def test_a_previous_week_at_zero_percent_is_a_week_not_a_gap(temp_db, monkeypatch):
+    _freeze_the_report_clock(monkeypatch)
+    grow_id, in_range, out_of_range = _report_grow(temp_db)
+    this_monday = FROZEN_NOW.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=FROZEN_NOW.weekday())
+    last_monday = this_monday - timedelta(days=7)
+
+    # Last week: every reading out of the VPD band (score 0 %), and a
+    # temperature average of exactly 0 °C, which the old truthiness check
+    # also treated as "no data".
+    _a_week_of_samples(temp_db, grow_id, last_monday, 0.0, 40.0, out_of_range, 12)
+    # This week: in range, warmer and drier than last week.
+    _a_week_of_samples(temp_db, grow_id, this_monday, 2.0, 50.0, in_range, 12)
+
+    report = temp_db.get_weekly_report(grow_id=grow_id)
+    assert report["vpd_score"]["overall"] == 100.0
+    assert report["trends"]["vpd_score"] == 100.0 - 0
+    assert report["trends"]["temperature"] == 2.0
+    assert report["trends"]["humidity"] == 10.0
+
+
+def test_a_week_with_no_samples_before_it_has_no_trend(temp_db, monkeypatch):
+    _freeze_the_report_clock(monkeypatch)
+    grow_id, in_range, _ = _report_grow(temp_db)
+    this_monday = FROZEN_NOW.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=FROZEN_NOW.weekday())
+    _a_week_of_samples(temp_db, grow_id, this_monday, 22.0, 60.0, in_range, 12)
+
+    report = temp_db.get_weekly_report(grow_id=grow_id)
+    assert report["trends"] == {"temperature": None, "humidity": None, "vpd_score": None}
 
 
 def test_the_vpd_score_refuses_to_cover_several_grows(temp_db):
