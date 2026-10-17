@@ -17,6 +17,7 @@ import {
     showStageModal, updateStage, wireGrowFilter, wireGrowListActions,
 } from './grows.js';
 import { openNewGrowForm, wireNewGrowForm } from './growform.js';
+import { wirePhotoperiod } from './photoperiod.js';
 import { wireTentName } from './tent-name.js';
 import { closeModal, initModals } from './modals.js';
 import { fetchLogbook } from './logbook.js';
@@ -268,6 +269,7 @@ async function start() {
     wireActions();
     wireGrowListActions();
     wireGrowFilter();
+    wirePhotoperiod();
     wireFeeding();
     wireCalendar();
     wirePanel();

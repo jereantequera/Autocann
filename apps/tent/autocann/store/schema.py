@@ -12,6 +12,7 @@ from autocann.store.migrations import (
     _backfill_grow_stages,
     _backfill_stage_events,
     _migrate_grow_links,
+    _migrate_grow_photoperiod,
     _migrate_nullable_outdoor_columns,
     _migrate_sample_detail_columns,
     snapshot_profile_stages,
@@ -342,6 +343,7 @@ def init_database() -> None:
     _seed_builtin_profiles(conn)
     _seed_tents(conn)
     _migrate_grow_links(conn, BUILTIN_TENT_ID, BUILTIN_PROFILE_ID)
+    _migrate_grow_photoperiod(conn)
     _backfill_grow_stages(conn)
 
     # Create default grow if none exists

@@ -190,6 +190,29 @@ def _migrate_grow_links(conn: sqlite3.Connection, tent_id: int, profile_id: str)
     conn.commit()
 
 
+#: The photoperiod of a grow: local hours, NULL until the grow sets its own.
+_PHOTOPERIOD_COLUMNS = (
+    ("lights_on_hour", "INTEGER"),
+    ("lights_off_hour", "INTEGER"),
+)
+
+
+def _migrate_grow_photoperiod(conn: sqlite3.Connection) -> None:
+    """
+    Add `grows.lights_on_hour` and `grows.lights_off_hour`.
+
+    Nullable, so SQLite adds them in place and every existing grow keeps NULL,
+    which the store reads as the default photoperiod. Idempotent: a column that
+    is already there is left alone.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(grows)")}
+    for name, kind in _PHOTOPERIOD_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE grows ADD COLUMN {name} {kind}")
+            logger.info("grows: added column %s", name)
+    conn.commit()
+
+
 def snapshot_profile_stages(conn: sqlite3.Connection, grow_id: int, profile_id: str) -> None:
     """
     Copy a profile's stages into `grow_stages` for one grow.

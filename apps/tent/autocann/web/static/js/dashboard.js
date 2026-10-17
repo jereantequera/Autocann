@@ -4,6 +4,7 @@ import { alertDialog, closeModal, showModal, toast } from './modals.js';
 import { config, MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, state } from './state.js';
 import { outputRowState, outputShortName } from './status.js';
 import { timeInRange } from './stats-math.js';
+import { rangeText, summarySplitLines } from './stats-split.js';
 import {
     escapeHtml, fmtComma, formatDuration, icon, relaySourceLabel, stampLastUpdate, withGrow,
 } from './util.js';
@@ -75,12 +76,6 @@ function updateCurrentData(data) {
 // lo saca de /api/health: un solo veredicto para el badge del hero, las
 // tarjetas y el cartel de arriba, que antes podian decir cosas distintas.
 
-/** "22,6 – 26,4" for a min and max, or "--" when either is missing. */
-function rangeText(min, max, decimals) {
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return '--';
-    return `${fmtComma(min, decimals)} – ${fmtComma(max, decimals)}`;
-}
-
 /** The average as the readout's value: the number big, the unit small. */
 function readoutValueHtml(value, decimals, unit) {
     const text = Number.isFinite(value) ? fmtComma(value, decimals) : '--';
@@ -123,6 +118,8 @@ function updatePeriodSummary(data) {
         ? ` · hum. ${fmtComma(data.outside_humidity.avg, 1)} %` : '';
     setText('summary-outside-range', rangeText(
         data.outside_temperature?.min, data.outside_temperature?.max, 1) + outsideHumidity);
+
+    for (const [id, text] of Object.entries(summarySplitLines(data))) setText(id, text);
 
     lastVpdAverage = Number.isFinite(data.vpd?.avg) ? data.vpd.avg : null;
     if (inRangeShowsVpd) showVpdAverageFallback();

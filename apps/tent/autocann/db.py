@@ -58,6 +58,13 @@ from autocann.store.migrations import (
     _migrate_sample_detail_columns,
     _parse_local_datetime,
 )
+from autocann.store.photoperiod import (
+    DEFAULT_LIGHTS_OFF_HOUR,
+    DEFAULT_LIGHTS_ON_HOUR,
+    get_photoperiod,
+    set_photoperiod,
+    validate_photoperiod,
+)
 from autocann.store.profiles import (
     ProfileError,
     ProfileInUse,
@@ -113,6 +120,8 @@ __all__ = [
     "BUILTIN_PROFILE_NAME",
     "BUILTIN_TENT_ID",
     "BUILTIN_TENT_NAME",
+    "DEFAULT_LIGHTS_OFF_HOUR",
+    "DEFAULT_LIGHTS_ON_HOUR",
     "VPD_RANGES",
     "_ALL_GROWS_IS_NOT_A_GROW",
     "_FEED_PLAN_SEED",
@@ -155,6 +164,9 @@ __all__ = [
     "get_latest_sensor_data",
     "get_logbook",
     "get_period_summary",
+    "get_photoperiod",
+    "set_photoperiod",
+    "validate_photoperiod",
     "get_profile",
     "get_profiles",
     "get_sensor_data_range",
