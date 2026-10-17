@@ -148,3 +148,47 @@ test('the relays are named for the grower, not by their internal keys', () => {
     assert.equal(outputShortName({ name: 'ventilation' }), 'Extracción');
     assert.equal(outputShortName({ name: 'new_relay', label: 'Bomba' }), 'Bomba');
 });
+
+test('in range with the humidifier on, the subtitle says where it is steering', () => {
+    const current = { ...inRange, target_humidity: 64 };
+    const status = panelStatus(current, HEALTHY, RUNNING, [{ name: 'humidity_up', state: true }], STAGES, NOW);
+    assert.equal(status.level, 'ok');
+    assert.equal(status.title, 'En rango');
+    assert.equal(status.text, 'Dentro de la franja · humidificando hacia 64 %');
+});
+
+test('in range with the dehumidifier on, the subtitle says so, with a decimal when the target has one', () => {
+    const current = { ...inRange, target_humidity: 64.1 };
+    const status = panelStatus(current, HEALTHY, RUNNING, [{ name: 'humidity_down', state: true }], STAGES, NOW);
+    assert.equal(status.title, 'En rango');
+    assert.equal(status.text, 'Dentro de la franja · deshumidificando hacia 64,1 %');
+});
+
+test('in range with only the extractor on, the subtitle says it is ventilating', () => {
+    const outputs = [{ name: 'ventilation', state: true }, { name: 'humidity_up', state: false }];
+    const status = panelStatus({ ...inRange, target_humidity: 64 }, HEALTHY, RUNNING, outputs, STAGES, NOW);
+    assert.equal(status.title, 'En rango');
+    assert.equal(status.text, 'Dentro de la franja · ventilando');
+});
+
+test('in range without a target still names the action, without a number', () => {
+    const status = panelStatus(inRange, HEALTHY, RUNNING, [{ name: 'humidity_up', state: true }], STAGES, NOW);
+    assert.equal(status.text, 'Dentro de la franja · humidificando');
+});
+
+test('in range with nothing on keeps the sentence it always had', () => {
+    const outputs = [{ name: 'humidity_up', state: false }, { name: 'ventilation', state: false }];
+    const status = panelStatus({ ...inRange, target_humidity: 64 }, HEALTHY, RUNNING, outputs, STAGES, NOW);
+    assert.equal(status.text, 'Temperatura y humedad dentro de lo que pide Vegetativo Temprano.');
+});
+
+test('a relay that just came on says "recién", not "0 min"', () => {
+    assert.deepEqual(
+        outputRowState({ name: 'humidity_up', state: true, since: NOW / 1000 - 20 }, NOW),
+        { state: 'on', text: 'prendido · recién' },
+    );
+    assert.deepEqual(
+        outputRowState({ name: 'humidity_up', state: true, since: NOW / 1000 - 60 }, NOW),
+        { state: 'on', text: 'prendido · 1 min' },
+    );
+});
