@@ -14,6 +14,7 @@ import pytest
 
 from autocann.control import anomalies as an
 from autocann.control.anomalies import find_anomalies, when
+from autocann.control.timing import SAMPLE_SAVE_INTERVAL_SECONDS
 from autocann.time import ARGENTINA_TZ
 
 #: 2026-10-15 14:00 local, a fixed clock.
@@ -149,3 +150,55 @@ def test_one_discarded_read_leaves_no_gap():
     rows = _calm(10)
     del rows[4]
     assert _by_type(find_anomalies(rows, rows[-1]["timestamp"] + 60), "data_gap") == []
+
+
+def test_a_fresh_grow_with_no_rows_is_awaiting_its_first_sample_not_no_data():
+    report = find_anomalies([], T0, grow_started_at=T0 - 60)
+    assert report["status"] == "ok"
+    assert report["anomalies"] == []
+    assert [i["type"] for i in report["warnings"]] == ["awaiting_first_sample"]
+    item = report["warnings"][0]
+    assert item["severity"] == "info"
+    assert item["message"] == (
+        "Todavía no se guardó ninguna muestra: la primera se guarda a los 5 minutos de arrancar.")
+
+
+def test_the_awaiting_message_takes_its_minutes_from_the_save_interval(monkeypatch):
+    monkeypatch.setattr(an, "SAMPLE_SAVE_INTERVAL_SECONDS", 120)
+    monkeypatch.setattr(an, "FIRST_SAMPLE_GRACE_SECONDS", 240)
+    report = find_anomalies([], T0, grow_started_at=T0 - 10)
+    assert "a los 2 minutos de arrancar." in report["warnings"][0]["message"]
+
+
+def test_a_grow_past_the_grace_window_with_no_rows_is_no_data_as_before():
+    report = find_anomalies([], T0, grow_started_at=T0 - 20 * 60)
+    assert report["status"] == "critical"
+    assert [i["type"] for i in report["anomalies"]] == ["no_data"]
+    assert report["warnings"] == []
+
+
+def test_the_grace_window_ends_exactly_at_two_save_intervals():
+    grace = an.FIRST_SAMPLE_GRACE_SECONDS
+    assert grace == 2 * 5 * 60
+    assert find_anomalies([], T0, grow_started_at=T0 - grace + 1)["status"] == "ok"
+    at_the_edge = find_anomalies([], T0, grow_started_at=T0 - grace)
+    assert [i["type"] for i in at_the_edge["anomalies"]] == ["no_data"]
+
+
+def test_without_a_grow_start_no_rows_is_no_data_as_before():
+    report = find_anomalies([], T0)
+    assert [i["type"] for i in report["anomalies"]] == ["no_data"]
+
+
+def test_rows_present_ignore_the_grow_start():
+    rows = _calm(5)
+    assert find_anomalies(rows, T0 + 60, grow_started_at=T0) == find_anomalies(rows, T0 + 60)
+
+
+def test_the_loop_saves_on_the_interval_the_detector_assumes():
+    """The grace window is two save intervals, so the loop must save on the shared one."""
+    try:
+        from autocann.runtime.loop import DB_SAVE_INTERVAL_SECONDS
+    except ImportError:
+        from autocann.cli.vpd import DB_SAVE_INTERVAL_SECONDS
+    assert DB_SAVE_INTERVAL_SECONDS == SAMPLE_SAVE_INTERVAL_SECONDS

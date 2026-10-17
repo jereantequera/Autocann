@@ -13,6 +13,7 @@ from autocann.store.connection import _open
 from autocann.store.grow_stages import grow_vpd_band
 from autocann.store.grows import _NO_GROW, _resolve_grow_filter
 from autocann.store.history import get_period_summary
+from autocann.store.migrations import _parse_local_datetime
 from autocann.store.schema import ensure_schema
 from autocann.store.vpd_score import _ALL_GROWS_IS_NOT_A_GROW, _grow_identity, _is_all_grows, get_vpd_score
 from autocann.time import ARGENTINA_TZ
@@ -209,14 +210,17 @@ def detect_anomalies(
             WHERE timestamp >= ? AND timestamp <= ?
         """
         params: List[object] = [start_timestamp, end_timestamp]
+        grow_started_at = None
         if grow_id is not None:
             query = query.replace("WHERE", "WHERE grow_id = ? AND")
             params.insert(0, grow_id)
+            start_row = cursor.execute("SELECT start_date FROM grows WHERE id = ?", (grow_id,)).fetchone()
+            grow_started_at = _parse_local_datetime(start_row[0]) if start_row else None
         query += " ORDER BY timestamp ASC"
         rows = [dict(row) for row in cursor.execute(query, params).fetchall()]
         conn.close()
 
-        report = find_anomalies(rows, end_timestamp, hours=hours)
+        report = find_anomalies(rows, end_timestamp, hours=hours, grow_started_at=grow_started_at)
         report["checked_period"] = {
             "hours": hours,
             "samples_checked": len(rows),

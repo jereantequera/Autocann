@@ -123,6 +123,15 @@ function alertDecision({ health, anomalies = [], dismissed = false }) {
 }
 
 /**
+ * The icon of one item in the anomalies box. Only a warning gets the triangle;
+ * a critical item and an info notice get the circle, so a notice does not look
+ * like an alarm. A missing severity counts as a warning, as everywhere else.
+ */
+function anomalyIcon(severity) {
+    return (severity || 'warning') === 'warning' ? 'triangle-alert' : 'circle-alert';
+}
+
+/**
  * The "+N" line of the broken-state alert: singular for one, plural for more,
  * empty for none so the element stays hidden.
  */
@@ -132,5 +141,5 @@ function moreWarningsLabel(n) {
 }
 
 export {
-    alertDecision, isBroken, moreWarningsLabel, noGrowNotice, ownedByBanner, worstSeverity,
+    alertDecision, anomalyIcon, isBroken, moreWarningsLabel, noGrowNotice, ownedByBanner, worstSeverity,
 };

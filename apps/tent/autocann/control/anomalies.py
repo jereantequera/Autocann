@@ -28,14 +28,19 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from autocann.control.plausible import plausible_humidity, plausible_temperature
+from autocann.control.timing import SAMPLE_SAVE_INTERVAL_SECONDS
 from autocann.time import ARGENTINA_TZ
 
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
 
-#: The loop writes one aggregated row every 5 minutes.
-SAMPLE_INTERVAL_SECONDS = 5 * 60
+#: The loop writes one aggregated row every save interval (5 minutes).
+SAMPLE_INTERVAL_SECONDS = SAMPLE_SAVE_INTERVAL_SECONDS
+
+#: A grow younger than this may still be waiting for its first row, which is
+#: normal: no "no data" for it. Two save intervals, so one late write is covered.
+FIRST_SAMPLE_GRACE_SECONDS = 2 * SAMPLE_SAVE_INTERVAL_SECONDS
 
 #: Three missed writes. One late write is jitter; three is the recorder not
 #: recording. Also the age at which /api/health calls the history stalled.
@@ -200,16 +205,38 @@ def _spikes(rows: Sequence[Dict], field: str, tz) -> List[Dict]:
 # ---------------------------------------------------------------------------
 
 
+def status_of(anomalies: Sequence[Dict], warnings: Sequence[Dict]) -> str:
+    """
+    The verdict for a report. An `info` item says something without judging the
+    tent, so on its own it leaves the status at "ok".
+    """
+    if anomalies:
+        return "critical"
+    if any(item.get("severity", "warning") != "info" for item in warnings):
+        return "warning"
+    return "ok"
+
+
 def find_anomalies(rows: Iterable[Dict], now: int, hours: int = 24,
-                   tz=ARGENTINA_TZ) -> Dict:
+                   tz=ARGENTINA_TZ, grow_started_at: Optional[int] = None) -> Dict:
     """
     Every anomaly in `rows` (sorted by timestamp, oldest first) as of `now`.
 
     Returns `anomalies` (critical), `warnings` and `status`, one item per type.
     Each row needs `timestamp`, `temperature` and `humidity`.
+
+    `grow_started_at` (epoch) is what lets a brand-new grow with no rows yet
+    say so, instead of reporting "no data" for a first sample that is simply
+    not due. Without it, no rows is always `no_data`.
     """
     rows = list(rows)
     if not rows:
+        if grow_started_at is not None and now - grow_started_at < FIRST_SAMPLE_GRACE_SECONDS:
+            minutes = SAMPLE_SAVE_INTERVAL_SECONDS // 60
+            waiting = {"type": "awaiting_first_sample", "severity": "info",
+                       "message": ("Todavía no se guardó ninguna muestra: la primera se guarda "
+                                   f"a los {minutes} minutos de arrancar.")}
+            return {"status": "ok", "anomalies": [], "warnings": [waiting]}
         issue = {"type": "no_data", "severity": "critical", "hours": hours,
                  "timestamp": _stamp(now, tz)}
         issue["message"] = history_message(issue)
@@ -230,5 +257,4 @@ def find_anomalies(rows: Iterable[Dict], now: int, hours: int = 24,
 
     anomalies = [i for i in items if i["severity"] == "critical"]
     warnings = [i for i in items if i["severity"] != "critical"]
-    status = "critical" if anomalies else "warning" if warnings else "ok"
-    return {"status": status, "anomalies": anomalies, "warnings": warnings}
+    return {"status": status_of(anomalies, warnings), "anomalies": anomalies, "warnings": warnings}

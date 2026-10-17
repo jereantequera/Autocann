@@ -17,7 +17,7 @@
  * alerts.js, para que no haya dos cajas pegadas diciendo lo mismo.
  */
 
-import { alertDecision, moreWarningsLabel } from './alerts.js';
+import { alertDecision, anomalyIcon, moreWarningsLabel } from './alerts.js';
 import { apiGet, connection } from './api.js';
 import {
     escapeHtml, fmtNum, fmtSigned, formatAge, icon, iconText, stampLastUpdate,
@@ -426,7 +426,7 @@ function renderAlerts() {
         if (list) {
             list.innerHTML = decision.items.map(issue => `
                 <div class="anomaly-item ${escapeHtml(issue.severity || 'warning')}">
-                    ${icon(issue.severity === 'critical' ? 'circle-alert' : 'triangle-alert', 'anomaly-icon')}
+                    ${icon(anomalyIcon(issue.severity), 'anomaly-icon')}
                     <span class="anomaly-text">${escapeHtml(issue.message)}</span>
                     <span class="anomaly-time">${escapeHtml(issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '')}</span>
                 </div>`).join('')
