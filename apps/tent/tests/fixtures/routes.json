@@ -1,0 +1,272 @@
+[
+  {
+    "rule": "/",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/anomalies",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/auth",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/calibration",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/calibration",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/config",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/current-data",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/database-stats",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/feed-plan",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/feed-plan",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
+    "rule": "/api/feeding/today",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/grows",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/grows",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/grows/<int:grow_id>/activate",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/grows/<int:grow_id>/end",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/grows/<int:grow_id>/stage",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
+    "rule": "/api/grows/<int:grow_id>/timeline",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/grows/active",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/health",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/history/aggregated",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/irrigations",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/irrigations",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/irrigations/<int:irrigation_id>",
+    "methods": [
+      "DELETE"
+    ]
+  },
+  {
+    "rule": "/api/logbook",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/node/log",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/node/log",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/nodes",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/output-control",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/output-status",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/outputs/desired",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/period-summary",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/quiet-hours",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/quiet-hours",
+    "methods": [
+      "PUT"
+    ]
+  },
+  {
+    "rule": "/api/sensor-history",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/sensor-status",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/sensor/indoor",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/sensor/indoor",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/sensors/indoor",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/test-mode",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/test-mode",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/test-mode/outputs",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/vpd-band",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/vpd-score",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/weekly-report",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/static/<path:filename>",
+    "methods": [
+      "GET"
+    ]
+  }
+]

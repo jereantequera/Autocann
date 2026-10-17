@@ -26,7 +26,6 @@ ALLOWLIST: dict[str, int] = {
     "autocann/cli/simulate.py": 748,
     "autocann/cli/vpd.py": 1485,
     "autocann/config.py": 446,
-    "autocann/web/app.py": 1756,
     "autocann/web/diagnostics.py": 912,
     "autocann/web/static/js/charts.js": 435,
     "autocann/web/static/js/dashboard.js": 616,

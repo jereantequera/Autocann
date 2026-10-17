@@ -419,8 +419,8 @@ marcadores de hueco en la API y 2 guards de frontend.
 > | Lo que existe | Dónde |
 > |---|---|
 > | Tablas `feed_products`, `feed_plan`, `irrigations`, `irrigation_items` | `autocann/db.py` |
-> | `GET`/`POST /api/irrigations`, `DELETE /api/irrigations/<id>` | `autocann/web/app.py` |
-> | `GET`/`PUT /api/feed-plan`, `GET /api/feeding/today` | `autocann/web/app.py` |
+> | `GET`/`POST /api/irrigations`, `DELETE /api/irrigations/<id>` | `autocann/web/api/feeding.py` |
+> | `GET`/`PUT /api/feed-plan`, `GET /api/feeding/today` | `autocann/web/api/feeding.py` |
 > | La aritmética de la grilla, pura | `autocann/control/feeding.py` |
 > | Vista *Riego*, `feeding.js`, `calendar.js`, parciales `feeding.html` y `today-feed.html` | `autocann/web/` |
 > | 54 tests | `tests/test_feeding.py`, `tests/test_feed_plan_api.py` |

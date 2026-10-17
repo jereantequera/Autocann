@@ -63,8 +63,10 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 
 ### `web/`
 
-- `app.py`: Flask app + las 30 rutas del núcleo. `auth.py` y `diagnostics.py`
-  registran las otras 6 sobre la misma app: 36 en total, documentadas en
+- `app.py`: arma la app Flask: registra los blueprints de `api/`, el PIN y los
+  diagnósticos. Las rutas viven en `api/` (una por área) y lo que comparten
+  (cliente de Redis, `static_asset_version`, `icon`) en `deps.py` y `helpers.py`.
+  `auth.py` y `diagnostics.py` registran rutas sobre la misma app, documentadas en
   `USAGE.md`.
 - `auth.py`: el PIN opcional de `AUTOCANN_PIN`, con tres endpoints exentos a
   propósito y para siempre. Sin la variable, el comportamiento es el de siempre

@@ -22,7 +22,7 @@ JS_DIR = STATIC_DIR / "js"
 JS_TEST_DIR = Path(__file__).parent / "js"
 #: The two modules the control-mode tests read as text.
 VPD_PY = Path(__file__).parent.parent / "autocann" / "cli" / "vpd.py"
-APP_PY = Path(__file__).parent.parent / "autocann" / "web" / "app.py"
+TEST_MODE_PY = Path(__file__).parent.parent / "autocann" / "web" / "api" / "test_mode.py"
 #: Partials kept on disk on purpose with no page including them yet. None now:
 #: the Exterior card moved into Estadísticas, and its partial went with it. The
 #: list stays so that the next exception has to be decided here, not slipped in.
@@ -245,8 +245,9 @@ def test_every_entry_point_is_actually_served():
     """A page template nothing renders is a 500 waiting for the right moment."""
     import autocann.web.app as web
 
-    app_py = (Path(web.__file__)).read_text()
-    auth_py = (Path(web.__file__).parent / "auth.py").read_text()
+    web_dir = Path(web.__file__).parent
+    app_py = "".join(path.read_text() for path in [web_dir / "app.py", *(web_dir / "api").glob("*.py")])
+    auth_py = (web_dir / "auth.py").read_text()
     for entry in ENTRY_POINTS:
         assert entry in app_py or entry in auth_py, entry
 
@@ -779,10 +780,12 @@ def test_the_pause_does_not_expire_on_its_own():
     assert not hasattr(config, "TEST_MODE_DEFAULT_SECONDS")
     assert not hasattr(config, "TEST_MODE_MAX_SECONDS")
 
-    app_py = (Path(config.__file__).parent / "web" / "app.py").read_text()
+    web_dir = Path(config.__file__).parent / "web"
+    app_py = "".join(path.read_text() for path in [web_dir / "app.py", *(web_dir / "api").glob("*.py")])
     # No TTL on the pause keys: `ex=` on either is an expiry by another name.
-    pause_write = app_py[app_py.index("def set_test_mode"):]
-    pause_write = pause_write[: pause_write.index("@app.route", 10)]
+    test_mode_py = (web_dir / "api" / "test_mode.py").read_text()
+    pause_write = test_mode_py[test_mode_py.index("def set_test_mode"):]
+    pause_write = pause_write[: pause_write.index("@bp.route", 10)]
     assert "ex=" not in pause_write
 
     # And it outlives Redis, which is memory: a reboot must not resume the tent.
@@ -859,7 +862,7 @@ def test_the_asset_version_changes_when_the_assets_do():
     Nobody has to remember to bump anything now - the token is the newest mtime
     under static/, which `git pull` moves for us.
     """
-    from autocann.web.app import static_asset_version
+    from autocann.web.deps import static_asset_version
 
     before = static_asset_version()
     assert before, "el token quedó vacío"
@@ -963,10 +966,9 @@ def test_the_relays_are_only_movable_by_hand_in_the_pause():
     Monitoring switching a relay would make its own history worthless: those
     rows are worth having precisely because nothing was running in the room.
     """
-    app_py = APP_PY.read_text()
-    guard = app_py[app_py.index("def set_test_mode_output("):]
-    guard = guard[: guard.index("\n    @app.route")]
-    assert "_control_mode()[0] != MODE_PAUSED" in guard
+    test_mode_py = TEST_MODE_PY.read_text()
+    guard = test_mode_py[test_mode_py.index("def set_test_mode_output("):]
+    assert "control_mode()[0] != MODE_PAUSED" in guard
 
 
 def test_the_header_offers_both_ways_to_stop_and_one_way_back():
