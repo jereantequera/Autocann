@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from autocann.control.plausible import AND_VALID_ROW
-from autocann.control.vpd_math import VPD_RANGES
 from autocann.store.connection import _open
+from autocann.store.grow_stages import grow_vpd_band
 from autocann.store.grows import _NO_GROW, ALL_GROWS, _resolve_grow_filter
 from autocann.store.schema import ensure_schema
 from autocann.time import ARGENTINA_TZ
@@ -73,7 +73,7 @@ def get_vpd_score(
         grow_id = resolved
         _, stage = _grow_identity(grow_id)
 
-        vpd_min, vpd_max = VPD_RANGES.get(stage, (0.6, 1.5))
+        vpd_min, vpd_max = grow_vpd_band(grow_id, stage)
 
         ensure_schema()
         conn = _open()

@@ -8,13 +8,11 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
-from autocann.control.vpd_math import (
-    STAGE_NAMES,
-)
 from autocann.db import (
     get_active_grow,
     get_logbook,
 )
+from autocann.store.grow_stages import active_stage_table
 from autocann.time import ARGENTINA_TZ
 
 bp = Blueprint("logbook", __name__)
@@ -56,7 +54,7 @@ def _local_datetime(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, ARGENTINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _logbook_entry(entry: dict, grow_name: str) -> dict:
+def _logbook_entry(entry: dict, grow_name: str, stage_names: dict) -> dict:
     """
     One logbook row, as the dashboard shows it: a kind, a sentence and a detail.
 
@@ -88,7 +86,7 @@ def _logbook_entry(entry: dict, grow_name: str) -> dict:
         detail = " · ".join(parts)
     else:
         kind = "cultivo"
-        stage_name = STAGE_NAMES.get(entry["stage"], entry["stage"])
+        stage_name = stage_names.get(entry["stage"], entry["stage"])
         if entry["is_start"]:
             text = f"Empezó {grow_name} en {stage_name}"
         else:
@@ -124,9 +122,10 @@ def get_logbook_entries():
         grow_id = int(grow["id"]) if grow else None
         grow_name = grow["name"] if grow else ""
 
+        stage_names = {key: stage["name"] for key, stage in active_stage_table().items()}
         entries = get_logbook(since_ts, limit, grow_id=grow_id)
         return jsonify({
-            "items": [_logbook_entry(entry, grow_name) for entry in entries],
+            "items": [_logbook_entry(entry, grow_name, stage_names) for entry in entries],
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

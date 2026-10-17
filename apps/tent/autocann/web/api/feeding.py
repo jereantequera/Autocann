@@ -14,9 +14,6 @@ from autocann.control.feeding import (
     water_only_reason,
     weeks_in_stage,
 )
-from autocann.control.vpd_math import (
-    STAGE_EXPECTED_DAYS,
-)
 from autocann.db import (
     delete_irrigation,
     get_active_grow,
@@ -26,6 +23,7 @@ from autocann.db import (
     record_irrigation,
     replace_feed_plan,
 )
+from autocann.store.grow_stages import active_stage_table, expected_days_by_stage, stage_table
 
 bp = Blueprint("feeding", __name__)
 
@@ -39,16 +37,17 @@ def feed_plan():
     """
     The feed chart, plus the grid shape the editor needs to draw it.
 
-    The columns come from the stage lengths in vpd_math.py, so the editor
+    The columns come from the active grow's stage lengths, so the editor
     never holds its own idea of how long flowering is.
     """
     try:
+        expected = expected_days_by_stage(active_stage_table())
         return jsonify(
             {
                 "products": get_feed_plan(),
-                "columns": chart_columns(),
+                "columns": chart_columns(expected),
                 "weeks_per_stage": {
-                    stage: weeks_in_stage(stage) for stage in STAGE_EXPECTED_DAYS
+                    stage: weeks_in_stage(stage, expected) for stage in expected
                 },
             }
         )
@@ -84,7 +83,8 @@ def feeding_today():
 
         stage = grow.get("stage")
         day = grow.get("day_in_stage")
-        week = effective_week(stage, day) if stage else 0
+        expected = expected_days_by_stage(stage_table(grow["id"]))
+        week = effective_week(stage, day, expected) if stage else 0
         litres = request.args.get("litres", type=float)
         if litres is None:
             litres = last_irrigation_litres(grow["id"])
@@ -96,7 +96,7 @@ def feeding_today():
                 "stage": stage,
                 "day_in_stage": day,
                 "week": week,
-                "weeks_in_stage": weeks_in_stage(stage) if stage else 0,
+                "weeks_in_stage": weeks_in_stage(stage, expected) if stage else 0,
                 "litres": litres,
                 "items": due,
                 # A week with nothing due is an instruction, and which one
@@ -150,7 +150,8 @@ def create_irrigation():
             return jsonify({"error": "No active grow found"}), 404
 
         stage = grow.get("stage")
-        week = effective_week(stage, grow.get("day_in_stage")) if stage else None
+        expected = expected_days_by_stage(stage_table(grow["id"]))
+        week = effective_week(stage, grow.get("day_in_stage"), expected) if stage else None
 
         irrigation_id = record_irrigation(
             grow_id=grow["id"],
