@@ -9,6 +9,7 @@ autocann.store.connection or autocann.store.schema, where the code reads it.
 from __future__ import annotations
 
 from autocann.control.vpd_math import VPD_RANGES
+from autocann.store.active_grow import get_active_grow, set_active_grow
 from autocann.store.analytics import (
     detect_anomalies,
     get_weekly_report,
@@ -31,12 +32,10 @@ from autocann.store.grows import (
     _resolve_grow_filter,
     create_grow,
     end_grow,
-    get_active_grow,
     get_all_grows,
     get_stage_events,
     get_stage_timeline,
     record_stage_event,
-    set_active_grow,
     update_grow_stage,
 )
 from autocann.store.history import (

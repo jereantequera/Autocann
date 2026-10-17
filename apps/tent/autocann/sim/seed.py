@@ -58,8 +58,9 @@ def seed_history(db_path: Path, plan: HistoryPlan, *, grow_id: Optional[int] = N
     stage events and rows that follow sit inside its life. Raises ValueError
     when the path is refused or a store write fails.
     """
+    from autocann.store.active_grow import get_active_grow
     from autocann.store.grow_backdate import backdate_grow
-    from autocann.store.grows import get_active_grow, record_stage_event
+    from autocann.store.grows import record_stage_event
     from autocann.store.irrigations import record_irrigation
     from autocann.store.samples import store_sensor_sample
 

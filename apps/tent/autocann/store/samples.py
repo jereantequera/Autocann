@@ -8,8 +8,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from autocann.control.plausible import AND_VALID_ROW, scrub_outdoor
+from autocann.store.active_grow import get_active_grow
 from autocann.store.connection import _open
-from autocann.store.grows import _NO_GROW, _resolve_grow_filter, get_active_grow
+from autocann.store.grows import _NO_GROW, _resolve_grow_filter
 from autocann.store.schema import ensure_schema
 from autocann.time import ARGENTINA_TZ
 
