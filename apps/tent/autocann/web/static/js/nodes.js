@@ -19,6 +19,9 @@ const LINE_LEVELS = { info: '·', warn: '!', error: '×' };
 
 /** Qué nodo se está mirando; null hasta que el backend diga cuáles hay. */
 let selected = null;
+// Node names from the last /api/nodes answer. With two or more nodes the log
+// endpoint refuses to guess, so the first one is asked for by name.
+let knownNodes = [];
 /** Si la consola se pega al final sola. Se apaga al scrollear para atrás. */
 let follow = true;
 
@@ -125,6 +128,7 @@ function renderNodes(payload) {
     if (!grid) return;
 
     const nodes = payload?.nodes || [];
+    knownNodes = nodes.map(node => node.node);
     if (!nodes.length) {
         // Un nodo con firmware viejo no reporta nada, y eso se ve igual que un
         // nodo muerto. Vale la pena decir cuál de las dos cosas es.
@@ -195,10 +199,16 @@ function renderLog(payload) {
 // ===============================
 
 function fetchNodes() {
-    apiGet('/api/nodes', { key: 'nodes' }).then(data => { if (data) renderNodes(data); });
+    apiGet('/api/nodes', { key: 'nodes' }).then(data => {
+        if (!data) return;
+        renderNodes(data);
+        // The log was asked for before the names were known; ask again by name.
+        if (!selected) fetchNodeLog();
+    });
 }
 
 function fetchNodeLog() {
+    selected = selected || knownNodes[0] || null;
     const url = selected ? `/api/node/log?node=${encodeURIComponent(selected)}` : '/api/node/log';
     apiGet(url, { key: 'node-log' }).then(data => {
         if (!data) return;

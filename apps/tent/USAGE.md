@@ -580,6 +580,7 @@ loop, and fake sensor and relay nodes that talk to them the way the firmware
 does (`firmware/sensor_node`, `firmware/relay_node`). A simple model of the tent
 responds to the outputs, so the dashboard and the loop can be exercised in
 situations that are hard to produce on demand.
+The relay node reports no status, like its firmware.
 
 ```bash
 make sim                                  # normal scenario, until Ctrl-C
