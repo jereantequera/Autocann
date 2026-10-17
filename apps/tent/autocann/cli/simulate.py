@@ -11,9 +11,8 @@ Every child process gets a non-zero Redis DB, a fresh SQLite file, remote relay
 mode (never GPIO) and a free 127.0.0.1 port, and only the PIDs this module
 started are ever signalled.
 
-The tent model and the scenario timelines are pure: no I/O, no clock, and the
-randomness is injected, so they can be unit-tested. Everything that talks to
-the network or spawns processes lives below the "Sandbox" and "Run" sections.
+The tent model and the scenarios are pure and unit-tested; I/O sits below the
+"Sandbox" and "Run" sections. Synthetic history lives in autocann/sim/.
 """
 
 from __future__ import annotations
@@ -41,6 +40,7 @@ from autocann.config import RELAY_MODE_REMOTE, redis_config_from_env
 from autocann.control.vpd_math import calculate_vpd
 from autocann.hardware.outputs import OUTPUT_NAMES
 from autocann.paths import DATA_DIR, PROJECT_ROOT
+from autocann.sim.seed import seed_sandbox_history
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -95,11 +95,8 @@ SPIKE_TEMP_DELTA_C = 25.0
 PRIMARY_SENSOR_ID = "a"
 OBSERVER_SENSOR_ID = "b"
 
-#: Sent to the child control loop before it imports anything. Blocks every
-#: hardware module, so even if the mode setting were ever wrong the loop could
-#: not reach GPIO or a DHT22 wired to the real tent. The loop tolerates a
-#: missing DHT22: it logs it and carries on, which is what the outdoor sensor
-#: does here.
+#: Sent to the child control loop before it imports anything: hardware modules
+#: are blocked, so the loop cannot reach GPIO or a DHT22 of the real tent.
 LOOP_BOOTSTRAP = (
     "import sys\n"
     "for _name in ('gpiozero', 'RPi', 'board', 'adafruit_dht'):\n"
@@ -183,9 +180,8 @@ class TentModel:
     """
     Air temperature and relative humidity of the tent, in model time.
 
-    The air relaxes toward the outdoor air. A humidifier adds moisture at a
-    constant rate, a dehumidifier removes it, and the extractor makes the
-    exchange with outdoor air much faster.
+    The air relaxes toward the outdoor air; the humidifier and dehumidifier add
+    and remove moisture at a constant rate; the extractor speeds the exchange.
     """
 
     temp: float
@@ -252,11 +248,9 @@ def scenario_readings(
     """
     What the sensor nodes post at wall-clock second `t` of the run.
 
-    Returns None when the sensors are silent (`stale` after its cutoff). `prev_t`
-    is the previous post's time, so the one-off spike is emitted by exactly the
-    first post at or after `SPIKE_AT_SECONDS`, whatever the posting interval.
-    `rng` adds sensor noise; without it readings are exact, which is what the
-    tests use.
+    Returns None when the sensors are silent (`stale`). The spike goes out with
+    the first post at or after `SPIKE_AT_SECONDS`; `rng` adds noise, and without
+    it readings are exact, as the tests need.
     """
     scenario_spec(name)  # refuses an unknown scenario
     if name == "stale" and t >= STALE_AFTER_SECONDS:
@@ -299,12 +293,7 @@ def relay_polls(scenario: str) -> bool:
 
 
 def apply_desired(payload: Mapping[str, Any]) -> Dict[str, bool]:
-    """
-    The outputs a relay node switches to, given a `GET /api/outputs/desired` answer.
-
-    Mirrors firmware/relay_node: a failsafe answer means everything off, and an
-    output the answer does not name is off.
-    """
+    """The outputs a relay node switches to for a `/api/outputs/desired` answer; failsafe or unnamed means off."""
     if payload.get("failsafe"):
         return {name: False for name in OUTPUT_NAMES}
     outputs = payload.get("outputs") or {}
@@ -389,10 +378,8 @@ def build_child_env(
     """
     Environment for the backend and the control loop.
 
-    The relay mode is forced to remote whatever the caller's environment says,
-    and the Redis DB and SQLite file are the sandbox's own. Indoor sensor roles
-    come from the scenario, and any role it does not use is removed rather than
-    inherited.
+    The relay mode is forced to remote, the Redis DB and SQLite file are the
+    sandbox's own, and indoor sensor roles come from the scenario alone.
     """
     env = dict(os.environ if base is None else base)
     env.pop("PORT", None)
@@ -447,10 +434,7 @@ def start_child(command: Sequence[str], env: Mapping[str, str], stdout: Any = No
 
 def stop_children(children: Sequence[Tuple[str, subprocess.Popen]], grace_seconds: float = 15.0) -> None:
     """
-    Stop exactly the processes in `children`: SIGTERM, wait, SIGKILL after a timeout.
-
-    Signals the handles this module holds and nothing else. Nothing is found by
-    name, so no other process on the machine can be caught by it.
+    Stop exactly these processes: SIGTERM, wait, SIGKILL after a timeout. Nothing is found by name.
     """
     for _, proc in children:
         if proc.poll() is None:
@@ -636,6 +620,12 @@ def run(args: argparse.Namespace) -> int:
         children.append(("backend", backend))
         _wait_for_backend(base_url, backend)
         _create_grow(base_url, scenario)
+        if args.history:
+            try:
+                print(seed_sandbox_history(db_path, args.history, with_gaps=args.history_gaps,
+                                           now=int(time.time()), sandbox_dir=None if requested_db else workdir))
+            except ValueError as e:
+                raise SimulatorError(f"could not seed the history: {e}") from None
 
         loop = start_child([sys.executable, "-c", LOOP_BOOTSTRAP], env)
         children.append(("control loop", loop))
@@ -721,6 +711,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="SQLite file to create; must not exist (default: a temp file)")
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS,
                         help="seconds between sensor posts (default: 5)")
+    parser.add_argument("--history", type=int, default=0, metavar="DAYS",
+                        help="seed DAYS of synthetic history into the grow first (default: 0)")
+    parser.add_argument("--history-gaps", action="store_true",
+                        help="with --history, drop two 2-hour holes from it")
     return parser
 
 
@@ -733,6 +727,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("--duration must be positive")
     if args.interval <= 0:
         parser.error("--interval must be positive")
+    if args.history < 0:
+        parser.error("--history must not be negative")
+    if args.history_gaps and not args.history:
+        parser.error("--history-gaps needs --history")
     try:
         check_redis_db(args.redis_db)
     except SandboxError as e:

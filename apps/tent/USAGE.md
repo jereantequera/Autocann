@@ -603,6 +603,13 @@ are refused), and relays in remote mode, so GPIO is never touched. The
 simulator only stops the processes it started, by PID. Run one simulator at a
 time: they share Redis DB 15, and each start empties it.
 
+`make sim HISTORY=7` first writes seven days of synthetic history into the
+simulated grow: 5-minute samples with a day/night cycle, mostly inside the stage
+band with a few excursions outside it, a stage change in the past and a watering
+every other day. Estadísticas, Reportes, Cultivo and Bitácora then have data to
+show without waiting. `HISTORY_GAPS=1` also drops two 2-hour holes. The history
+goes only into the sandbox database, never the real one.
+
 ### Scenarios
 
 | Scenario        | What it shows                                                                                          |
