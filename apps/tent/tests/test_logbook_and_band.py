@@ -5,7 +5,7 @@ import time
 
 import autocann.cli.vpd as cli_vpd
 import autocann.control.vpd_math as vpd_math
-import autocann.web.app as web
+import autocann.web.api.analytics as analytics
 from autocann.control.vpd_math import (
     LEAF_TEMP_OFFSET_C,
     STAGES,
@@ -45,7 +45,7 @@ def test_leaf_offset_is_one_object_shared_by_cli_and_web():
     # Two copies of the offset would let the chart and the loop drift apart
     # without any test noticing, so both sides must hold the same object.
     assert cli_vpd.LEAF_TEMP_OFFSET_C is _LEAF_AT_IMPORT
-    assert web.LEAF_TEMP_OFFSET_C is _LEAF_AT_IMPORT
+    assert analytics.LEAF_TEMP_OFFSET_C is _LEAF_AT_IMPORT
     assert _LEAF_AT_IMPORT == 1.5
 
 
