@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from autocann.store.connection import _open
+from autocann.store.grow_stages import expected_days_by_stage, stage_table
 from autocann.store.migrations import _parse_local_datetime, snapshot_profile_stages
 from autocann.store.schema import ensure_schema
 from autocann.store.seeds import BUILTIN_PROFILE_ID, BUILTIN_TENT_ID
@@ -108,7 +109,9 @@ def _grow_day_counters(grow: Dict, now: Optional[int] = None) -> Dict:
         if now is None:
             now = int(datetime.now(ARGENTINA_TZ).timestamp())
 
-        periods = build_timeline(get_stage_events(int(grow["id"])), now=now)
+        grow_id = int(grow["id"])
+        expected = expected_days_by_stage(stage_table(grow_id))
+        periods = build_timeline(get_stage_events(grow_id), now=now, expected=expected)
         current = current_period(periods)
         started = _parse_local_datetime(grow.get("start_date"))
 
@@ -118,7 +121,7 @@ def _grow_day_counters(grow: Dict, now: Optional[int] = None) -> Dict:
             "day_of_grow": day_number(started, now) if started else None,
             "stage_expected_days": current.expected_days if current else None,
             "stage_progress": current.progress if current else None,
-            "estimated_end": estimated_end_timestamp(periods, now),
+            "estimated_end": estimated_end_timestamp(periods, now, expected),
         }
     except Exception as e:
         print(f"Error computing grow day counters: {e}")
@@ -371,4 +374,5 @@ def get_stage_timeline(grow_id: int, now: Optional[int] = None) -> List[Dict]:
     if now is None:
         now = int(datetime.now(ARGENTINA_TZ).timestamp())
     events = get_stage_events(grow_id)
-    return timeline_to_dicts(build_timeline(events, now=now))
+    expected = expected_days_by_stage(stage_table(grow_id))
+    return timeline_to_dicts(build_timeline(events, now=now, expected=expected))

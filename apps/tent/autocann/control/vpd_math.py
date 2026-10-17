@@ -136,7 +136,15 @@ def calculate_humidity_for_leaf_vpd(
     return round(min(max(humidity, 0.0), 100.0), 2)
 
 
-def vpd_range_for_stage(stage: str) -> Tuple[float, float]:
+def vpd_range_for_stage(
+    stage: str, vpd_band: Optional[Tuple[float, float]] = None
+) -> Tuple[float, float]:
+    """
+    VPD band of a stage. `vpd_band`, when given, is the band to use instead of
+    the built-in constant (a grow's own copy of its stage).
+    """
+    if vpd_band is not None:
+        return vpd_band
     try:
         return VPD_RANGES[stage]
     except KeyError:
@@ -144,21 +152,25 @@ def vpd_range_for_stage(stage: str) -> Tuple[float, float]:
 
 
 def humidity_range_bounds_for_stage(
-    stage: str, air_temperature_c: float, leaf_temperature_c: Optional[float] = None
+    stage: str,
+    air_temperature_c: float,
+    leaf_temperature_c: Optional[float] = None,
+    vpd_band: Optional[Tuple[float, float]] = None,
 ) -> Tuple[float, float]:
     """
     Humidity band (%) of the air that keeps leaf VPD inside the stage's band.
 
     `air_temperature_c` is the air the humidity is measured in; the leaf is at
     `leaf_temperature_c`. Without a leaf temperature the leaf is taken to be at
-    the air's, and the result is the plain air-VPD band.
+    the air's, and the result is the plain air-VPD band. `vpd_band` overrides
+    the built-in VPD band of the stage.
 
     Note the inversion: a *low* VPD needs *high* humidity, so the returned tuple
     is (humidity_at_vpd_min, humidity_at_vpd_max) and is therefore descending.
     """
     if leaf_temperature_c is None:
         leaf_temperature_c = air_temperature_c
-    vpd_min, vpd_max = vpd_range_for_stage(stage)
+    vpd_min, vpd_max = vpd_range_for_stage(stage, vpd_band)
     return (
         calculate_humidity_for_leaf_vpd(air_temperature_c, leaf_temperature_c, vpd_min),
         calculate_humidity_for_leaf_vpd(air_temperature_c, leaf_temperature_c, vpd_max),
@@ -183,14 +195,17 @@ def calculate_target_humidity(
     return round((low_bound + high_bound) / 2, 0)
 
 
-def vpd_is_in_range(vpd_kpa: float, stage: str) -> bool:
+def vpd_is_in_range(
+    vpd_kpa: float, stage: str, vpd_band: Optional[Tuple[float, float]] = None
+) -> bool:
     """
-    True when `vpd_kpa` sits inside the stage's band.
+    True when `vpd_kpa` sits inside the stage's band (`vpd_band` overrides the
+    built-in one).
 
     Raises ValueError for an unknown stage: silently answering "in range" would
     make the control loop idle while believing everything is fine.
     """
-    vpd_min, vpd_max = vpd_range_for_stage(stage)
+    vpd_min, vpd_max = vpd_range_for_stage(stage, vpd_band)
     return vpd_min <= vpd_kpa <= vpd_max
 
 

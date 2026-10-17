@@ -9,8 +9,8 @@ from typing import Dict, List
 
 from autocann.control.anomalies import find_anomalies
 from autocann.control.plausible import AND_VALID_ROW
-from autocann.control.vpd_math import VPD_RANGES
 from autocann.store.connection import _open
+from autocann.store.grow_stages import grow_vpd_band
 from autocann.store.grows import _NO_GROW, _resolve_grow_filter
 from autocann.store.history import get_period_summary
 from autocann.store.schema import ensure_schema
@@ -59,7 +59,7 @@ def get_weekly_report(
         cursor = conn.cursor()
 
         # Get hourly distribution (what hours have best/worst VPD)
-        vpd_min, vpd_max = VPD_RANGES.get(stage, (0.6, 1.5))
+        vpd_min, vpd_max = grow_vpd_band(grow_id, stage)
 
         query = """
             SELECT 

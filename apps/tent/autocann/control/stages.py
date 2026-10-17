@@ -131,7 +131,8 @@ def estimated_remaining_days(periods: Sequence[StagePeriod],
         return None
 
     remaining = max(current.expected_days - current.days, 0)
-    remaining += sum(expected.get(stage, 0) for stage in order[index + 1:])
+    # A later stage with no length (open-ended, only allowed last) adds nothing.
+    remaining += sum(expected.get(stage) or 0 for stage in order[index + 1:])
     return remaining
 
 

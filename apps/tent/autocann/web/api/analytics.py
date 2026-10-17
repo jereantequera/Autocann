@@ -8,10 +8,7 @@ from flask import Blueprint, jsonify, request
 
 from autocann.control.vpd_math import (
     LEAF_TEMP_OFFSET_C,
-    STAGES,
-    VPD_RANGES,
     humidity_range_bounds_for_stage,
-    humidity_range_for_stage,
 )
 from autocann.db import (
     detect_anomalies,
@@ -19,6 +16,7 @@ from autocann.db import (
     get_vpd_score,
     get_weekly_report,
 )
+from autocann.store.grow_stages import active_stage_table
 from autocann.web.alert_owners import reframe_history_anomalies
 from autocann.web.deps import get_redis
 from autocann.web.diagnostics import health_snapshot
@@ -45,16 +43,20 @@ def get_vpd_band():
     reading a band the tent is not held to. Each point is what
     `resolve_setpoint` gets for that air temperature.
     """
+    table = active_stage_table()
     stage = (request.args.get("stage") or "").strip()
     if not stage:
         grow = get_active_grow()
         if not grow:
             return jsonify({"error": "No active grow found"}), 404
         stage = grow["stage"]
-    if stage not in STAGES:
-        return jsonify({"error": f'Invalid stage. Use one of: {", ".join(STAGES)}'}), 400
+    if stage not in table:
+        return jsonify({"error": f'Invalid stage. Use one of: {", ".join(table)}'}), 400
 
-    explicit = humidity_range_for_stage(stage)
+    # The bands are the active grow's own copy of the stage, not the constants.
+    row = table[stage]
+    explicit = (row["rh_min"], row["rh_max"]) if row["rh_min"] is not None else None
+    vpd_band = (row["vpd_min"], row["vpd_max"]) if row["vpd_min"] is not None else None
     point_count = round((BAND_TEMP_MAX - BAND_TEMP_MIN) / BAND_TEMP_STEP) + 1
     points = []
     for step in range(point_count):
@@ -64,7 +66,10 @@ def get_vpd_band():
         else:
             low, high = sorted(
                 humidity_range_bounds_for_stage(
-                    stage, temperature, round(temperature - LEAF_TEMP_OFFSET_C, 1)
+                    stage,
+                    temperature,
+                    round(temperature - LEAF_TEMP_OFFSET_C, 1),
+                    vpd_band=vpd_band,
                 )
             )
         points.append({
@@ -75,7 +80,7 @@ def get_vpd_band():
 
     vpd_min = vpd_max = None
     if explicit is None:
-        vpd_min, vpd_max = VPD_RANGES[stage]
+        vpd_min, vpd_max = vpd_band
 
     return jsonify({
         "stage": stage,
