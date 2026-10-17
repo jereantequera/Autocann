@@ -128,12 +128,22 @@ def get_weekly_report(
         humidity_trend = None
         vpd_trend = None
 
-        if summary.get("temperature", {}).get("avg") and prev_summary.get("temperature", {}).get("avg"):
-            temp_trend = round(summary["temperature"]["avg"] - prev_summary["temperature"]["avg"], 1)
-        if summary.get("humidity", {}).get("avg") and prev_summary.get("humidity", {}).get("avg"):
-            humidity_trend = round(summary["humidity"]["avg"] - prev_summary["humidity"]["avg"], 1)
-        if vpd_score.get("overall_score") and prev_vpd_score.get("overall_score"):
-            vpd_trend = round(vpd_score["overall_score"] - prev_vpd_score["overall_score"], 1)
+        # `None` means "no samples"; 0 is a real value (0 °C, 0 % humidity, a
+        # week with every reading out of range), so compare against None only.
+        temp_now = summary.get("temperature", {}).get("avg")
+        temp_prev = prev_summary.get("temperature", {}).get("avg")
+        if temp_now is not None and temp_prev is not None:
+            temp_trend = round(temp_now - temp_prev, 1)
+
+        humidity_now = summary.get("humidity", {}).get("avg")
+        humidity_prev = prev_summary.get("humidity", {}).get("avg")
+        if humidity_now is not None and humidity_prev is not None:
+            humidity_trend = round(humidity_now - humidity_prev, 1)
+
+        vpd_now = vpd_score.get("overall_score")
+        vpd_prev = prev_vpd_score.get("overall_score")
+        if vpd_now is not None and vpd_prev is not None:
+            vpd_trend = round(vpd_now - vpd_prev, 1)
 
         return {
             "grow_name": grow_name,
