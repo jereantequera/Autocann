@@ -32,6 +32,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from autocann.config import redis_config_from_env
 from autocann.hardware.outputs import OUTPUT_NAMES
+from autocann.sim.db_lock import DbLock, claim_redis_db, clear_db_keeping_lock
 from autocann.sim.fake_nodes import (
     RELAY_POLL_SECONDS,
     RELAY_WATCHDOG_SECONDS,
@@ -194,16 +195,13 @@ def _create_grow(base_url: str, scenario: str) -> None:
         raise SimulatorError(f"could not create the simulated grow: {result}")
 
 
-def _reset_redis(redis_db: int) -> None:
-    """Empty the sandbox's own Redis DB, so no key from an earlier run can pause or fail-safe this one."""
-    import redis
-
-    cfg = redis_config_from_env()
-    redis.Redis(host=cfg.host, port=cfg.port, db=redis_db, socket_timeout=3).flushdb()
+def _reset_redis(lock: DbLock) -> None:
+    """Empty the sandbox's own Redis DB (keeping its lock), so no key from an earlier run can pause or fail-safe this one."""
+    clear_db_keeping_lock(lock.client)
 
 
 def run(args: argparse.Namespace) -> int:
-    redis_db = check_redis_db(args.redis_db)
+    explicit_db = args.redis_db is not None
     scenario = args.scenario
     scenario_spec(scenario)
     # Validated before anything is created, so a refused path leaves nothing behind.
@@ -212,6 +210,7 @@ def run(args: argparse.Namespace) -> int:
     stop = threading.Event()
     children: List[Tuple[str, subprocess.Popen]] = []
     threads: List[threading.Thread] = []
+    lock: Optional[DbLock] = None
     log_file = None
     previous_handlers = {}
     workdir = Path(tempfile.mkdtemp(prefix="autocann-sim-"))
@@ -228,9 +227,15 @@ def run(args: argparse.Namespace) -> int:
         db_path = requested_db or workdir / "autocann-sim.db"
         port = check_port(free_port())
         base_url = f"http://127.0.0.1:{port}"
+        # The DB lock is taken before anything is flushed. A DB another live simulator holds is refused.
+        lock = claim_redis_db(requested=args.redis_db if explicit_db else DEFAULT_REDIS_DB,
+                              explicit=explicit_db, cfg=redis_config_from_env())
+        redis_db = lock.db
+        if redis_db != DEFAULT_REDIS_DB:
+            print(f"Using Redis DB {redis_db}")
         env = build_child_env(redis_db=redis_db, db_path=db_path, port=port, scenario=scenario)
 
-        _reset_redis(redis_db)
+        _reset_redis(lock)
         print(f"Scenario: {scenario} - {SCENARIOS[scenario].description}")
         print(f"Sandbox: Redis DB {redis_db}, SQLite {db_path}, relay mode remote, port {port}")
 
@@ -268,6 +273,8 @@ def run(args: argparse.Namespace) -> int:
         for thread in threads:
             thread.join(timeout=5)
         stop_children(children)
+        if lock is not None:
+            lock.release()
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
         if log_file is not None:
@@ -324,8 +331,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="model acceleration: model seconds per wall second (default: 1)")
     parser.add_argument("--duration", type=float, default=None,
                         help="stop after this many wall seconds (default: until Ctrl-C)")
-    parser.add_argument("--redis-db", type=int, default=DEFAULT_REDIS_DB,
-                        help=f"Redis DB for the sandbox; 0 is refused (default: {DEFAULT_REDIS_DB})")
+    parser.add_argument("--redis-db", type=int, default=None,
+                        help=f"Redis DB for the sandbox; 0 is refused. Default: the first free "
+                             f"DB from {DEFAULT_REDIS_DB} down to 1")
     parser.add_argument("--db", default=None,
                         help="SQLite file to create; must not exist (default: a temp file)")
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS,
@@ -350,10 +358,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("--history must not be negative")
     if args.history_gaps and not args.history:
         parser.error("--history-gaps needs --history")
-    try:
-        check_redis_db(args.redis_db)
-    except SandboxError as e:
-        parser.error(str(e))
+    if args.redis_db is not None:
+        try:
+            check_redis_db(args.redis_db)
+        except SandboxError as e:
+            parser.error(str(e))
     try:
         return run(args)
     except SandboxError as e:
