@@ -601,8 +601,10 @@ machine. The backend and the loop get their own Redis database (15 by default;
 database 0 is refused), a fresh SQLite file in a temp directory (`--db PATH`
 must name a file that does not exist), a free `127.0.0.1` port (5000 and 5055
 are refused), and relays in remote mode, so GPIO is never touched. The
-simulator only stops the processes it started, by PID. Run one simulator at a
-time: they share Redis DB 15, and each start empties it.
+simulator only stops the processes it started, by PID. Several simulators can
+run at once: each locks its Redis database, and when DB 15 is taken the next
+free one (14, 13, … 1) is used and printed. An explicit `--redis-db` that is
+in use is refused.
 
 `make sim HISTORY=7` first writes seven days of synthetic history into the
 simulated grow: 5-minute samples with a day/night cycle, mostly inside the stage
