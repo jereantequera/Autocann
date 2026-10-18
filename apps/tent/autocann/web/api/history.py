@@ -19,6 +19,7 @@ from autocann.db import (
 )
 from autocann.time import ARGENTINA_TZ
 from autocann.web.deps import get_redis
+from autocann.web.errors import error_response
 from autocann.web.helpers import grow_scope, requested_grow
 
 bp = Blueprint("history", __name__)
@@ -210,7 +211,7 @@ def get_history_aggregated():
 
         interval_map = {"hourly": 3600, "6hourly": 6 * 3600, "daily": 24 * 3600}
         if interval not in interval_map:
-            return jsonify({"error": f'Invalid interval. Use one of: {", ".join(interval_map.keys())}'}), 400
+            return error_response(f'Invalid interval. Use one of: {", ".join(interval_map.keys())}', "invalid_interval", 400)
 
         interval_seconds = interval_map[interval]
         current_time = datetime.now(ARGENTINA_TZ)

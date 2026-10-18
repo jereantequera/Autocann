@@ -55,6 +55,18 @@ def test_rename_refuses_a_body_that_is_not_an_object(client):
     assert client.put("/api/tents/1", json={}).status_code == 400
 
 
+def test_rename_refusals_carry_a_code_next_to_the_errors(client):
+    blank = client.put("/api/tents/1", json={"name": "  "})
+    assert blank.status_code == 400
+    assert blank.get_json()["code"] == "invalid_name"
+    assert blank.get_json()["errors"]
+
+    not_an_object = client.put("/api/tents/1", json=["Carpa"])
+    assert not_an_object.status_code == 400
+    assert not_an_object.get_json()["code"] == "invalid_body"
+    assert not_an_object.get_json()["errors"] == ["the body must be a JSON object"]
+
+
 def test_rename_of_an_unknown_tent_is_404(client):
     assert client.put("/api/tents/99", json={"name": "Nada"}).status_code == 404
     # The tent is checked first, so a bad body on a missing tent is still a 404.

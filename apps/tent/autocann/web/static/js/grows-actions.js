@@ -10,6 +10,7 @@ import { config, state } from './state.js';
 import {
     buildGrowRequest, canSubmitGrow, clearGrowError, selectedProfile, showGrowError,
 } from './growform.js';
+import { errorMessage } from './errors.js';
 import { fetchActiveGrow } from './grows-active.js';
 import { loadGrowsList } from './grows-table.js';
 import { fetchGrowFilter } from './grows-filter.js';
@@ -75,7 +76,7 @@ export async function createGrow() {
         } else {
             // Inline, next to the button the person just pressed: a dialog on
             // top of the modal is easy to miss and loses the form behind it.
-            showGrowError(result.error || 'El backend rechazó el pedido.');
+            showGrowError(errorMessage(result));
         }
     } catch (error) {
         console.error('Error creating grow:', error);
@@ -104,7 +105,7 @@ export async function updateStage() {
         } else {
             await alertDialog({
                 title: 'No se pudo cambiar la etapa',
-                message: result.error || 'El backend rechazó el pedido.',
+                message: errorMessage(result),
             });
         }
     } catch (error) {
@@ -150,7 +151,7 @@ export async function activateGrow(growId) {
         } else {
             await alertDialog({
                 title: 'No se pudo activar el cultivo',
-                message: result.error || 'El backend rechazó el pedido.',
+                message: errorMessage(result),
             });
         }
     } catch (error) {
@@ -183,7 +184,7 @@ export async function endGrow(growId) {
         } else {
             await alertDialog({
                 title: 'No se pudo finalizar el cultivo',
-                message: result.error || 'El backend rechazó el pedido.',
+                message: errorMessage(result),
             });
         }
     } catch (error) {

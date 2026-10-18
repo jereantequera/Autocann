@@ -12,6 +12,7 @@ from typing import Any, Optional
 from flask import Blueprint, jsonify, request
 
 from autocann.store.tents import get_tent, rename_tent
+from autocann.web.errors import errors_response
 
 bp = Blueprint("tents", __name__)
 
@@ -41,10 +42,10 @@ def rename_tent_endpoint(tent_id: int):
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return jsonify({"errors": ["the body must be a JSON object"]}), 400
+        return errors_response(["the body must be a JSON object"], "invalid_body", 400)
     name = _clean_name(data.get("name"))
     if name is None:
-        return jsonify({"errors": [f"name must be a non-empty string of at most {NAME_MAX_LENGTH} characters"]}), 400
+        return errors_response([f"name must be a non-empty string of at most {NAME_MAX_LENGTH} characters"], "invalid_name", 400)
 
     rename_tent(tent_id, name)
     return jsonify(get_tent(tent_id))

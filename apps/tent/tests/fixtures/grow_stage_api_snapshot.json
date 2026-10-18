@@ -29,7 +29,7 @@
   },
   "/api/vpd-band?stage=bogus": {
     "status": 400,
-    "body": "{\"error\":\"Invalid stage. Use one of: seedling, early_veg, late_veg, flowering, dry\"}\n"
+    "body": "{\"code\":\"invalid_stage\",\"error\":\"Invalid stage. Use one of: seedling, early_veg, late_veg, flowering, dry\"}\n"
   },
   "/api/feed-plan": {
     "status": 200,
