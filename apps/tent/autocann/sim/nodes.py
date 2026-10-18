@@ -7,7 +7,7 @@ firmware prints them) and the 30 s report and 5 min heartbeat intervals. The
 relay firmware sends no status and no log, so the fake relay sends none either.
 
 POST /api/node/log carries the status and the lines in one body (see
-web/diagnostics.py). Pure apart from the clock and the random source, which
+web/diagnostics/routes.py). Pure apart from the clock and the random source, which
 are injected so tests can pin them.
 """
 

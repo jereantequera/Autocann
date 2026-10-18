@@ -25,7 +25,6 @@ LIMIT = 400
 ALLOWLIST: dict[str, int] = {
     "autocann/cli/simulate.py": 746,
     "autocann/config.py": 446,
-    "autocann/web/diagnostics.py": 912,
     "autocann/web/static/js/charts.js": 435,
     "autocann/web/static/js/dashboard.js": 616,
     "autocann/web/static/js/feeding.js": 644,
