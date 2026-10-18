@@ -17,6 +17,7 @@ from autocann.db import (
 )
 from autocann.store.grow_stages import profile_stage_table, stage_table
 from autocann.store.seeds import BUILTIN_PROFILE_ID
+from autocann.web.errors import error_response
 
 bp = Blueprint("grows", __name__)
 
@@ -39,7 +40,7 @@ def active_grow():
         grow = get_active_grow()
         if grow:
             return jsonify(grow)
-        return jsonify({"error": "No active grow found"}), 404
+        return error_response("No active grow found", "no_active_grow", 404)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -47,8 +48,10 @@ def active_grow():
 def create_new_grow():
     try:
         data = request.get_json()
-        if not data or "name" not in data:
-            return jsonify({"error": "Name is required"}), 400
+        if not data:
+            return error_response("Name is required", "invalid_body", 400)
+        if "name" not in data:
+            return error_response("Name is required", "invalid_name", 400)
 
         name = data["name"]
         notes = data.get("notes", "")
@@ -57,11 +60,11 @@ def create_new_grow():
         profile_id = data.get("profile_id") or BUILTIN_PROFILE_ID
         table = profile_stage_table(profile_id)
         if not table:
-            return jsonify({"error": f'Unknown profile "{profile_id}"'}), 400
+            return error_response(f'Unknown profile "{profile_id}"', "unknown_profile", 400)
         stage = data.get("stage", "early_veg" if "early_veg" in table else next(iter(table)))
 
         if stage not in table:
-            return jsonify({"error": f'Invalid stage. Use one of: {", ".join(table)}'}), 400
+            return error_response(f'Invalid stage. Use one of: {", ".join(table)}', "invalid_stage", 400)
 
         grow_id = create_grow(name, stage, notes, profile_id=profile_id)
         if grow_id:
@@ -109,12 +112,12 @@ def update_stage_endpoint(grow_id: int):
     try:
         data = request.get_json()
         if not data or "stage" not in data:
-            return jsonify({"error": "Stage is required"}), 400
+            return error_response("Stage is required", "missing_field", 400)
 
         stage = data["stage"]
         table = stage_table(grow_id)
         if stage not in table:
-            return jsonify({"error": f'Invalid stage. Use one of: {", ".join(table)}'}), 400
+            return error_response(f'Invalid stage. Use one of: {", ".join(table)}', "invalid_stage", 400)
 
         success = update_grow_stage(grow_id, stage, notes=data.get("notes"))
         if success:

@@ -5,6 +5,7 @@
  * shown by the sidebar at once (setTentName), without waiting for a reload.
  */
 
+import { errorMessage } from './errors.js';
 import { toast } from './modals.js';
 import { setTentName } from './sidebar.js';
 
@@ -55,7 +56,7 @@ async function saveTentName(event) {
         if (!response.ok) {
             // The server's own words are for logs; the person gets one line.
             console.warn('Tent name refused:', body);
-            showError('No se pudo guardar el nombre. Probá con otro.');
+            showError(errorMessage(body));
             input.focus();
             return;
         }

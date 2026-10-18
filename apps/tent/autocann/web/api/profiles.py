@@ -27,6 +27,7 @@ from autocann.db import (
     get_profiles,
     update_profile,
 )
+from autocann.web.errors import error_response, errors_response
 
 bp = Blueprint("profiles", __name__)
 
@@ -103,7 +104,12 @@ def _parse_stages(raw: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
 
 
 def _not_an_object():
-    return jsonify({"errors": ["the body must be a JSON object"]}), 400
+    return errors_response(["the body must be a JSON object"], "invalid_body", 400)
+
+
+def _bad_name():
+    return errors_response(
+        [f"name must be a non-empty string of at most {NAME_MAX_LENGTH} characters"], "invalid_name", 400)
 
 
 # ===============================
@@ -112,17 +118,17 @@ def _not_an_object():
 
 @bp.errorhandler(ProfileNotFound)
 def _not_found(error: ProfileError):
-    return jsonify({"error": str(error)}), 404
+    return error_response(str(error), "unknown_profile", 404)
 
 
 @bp.errorhandler(ProfileReadOnly)
 def _read_only(error: ProfileError):
-    return jsonify({"error": str(error)}), 403
+    return error_response(str(error), "read_only_profile", 403)
 
 
 @bp.errorhandler(ProfileInUse)
 def _in_use(error: ProfileError):
-    return jsonify({"error": str(error)}), 409
+    return error_response(str(error), "profile_in_use", 409)
 
 
 @bp.errorhandler(sqlite3.Error)
@@ -144,7 +150,7 @@ def list_profiles():
 def read_profile(profile_id: str):
     profile = get_profile(profile_id)
     if profile is None:
-        return jsonify({"error": f"profile '{profile_id}' does not exist"}), 404
+        return error_response(f"profile '{profile_id}' does not exist", "unknown_profile", 404)
     return jsonify(profile)
 
 
@@ -155,7 +161,7 @@ def copy_profile_endpoint(profile_id: str):
         return _not_an_object()
     name = _clean_name(data.get("name"))
     if name is None:
-        return jsonify({"errors": [f"name must be a non-empty string of at most {NAME_MAX_LENGTH} characters"]}), 400
+        return _bad_name()
 
     new_id = copy_profile(profile_id, name)
     return jsonify(get_profile(new_id)), 201
@@ -166,9 +172,9 @@ def edit_profile(profile_id: str):
     # Checked before the body, so a built-in profile answers 403 whatever it is sent.
     existing = get_profile(profile_id)
     if existing is None:
-        return jsonify({"error": f"profile '{profile_id}' does not exist"}), 404
+        return error_response(f"profile '{profile_id}' does not exist", "unknown_profile", 404)
     if existing["kind"] == "builtin":
-        return jsonify({"error": f"profile '{profile_id}' is built-in and cannot be changed"}), 403
+        return error_response(f"profile '{profile_id}' is built-in and cannot be changed", "read_only_profile", 403)
 
     data = _json_object()
     if data is None:
@@ -180,7 +186,8 @@ def edit_profile(profile_id: str):
     if not errors:
         errors = validate_profile_stages(stages)
     if errors:
-        return jsonify({"errors": errors}), 400
+        code = "invalid_name" if name is None else "invalid_stages"
+        return errors_response(errors, code, 400)
 
     update_profile(profile_id, name, stages)
     return jsonify(get_profile(profile_id))

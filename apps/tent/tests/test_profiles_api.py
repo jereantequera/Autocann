@@ -134,6 +134,33 @@ def test_copy_accepts_a_name_of_exactly_80_characters(client):
     assert client.post(f"/api/profiles/{BUILTIN}/copy", json={"name": "x" * 80}).status_code == 201
 
 
+def test_copy_refusals_carry_a_code_next_to_the_errors(client):
+    blank = client.post(f"/api/profiles/{BUILTIN}/copy", json={"name": "  "})
+    assert blank.status_code == 400
+    assert blank.get_json()["code"] == "invalid_name"
+    assert blank.get_json()["errors"]
+
+    not_an_object = client.post(f"/api/profiles/{BUILTIN}/copy", json=["x"])
+    assert not_an_object.status_code == 400
+    assert not_an_object.get_json()["code"] == "invalid_body"
+
+
+def test_copy_of_an_unknown_profile_says_unknown_profile(client):
+    response = client.post("/api/profiles/does-not-exist/copy", json={"name": "Copia"})
+
+    assert response.status_code == 404
+    body = response.get_json()
+    assert body["error"] == "profile 'does-not-exist' does not exist"
+    assert body["code"] == "unknown_profile"
+
+
+def test_read_of_an_unknown_profile_says_unknown_profile(client):
+    response = client.get("/api/profiles/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.get_json()["code"] == "unknown_profile"
+
+
 # ---------------------------------------------------------------------------
 # Editing
 # ---------------------------------------------------------------------------
@@ -172,6 +199,26 @@ def test_edit_of_an_unknown_profile_is_404(client):
     response = client.put("/api/profiles/does-not-exist", json={"name": "X", "stages": [_stage()]})
 
     assert response.status_code == 404
+    assert response.get_json()["code"] == "unknown_profile"
+
+
+def test_edit_refusals_carry_a_code(client):
+    builtin = client.put(f"/api/profiles/{BUILTIN}", json={"name": "Mía", "stages": [_stage()]})
+    assert builtin.status_code == 403
+    assert builtin.get_json()["code"] == "read_only_profile"
+
+    profile_id = _custom_profile(client)
+    blank_name = client.put(f"/api/profiles/{profile_id}", json={"name": " ", "stages": [_stage()]})
+    assert blank_name.status_code == 400
+    assert blank_name.get_json()["code"] == "invalid_name"
+
+    bad_stages = client.put(f"/api/profiles/{profile_id}", json={"name": "X", "stages": [_stage(vpd_min=1.2, vpd_max=0.8)]})
+    assert bad_stages.status_code == 400
+    assert bad_stages.get_json()["code"] == "invalid_stages"
+    assert bad_stages.get_json()["errors"]
+
+    not_an_object = client.put(f"/api/profiles/{profile_id}", json=[_stage()])
+    assert not_an_object.get_json()["code"] == "invalid_body"
 
 
 def test_invalid_stages_come_back_as_a_list_of_every_error(client):

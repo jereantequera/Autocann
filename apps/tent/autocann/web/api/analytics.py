@@ -20,6 +20,7 @@ from autocann.store.grow_stages import active_stage_table
 from autocann.web.alert_owners import reframe_history_anomalies
 from autocann.web.deps import get_redis
 from autocann.web.diagnostics import health_snapshot
+from autocann.web.errors import error_response
 from autocann.web.helpers import grow_scope, requested_grow
 
 bp = Blueprint("analytics", __name__)
@@ -48,10 +49,10 @@ def get_vpd_band():
     if not stage:
         grow = get_active_grow()
         if not grow:
-            return jsonify({"error": "No active grow found"}), 404
+            return error_response("No active grow found", "no_active_grow", 404)
         stage = grow["stage"]
     if stage not in table:
-        return jsonify({"error": f'Invalid stage. Use one of: {", ".join(table)}'}), 400
+        return error_response(f'Invalid stage. Use one of: {", ".join(table)}', "invalid_stage", 400)
 
     # The bands are the active grow's own copy of the stage, not the constants.
     row = table[stage]

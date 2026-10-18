@@ -24,6 +24,7 @@ from autocann.db import (
     replace_feed_plan,
 )
 from autocann.store.grow_stages import active_stage_table, expected_days_by_stage, stage_table
+from autocann.web.errors import error_response
 
 bp = Blueprint("feeding", __name__)
 
@@ -79,7 +80,7 @@ def feeding_today():
     try:
         grow = get_active_grow()
         if not grow:
-            return jsonify({"error": "No active grow found"}), 404
+            return error_response("No active grow found", "no_active_grow", 404)
 
         stage = grow.get("stage")
         day = grow.get("day_in_stage")
@@ -115,7 +116,7 @@ def list_irrigations():
         if grow_id is None:
             grow = get_active_grow()
             if not grow:
-                return jsonify({"error": "No active grow found"}), 404
+                return error_response("No active grow found", "no_active_grow", 404)
             grow_id = grow["id"]
 
         limit = min(request.args.get("limit", default=100, type=int), 500)
@@ -147,7 +148,7 @@ def create_irrigation():
 
         grow = get_active_grow()
         if not grow:
-            return jsonify({"error": "No active grow found"}), 404
+            return error_response("No active grow found", "no_active_grow", 404)
 
         stage = grow.get("stage")
         expected = expected_days_by_stage(stage_table(grow["id"]))

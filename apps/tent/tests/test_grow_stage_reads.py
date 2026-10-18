@@ -139,6 +139,7 @@ def test_stage_validation_follows_the_grow_profile(client, temp_db):
     rejected = client.put(f"/api/grows/{custom_grow}/stage", json={"stage": "flowering"})
     assert rejected.status_code == 400
     assert rejected.get_json()["error"] == "Invalid stage. Use one of: propagation, bloom, dry_room"
+    assert rejected.get_json()["code"] == "invalid_stage"
 
 
 def test_new_grow_on_a_profile_validates_against_that_profile(client, temp_db):

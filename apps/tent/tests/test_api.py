@@ -881,3 +881,90 @@ def test_a_grow_scope_that_is_not_one_is_refused_rather_than_ignored(client, val
         assert response.status_code == 200      # absent means the active grow
     else:
         assert response.status_code == 400
+
+
+# ===============================
+# Error codes for the forms
+# ===============================
+# The `error` text is the English one the API always sent; `code` is what the
+# dashboard maps to Spanish (static/js/errors.js).
+
+
+def test_no_active_grow_says_so_with_a_code(client, temp_db):
+    grow_id = temp_db.create_grow("Carpa", "early_veg")
+    assert temp_db.end_grow(grow_id)
+
+    response = client.get("/api/grows/active")
+
+    assert response.status_code == 404
+    assert response.get_json() == {"error": "No active grow found", "code": "no_active_grow"}
+
+
+def test_creating_a_grow_without_a_name_says_invalid_name(client):
+    response = client.post("/api/grows", json={"stage": "early_veg"})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Name is required", "code": "invalid_name"}
+
+
+def test_creating_a_grow_with_an_empty_json_body_says_invalid_body(client):
+    response = client.post("/api/grows", json=[])
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Name is required", "code": "invalid_body"}
+
+
+def test_creating_a_grow_on_an_unknown_profile_says_so(client):
+    response = client.post("/api/grows", json={"name": "Cultivo", "profile_id": "no-such-profile"})
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"] == 'Unknown profile "no-such-profile"'
+    assert body["code"] == "unknown_profile"
+
+
+def test_creating_a_grow_with_a_bad_stage_says_invalid_stage(client):
+    response = client.post("/api/grows", json={"name": "Cultivo", "stage": "bogus"})
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"].startswith("Invalid stage. Use one of: ")
+    assert body["code"] == "invalid_stage"
+
+
+def test_changing_the_stage_without_one_says_missing_field(client, temp_db):
+    grow_id = temp_db.create_grow("Carpa", "early_veg")
+
+    response = client.put(f"/api/grows/{grow_id}/stage", json={})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Stage is required", "code": "missing_field"}
+
+
+def test_changing_the_stage_to_a_bad_one_says_invalid_stage(client, temp_db):
+    grow_id = temp_db.create_grow("Carpa", "early_veg")
+
+    response = client.put(f"/api/grows/{grow_id}/stage", json={"stage": "bogus"})
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"].startswith("Invalid stage. Use one of: ")
+    assert body["code"] == "invalid_stage"
+
+
+def test_an_invalid_history_interval_says_so_with_a_code(client, temp_db):
+    response = client.get("/api/history/aggregated?interval=weekly")
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"] == "Invalid interval. Use one of: hourly, 6hourly, daily"
+    assert body["code"] == "invalid_interval"
+
+
+def test_an_unknown_stage_for_the_vpd_band_says_invalid_stage(client, temp_db):
+    response = client.get("/api/vpd-band?stage=bogus")
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"].startswith("Invalid stage. Use one of: ")
+    assert body["code"] == "invalid_stage"
