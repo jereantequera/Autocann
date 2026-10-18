@@ -211,7 +211,7 @@ fallan, el failsafe gana: apaga todo e ignora los overrides.
 
 ## Configuración de Pines GPIO
 
-Los pines GPIO ahora están centralizados en `autocann/config.py` (y usados por `autocann/hardware/outputs.py`).
+Los pines GPIO ahora están centralizados en `autocann/config/relays.py` (y usados por `autocann/hardware/outputs.py`).
 
 > [!IMPORTANT]
 > Esta tabla vale **sólo con `AUTOCANN_RELAY_MODE=gpio`**. Con los relés en un
@@ -628,7 +628,7 @@ El firmware está en `firmware/relay_node/relay_node.ino`.
 El dashboard muestra el pin de cada salida, así que tiene que saber cuál es. El
 nodo no lo informa — sólo consulta —, y enseñarle a informarlo es reflashearlo
 por USB adentro de la carpa. Así que el mapeo está en `RelayNodePins`
-(`autocann/config.py`) **copiado del firmware**, que sigue siendo la autoridad:
+(`autocann/config/relays.py`) **copiado del firmware**, que sigue siendo la autoridad:
 `tests/test_relays.py` lee el `.ino` y falla si los dos se separan.
 
 | Variable | Default | Qué es |
