@@ -66,12 +66,12 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 - `app.py`: arma la app Flask: registra los blueprints de `api/`, el PIN y los
   diagnósticos. Las rutas viven en `api/` (una por área) y lo que comparten
   (cliente de Redis, `static_asset_version`, `icon`) en `deps.py` y `helpers.py`.
-  `auth.py` y `diagnostics.py` registran rutas sobre la misma app, documentadas en
+  `auth.py` y `diagnostics/` registran rutas sobre la misma app, documentadas en
   `USAGE.md`.
 - `auth.py`: el PIN opcional de `AUTOCANN_PIN`, con tres endpoints exentos a
   propósito y para siempre. Sin la variable, el comportamiento es el de siempre
   y nada pide autenticación.
-- `diagnostics.py`: "¿anda la instalación?" en una sola respuesta
+- `diagnostics/`: "¿anda la instalación?" en una sola respuesta
   (`/api/health`), más el log que los nodos postean. Existe porque el panel
   contestaba esa pregunta desde tres fuentes que podían contradecirse.
 - `alert_owners.py`: un dueño por hecho. Saca de las anomalías lo que la salud
