@@ -7,7 +7,9 @@ import { alertDialog, closeModal, confirmDialog, showModal, toast } from './moda
 import { fetchDatabaseStats, fetchHistoricalData } from './dashboard.js';
 import { fetchHealth } from './health.js';
 import { config, state } from './state.js';
-import { buildGrowRequest, selectedProfile } from './growform.js';
+import {
+    buildGrowRequest, canSubmitGrow, clearGrowError, selectedProfile, showGrowError,
+} from './growform.js';
 import { fetchActiveGrow } from './grows-active.js';
 import { loadGrowsList } from './grows-table.js';
 import { fetchGrowFilter } from './grows-filter.js';
@@ -28,6 +30,10 @@ export function showStageModal(trigger) {
 // Modal functions
 
 export async function createGrow() {
+    // The button is disabled until the stages load; this is the same rule for
+    // any path that reaches the handler anyway.
+    if (!canSubmitGrow()) return;
+    clearGrowError();
     const field = document.getElementById('newGrowName');
     const name = field.value.trim();
     const stage = document.getElementById('newGrowStage').value;
@@ -67,17 +73,13 @@ export async function createGrow() {
             // The "no hay cultivo activo" notice goes now, not ten seconds later.
             fetchHealth();
         } else {
-            await alertDialog({
-                title: 'No se pudo crear el cultivo',
-                message: result.error || 'El backend rechazó el pedido.',
-            });
+            // Inline, next to the button the person just pressed: a dialog on
+            // top of the modal is easy to miss and loses the form behind it.
+            showGrowError(result.error || 'El backend rechazó el pedido.');
         }
     } catch (error) {
         console.error('Error creating grow:', error);
-        await alertDialog({
-            title: 'No se pudo crear el cultivo',
-            message: 'No se pudo contactar al backend.',
-        });
+        showGrowError('No se pudo contactar al backend.');
     }
 }
 
