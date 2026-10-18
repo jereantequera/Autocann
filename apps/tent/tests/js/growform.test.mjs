@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    buildGrowRequest, defaultStage, profileOptions, stageBandHint, stageOptions,
+    buildGrowRequest, defaultStage, formState, profileOptions, stageBandHint, stageOptions,
 } from '../../autocann/web/static/js/growform.js';
 
 const BUILTIN = { id: 'cannabis-photoperiod', name: 'Cannabis fotoperiódico', kind: 'builtin' };
@@ -77,4 +77,33 @@ test('the request is the same fields as before, plus the profile', () => {
         buildGrowRequest({ name: 'Cultivo #2', profileId: BUILTIN.id, stage: 'seedling', notes: '' }),
         { name: 'Cultivo #2', stage: 'seedling', notes: '', profile_id: 'cannabis-photoperiod' },
     );
+});
+
+test('while the stages load, the submit is disabled and the hint says so', () => {
+    assert.deepEqual(formState({ loading: true, failed: false, stagesCount: 0 }), {
+        submitEnabled: false, hint: 'Cargando etapas…', retry: false,
+    });
+});
+
+test('loaded with at least one stage, the submit is enabled and there is no hint', () => {
+    assert.deepEqual(formState({ loading: false, failed: false, stagesCount: 2 }), {
+        submitEnabled: true, hint: '', retry: false,
+    });
+});
+
+test('when the load failed, the submit stays disabled and offers a retry', () => {
+    assert.deepEqual(formState({ loading: false, failed: true, stagesCount: 0 }), {
+        submitEnabled: false, hint: 'No se pudieron cargar las etapas', retry: true,
+    });
+});
+
+test('a profile with no stages counts as a failed load, not as ready', () => {
+    assert.deepEqual(formState({ loading: false, failed: false, stagesCount: 0 }), {
+        submitEnabled: false, hint: 'No se pudieron cargar las etapas', retry: true,
+    });
+});
+
+test('a profile change disables the submit again, even with the old stages in memory', () => {
+    assert.equal(formState({ loading: true, failed: false, stagesCount: 3 }).submitEnabled, false);
+    assert.equal(formState({ loading: true, failed: true, stagesCount: 3 }).hint, 'Cargando etapas…');
 });

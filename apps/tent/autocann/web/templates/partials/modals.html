@@ -19,14 +19,16 @@
                 <label class="form-label" for="newGrowStage">Etapa Inicial</label>
                 <select id="newGrowStage" class="form-control"></select>
                 <p class="ac-field__hint" id="newGrowStageHint"></p>
+                <button type="button" class="ac-btn ac-btn--ghost" id="newGrowRetry" hidden>Reintentar</button>
             </div>
             <div class="form-group">
                 <label class="form-label" for="newGrowNotes">Notas (opcional)</label>
                 <textarea id="newGrowNotes" class="form-control" placeholder="Ej: Semillas feminizadas..."></textarea>
             </div>
+            <p class="ac-field__error" id="newGrowError" role="alert" hidden></p>
             <div class="modal-footer">
-                <button class="btn btn-ghost" data-action="close-modal" data-modal="newGrowModal">Cancelar</button>
-                <button class="btn btn-primary" data-action="create-grow">Crear Cultivo</button>
+                <button class="ac-btn ac-btn--ghost" data-action="close-modal" data-modal="newGrowModal">Cancelar</button>
+                <button class="ac-btn ac-btn--primary" id="newGrowSubmit" data-action="create-grow" disabled>Crear Cultivo</button>
             </div>
         </div>
     </div>
