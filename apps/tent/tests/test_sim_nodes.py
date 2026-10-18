@@ -232,6 +232,7 @@ def test_the_fake_relay_sends_no_status_and_no_log(monkeypatch):
     import time
 
     from autocann.cli import simulate as sim
+    from autocann.sim import fake_nodes
 
     calls = []
 
@@ -239,7 +240,7 @@ def test_the_fake_relay_sends_no_status_and_no_log(monkeypatch):
         calls.append((method, url))
         return {"outputs": {}, "failsafe": False}
 
-    monkeypatch.setattr(sim, "http_json", fake_http_json)
+    monkeypatch.setattr(fake_nodes, "http_json", fake_http_json)
     halt = threading.Event()
     relay = sim.FakeRelayNode("http://127.0.0.1:1", sim.TentWorld("drift"), halt)
     relay.start()

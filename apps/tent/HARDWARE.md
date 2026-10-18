@@ -108,7 +108,7 @@ optoacopladores **EL817**. Dos particularidades de *esta* variante:
   todas las barreras de seguridad.
 
 El mapeo IN1/IN2/IN3 de arriba está **en dos lugares**: en el firmware, que es
-el que lo aplica, y en `RelayNodePins` (`autocann/config.py`), que es el que lo
+el que lo aplica, y en `RelayNodePins` (`autocann/config/relays.py`), que es el que lo
 muestra en el panel — el nodo no informa su cableado, sólo consulta. Si alguna
 vez se reflashea con otros pines hay que tocar los dos; `make test` avisa.
 

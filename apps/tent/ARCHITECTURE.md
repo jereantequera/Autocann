@@ -6,7 +6,7 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 
 - **`autocann/`**: código reusable (db, web, control, hardware). Importable desde cualquier lado.
 - **`scripts/`**: solo shell scripts (`.sh`) para iniciar/verificar servicios.
-- **Config centralizada**: pines/redis vía `autocann/config.py` + variables de entorno.
+- **Config centralizada**: pines/redis vía `autocann/config/` + variables de entorno.
 - **`control/` es puro**: nada de lo que vive ahí toca la base, el reloj ni el
   hardware salvo que se lo pasen por parámetro. Por eso la decisión de control
   se testea sin Redis, sin SQLite y sin carpa.
@@ -15,9 +15,10 @@ Este repo arrancó como un conjunto de scripts y con el tiempo fue creciendo. Pa
 
 ### Base
 
-- `autocann/config.py`: configuración (Redis, pines GPIO locales, pines del nodo
-  remoto, tuning del control, sensores interiores, modos) con overrides por env
-  vars. Valida pines compartidos e ids de sensor antes de interpolarlos en
+- `autocann/config/`: configuración por área (`redis`, `relays`: modos de relé,
+  pines GPIO locales y del nodo remoto; `sensors`: sensores interiores; `tuning`:
+  tuning del control; `modes`: pausa y modos) con overrides por env vars.
+  `__init__` re-exporta todo, así que `from autocann.config import X` no cambia. Valida pines compartidos e ids de sensor antes de interpolarlos en
   claves de Redis.
 - `autocann/paths.py`: paths del proyecto (`data/`, `autocann/web/templates/`, etc).
 - `autocann/time.py`: timezone común.

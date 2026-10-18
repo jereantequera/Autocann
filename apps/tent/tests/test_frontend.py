@@ -790,7 +790,7 @@ def test_the_pause_does_not_expire_on_its_own():
     assert not hasattr(config, "TEST_MODE_DEFAULT_SECONDS")
     assert not hasattr(config, "TEST_MODE_MAX_SECONDS")
 
-    web_dir = Path(config.__file__).parent / "web"
+    web_dir = Path(config.__file__).parents[1] / "web"
     app_py = "".join(path.read_text() for path in [web_dir / "app.py", *(web_dir / "api").glob("*.py")])
     # No TTL on the pause keys: `ex=` on either is an expiry by another name.
     test_mode_py = (web_dir / "api" / "test_mode.py").read_text()
@@ -800,7 +800,7 @@ def test_the_pause_does_not_expire_on_its_own():
 
     # And it outlives Redis, which is memory: a reboot must not resume the tent.
     assert "TEST_MODE_SETTING" in app_py
-    assert "restore_pause_mirror" in (Path(config.__file__).parent / "cli" / "vpd.py").read_text()
+    assert "restore_pause_mirror" in (Path(config.__file__).parents[1] / "cli" / "vpd.py").read_text()
 
 
 def test_the_test_mode_endpoints_the_dashboard_calls_exist():
