@@ -284,7 +284,7 @@ def test_the_humidity_readout_cannot_render_a_difference_without_readings():
 def test_the_indoor_sensors_section_is_reachable_from_the_page():
     assert "partials/sensors.html" in _included(TEMPLATES_DIR / "index.html")
     assert 'id="indoor-sensors-grid"' in (TEMPLATES_DIR / "partials" / "sensors.html").read_text()
-    assert "indoor-sensors-grid" in (JS_DIR / "health.js").read_text()
+    assert "indoor-sensors-grid" in _module_sources("health")
 
 
 def test_every_nav_tab_points_at_a_view_that_exists():
@@ -336,8 +336,8 @@ def test_the_sensor_cells_name_their_column_for_the_phone_cards():
     value gets its column name from data-label. The correction cells are
     written by system.js, the reading cells by health.js: both must carry it.
     """
-    health = (JS_DIR / "health.js").read_text()
-    system_js = (JS_DIR / "system.js").read_text()
+    health = _module_sources("health")
+    system_js = _module_sources("system")
     for label in ("Rol", "Temp.", "Humedad", "Última", "Corrección °C", "Corrección %", "Nota"):
         assert f'data-label="{label}"' in health
     assert 'data-label="Corrección °C"' in system_js
@@ -359,7 +359,7 @@ def test_the_calibration_editor_is_wired_to_the_endpoint():
     routes = {str(rule) for rule in web.app.url_map.iter_rules()}
     assert "/api/calibration" in routes
 
-    system_js = (JS_DIR / "system.js").read_text()
+    system_js = _module_sources("system")
     assert "/api/calibration" in system_js
     # Saving does not take effect until the loop restarts, and a form that does
     # not say so reads as applied.
@@ -598,7 +598,7 @@ def test_the_second_sensor_is_rendered_from_its_own_reading():
     Its badge used to be driven by `data.indoor` - the control loop's view of
     the *primary* - through an element that did not exist in any template.
     """
-    health = (JS_DIR / "health.js").read_text()
+    health = _module_sources("health")
     assert "sensor-status-indoor-2" not in health
     assert "/api/health" in health
 
@@ -617,10 +617,10 @@ def test_only_one_module_decides_whether_a_sensor_is_working():
         assert element not in dashboard, element
 
 
-def _js_object(name: str, module: str = "health.js") -> str:
+def _js_object(name: str, stem: str = "health") -> str:
     match = re.search(
-        rf"const {name} = \{{(.*?)\n\}};", (JS_DIR / module).read_text(), re.S)
-    assert match, f"{name} desapareció de {module}"
+        rf"const {name} = \{{(.*?)\n\}};", _module_sources(stem), re.S)
+    assert match, f"{name} desapareció de {stem}"
     return match.group(1)
 
 
@@ -729,7 +729,7 @@ def test_the_sensor_diagnostics_are_not_on_the_panel():
     assert "sensors.html" not in panel
     assert "health-strip" not in panel
 
-    health = _strip_js_comments((JS_DIR / "health.js").read_text())
+    health = _strip_js_comments(_module_sources("health"))
     assert "health-sensors-state" not in health
     assert "sensorsBadge(health.sensors)" in health
 
