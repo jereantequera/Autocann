@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the "Plan por semana" grid (feeding.js draws it).
+ * Pure helpers for the "Plan por semana" grid (feeding-plan.js draws it).
  *
  * They take the column list the server sends (`{stage, week}` per column, in
  * chart order) and say how to group it. No DOM and no imports, so the tests
