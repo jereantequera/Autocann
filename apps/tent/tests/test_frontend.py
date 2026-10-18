@@ -37,6 +37,12 @@ def _strip_js_comments(source: str) -> str:
     return re.sub(r"(?m)//.*$", "", source)
 
 
+def _module_sources(stem: str) -> str:
+    """A module and the pieces it was split into (`stem-*.js`), read as one text."""
+    paths = [JS_DIR / f"{stem}.js", *sorted(JS_DIR.glob(f"{stem}-*.js"))]
+    return "\n".join(path.read_text() for path in paths)
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node no está instalado")
 def test_javascript_unit_tests_pass():
     """
@@ -157,7 +163,7 @@ def test_every_stage_in_the_model_is_named_and_coloured_in_the_frontend():
 
     # The grid's stage row is named from the same table as the badge, not
     # from a private copy.
-    feeding = (JS_DIR / "feeding.js").read_text()
+    feeding = _module_sources("feeding")
     assert "stageName(group.stage)" in feeding
     assert "STAGE_INITIALS" not in feeding
 
@@ -175,7 +181,7 @@ def test_chart_options_are_never_self_assigned():
 
 def test_the_stage_day_counter_is_wired_to_the_api_fields():
     """The counter reads what /api/grows/active actually returns."""
-    grows_js = (JS_DIR / "grows.js").read_text()
+    grows_js = _module_sources("grows")
     for field in ("day_in_stage", "day_of_grow", "stage_expected_days", "estimated_end"):
         assert field in grows_js, field
 
@@ -431,7 +437,7 @@ def test_the_statistics_view_lets_you_choose_which_grow():
     assert 'id="grow-filter"' in page
     assert 'id="grow-scope-note"' in page
 
-    grows_js = (JS_DIR / "grows.js").read_text()
+    grows_js = _module_sources("grows")
     assert "grow-filter" in grows_js
     assert "Todos los cultivos" in grows_js
 
@@ -540,8 +546,8 @@ def test_a_destructive_confirmation_names_what_it_does():
     assert re.search(r"confirmLabel\s*=", modals) is None
 
     labels = []
-    for name in ("grows.js", "feeding.js", "dashboard.js"):
-        code = (JS_DIR / name).read_text()
+    for name in ("grows", "feeding", "dashboard"):
+        code = _module_sources(name)
         labels += re.findall(r"confirmLabel:\s*'([^']+)'", code)
 
     assert "Finalizar cultivo" in labels
@@ -750,8 +756,8 @@ def test_the_panel_watering_tile_never_fetches_its_own_plan():
     assert "/api/feeding/today" not in panel_js
     assert "/api/irrigations" not in panel_js
 
-    for module in ("panel.js", "feeding.js"):
-        code = _strip_js_comments((JS_DIR / module).read_text())
+    for module in ("panel", "feeding"):
+        code = _strip_js_comments(_module_sources(module))
         assert "doseAmount(" in code, module
         assert "lastWateringLabel(" in code, module
         # Neither may keep a private copy of either.

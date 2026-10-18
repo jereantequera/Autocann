@@ -27,8 +27,6 @@ ALLOWLIST: dict[str, int] = {
     "autocann/config.py": 446,
     "autocann/web/static/js/charts.js": 435,
     "autocann/web/static/js/dashboard.js": 616,
-    "autocann/web/static/js/feeding.js": 644,
-    "autocann/web/static/js/grows.js": 599,
     "autocann/web/static/js/health.js": 527,
     "autocann/web/static/js/system.js": 419,
 }
