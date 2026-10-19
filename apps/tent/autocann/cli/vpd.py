@@ -39,10 +39,7 @@ from autocann.control.humidity import (
 )
 from autocann.control.quiet import blocked_actions, windows_from_dict
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, SampleAccumulator
-from autocann.control.vpd_math import (
-    LEAF_TEMP_OFFSET_C,
-    STAGES,
-)
+from autocann.control.vpd_math import LEAF_TEMP_OFFSET_C, STAGES
 from autocann.db import (
     ensure_schema,
     get_active_grow,
@@ -66,6 +63,7 @@ from autocann.runtime.mode import parse_mode_mirror, read_control_mode, restore_
 from autocann.runtime.outputs import Relays, read_manual_overrides
 from autocann.runtime.redis import _set_redis
 from autocann.runtime.setpoint import resolve_setpoint
+from autocann.runtime.stage_band import StageBand
 from autocann.time import ARGENTINA_TZ
 
 # Names the tests and `autocann.cli.simulate` import from this module. Re-exported on purpose.
@@ -132,6 +130,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
 
     stage: Optional[str] = None
     grow_id: Optional[int] = None
+    stage_band = StageBand()
     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
     # Start the clock now rather than in the past. Firing on the first iteration
     # would store a row summarising a single reading, so every restart would add
@@ -235,11 +234,12 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                     new_stage = stage_override or active_grow["stage"]
                     source = "override" if stage_override else f"grow '{active_grow['name']}'"
 
-                    if new_stage not in STAGES:
+                    table = stage_band.refresh(active_grow["id"])
+                    if new_stage not in table:
                         if new_stage != unknown_stage_warned:
                             unknown_stage_warned = new_stage
                             print(f"❌ Grow has an unknown stage {new_stage!r}. "
-                                  f"Valid stages: {', '.join(STAGES)}. Outputs stay off.")
+                                  f"Valid stages: {', '.join(table)}. Outputs stay off.")
                         stage = None
                         relays.all_off()
                         sleep(LOOP_INTERVAL_SECONDS)
@@ -284,7 +284,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 temperature = float(sensors_data["temperature"])
                 humidity = float(sensors_data["humidity"])
 
-                setpoint = resolve_setpoint(stage, temperature, humidity)
+                setpoint = resolve_setpoint(stage, temperature, humidity, band=stage_band.get(stage))
 
                 sensors_data["leaf_temperature"] = setpoint.leaf_temperature
                 sensors_data["leaf_vpd"] = setpoint.leaf_vpd

@@ -98,6 +98,27 @@ def test_humidity_band_matches_the_stages_kpa_band(stage):
     assert calculate_leaf_vpd(22.5, leaf, low) == pytest.approx(vpd_max, abs=0.02)
 
 
+def test_a_grow_band_with_a_vpd_range_replaces_the_constant():
+    band = {"vpd_min": 0.5, "vpd_max": 0.7, "rh_min": None, "rh_max": None}
+    setpoint = resolve_setpoint("early_veg", 24.0, 50.0, band=band)
+
+    leaf = round(24.0 - LEAF_TEMP_OFFSET_C, 1)
+    expected = sorted(humidity_range_bounds_for_stage("early_veg", 24.0, leaf, vpd_band=(0.5, 0.7)))
+    assert setpoint.humidity_band == tuple(expected)
+
+
+def test_a_grow_band_with_an_rh_range_wins_over_its_vpd_range():
+    band = {"vpd_min": 0.5, "vpd_max": 0.7, "rh_min": 40.0, "rh_max": 45.0}
+    setpoint = resolve_setpoint("late_veg", 24.0, 50.0, band=band)
+
+    assert setpoint.humidity_band == (40.0, 45.0)
+    assert setpoint.target_humidity == 42.5
+
+
+def test_no_band_is_exactly_the_built_in_answer():
+    assert resolve_setpoint("dry", 24.0, 62.0, band=None) == resolve_setpoint("dry", 24.0, 62.0)
+
+
 def test_control_tuning_reads_the_environment(monkeypatch):
     from autocann.config import control_tuning_from_env
 
