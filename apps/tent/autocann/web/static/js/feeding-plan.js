@@ -4,6 +4,7 @@
  */
 
 import { apiGet } from './api.js';
+import { errorMessage } from './errors.js';
 import { escapeHtml } from './util.js';
 import { currentColumnIndex, stageGroups, stageLabel } from './feed-grid.js';
 import { el, feedState, stageName } from './feeding-state.js';
@@ -240,7 +241,7 @@ export async function savePlan() {
             body: JSON.stringify({ products: planDraft }),
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Error al guardar');
+        if (!response.ok) throw new Error(errorMessage(result));
 
         state.textContent = 'Guardado';
         await fetchFeedPlan();

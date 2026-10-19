@@ -19,6 +19,21 @@ test('each code the forms can show maps to its Spanish line', () => {
     assert.equal(errorMessage({ code: 'invalid_interval' }), 'Ese intervalo no existe.');
 });
 
+test('the relay, watering, feed plan and calibration codes map to their Spanish lines', () => {
+    assert.equal(errorMessage({ code: 'invalid_mode' }), 'Ese modo no existe.');
+    assert.equal(errorMessage({ code: 'unknown_output' }), 'Esa salida no existe.');
+    assert.equal(errorMessage({ code: 'invalid_state' }), 'Elegí encendido o apagado.');
+    assert.equal(errorMessage({ code: 'invalid_duration' }), 'La duración no es válida.');
+    assert.equal(errorMessage({ code: 'not_paused' }),
+        'Los relés sólo se mueven a mano con el sistema en pausa.');
+    assert.equal(errorMessage({ code: 'invalid_litres' }), 'Los litros tienen que ser un número mayor a 0.');
+    assert.equal(errorMessage({ code: 'invalid_items' }), 'Los productos del riego no tienen un formato válido.');
+    assert.equal(errorMessage({ code: 'irrigation_not_found' }), 'Ese riego ya no existe.');
+    assert.equal(errorMessage({ code: 'invalid_offset' }), 'El ajuste tiene que ser un número.');
+    assert.equal(errorMessage({ code: 'offset_out_of_range' }), 'Ese ajuste está fuera de rango.');
+    assert.equal(errorMessage({ code: 'save_failed' }), 'No se pudo guardar. Probá de nuevo.');
+});
+
 test('the English text is never shown, even when the code is unknown', () => {
     const result = { error: 'Invalid stage. Use one of: a, b', code: 'something_new' };
     assert.equal(errorMessage(result), FALLBACK_MESSAGE);

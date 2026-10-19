@@ -1,12 +1,11 @@
 import { apiGet, apiPost } from './api.js';
 import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
+import { errorMessage } from './errors.js';
 import { alertDialog, closeModal, showModal, toast } from './modals.js';
 import { config, MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, state } from './state.js';
 import { outputRowState, outputShortName } from './status.js';
 import { timeInRange } from './stats-math.js';
-import {
-    escapeHtml, fmtComma, formatDuration, icon, relaySourceLabel, stampLastUpdate, withGrow,
-} from './util.js';
+import { escapeHtml, fmtComma, formatDuration, icon, relaySourceLabel, stampLastUpdate, withGrow } from './util.js';
 
 /** Live readings, period summary, the pause state and the relay rows. */
 
@@ -488,7 +487,7 @@ function askHowToStop() {
 async function setMode(mode) {
     const result = await apiPost('/api/test-mode', { mode });
     if (!result.ok) {
-        await alertDialog({ title: 'No se pudo cambiar el estado', message: result.error });
+        await alertDialog({ title: 'No se pudo cambiar el estado', message: errorMessage(result) });
         return;
     }
     const [message, options] = STOP_TOASTS[mode] || ['Control automático de vuelta', {}];
@@ -533,7 +532,7 @@ async function setTestOutput(trigger) {
         state: trigger.dataset.state === 'true',
     });
     if (!result.ok) {
-        await alertDialog({ title: 'No se pudo mover el relé', message: result.error });
+        await alertDialog({ title: 'No se pudo mover el relé', message: errorMessage(result) });
     }
     // Refresh either way: on failure the buttons must go back to showing what
     // is actually requested, not what was clicked.

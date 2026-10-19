@@ -24,7 +24,7 @@ LIMIT = 400
 #: Today's offenders, relative to apps/tent, with their line counts as ceilings.
 ALLOWLIST: dict[str, int] = {
     "autocann/web/static/js/charts.js": 435,
-    "autocann/web/static/js/dashboard.js": 616,
+    "autocann/web/static/js/dashboard.js": 615,
 }
 
 

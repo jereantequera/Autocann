@@ -27,6 +27,7 @@ from autocann.db import (
 )
 from autocann.time import ARGENTINA_TZ
 from autocann.web.deps import get_redis
+from autocann.web.errors import error_response
 
 bp = Blueprint("sensors", __name__)
 
@@ -301,7 +302,7 @@ def update_calibration():
     data = request.get_json(silent=True) or {}
     sensor_id = data.get("sensor_id")
     if not sensor_id or not isinstance(sensor_id, str):
-        return jsonify({"error": "Missing or invalid 'sensor_id'"}), 400
+        return error_response("Missing or invalid 'sensor_id'", "missing_field", 400)
 
     offsets = {}
     for field in ("temperature_offset", "humidity_offset"):
@@ -309,16 +310,16 @@ def update_calibration():
         try:
             offsets[field] = float(value)
         except (TypeError, ValueError):
-            return jsonify({"error": f"'{field}' must be a number"}), 400
+            return error_response(f"'{field}' must be a number", "invalid_offset", 400)
 
     # A correction larger than this is a wiring or units problem, not drift.
     if abs(offsets["temperature_offset"]) > 20:
-        return jsonify({"error": "'temperature_offset' fuera de rango (±20 °C)"}), 400
+        return error_response("'temperature_offset' fuera de rango (±20 °C)", "offset_out_of_range", 400)
     if abs(offsets["humidity_offset"]) > 50:
-        return jsonify({"error": "'humidity_offset' fuera de rango (±50 %)"}), 400
+        return error_response("'humidity_offset' fuera de rango (±50 %)", "offset_out_of_range", 400)
 
     if not set_calibration(sensor_id, notes=data.get("notes"), **offsets):
-        return jsonify({"error": "Failed to store calibration"}), 500
+        return error_response("Failed to store calibration", "save_failed", 500)
 
     return jsonify({
         "success": True,
