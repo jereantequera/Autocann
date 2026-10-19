@@ -227,3 +227,33 @@ def _backfill_grow_stages(conn: sqlite3.Connection) -> None:
     conn.commit()
     if rows:
         logger.info("grow_stages: snapshot taken for %d grow(s)", len(rows))
+
+
+def _migrate_one_active_grow_per_tent(conn: sqlite3.Connection) -> None:
+    """
+    Enforce at most one active grow per tent.
+
+    Databases written before the rule could hold several active grows in one
+    tent. Each such tent keeps its newest grow (highest id) active and the rest
+    are deactivated; then the partial unique index makes a second active grow
+    in a tent a database error. Idempotent: with no duplicates the UPDATE
+    touches nothing, and the index is created only if it is missing.
+
+    Must run after `_migrate_grow_links`, which adds `grows.tent_id`.
+    """
+    deactivated = conn.execute(
+        """
+        UPDATE grows SET is_active = 0
+        WHERE is_active = 1
+          AND id NOT IN (
+              SELECT MAX(id) FROM grows WHERE is_active = 1 GROUP BY tent_id
+          )
+        """
+    ).rowcount
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_grow_per_tent "
+        "ON grows(tent_id) WHERE is_active = 1"
+    )
+    conn.commit()
+    if deactivated:
+        logger.warning("grows: deactivated %d duplicate active grow(s), one per tent kept", deactivated)

@@ -1,5 +1,5 @@
 """
-Grows: create, end, switch the active one, and the stage history of each.
+Grows: create, end, and the stage history of each. The active grow of a tent is in `active_grow`.
 """
 
 from __future__ import annotations
@@ -51,45 +51,13 @@ def _resolve_grow_filter(grow_id):
         return None
     if grow_id is not None:
         return int(grow_id)
+    # Imported here: active_grow imports this module for the day counters.
+    from autocann.store.active_grow import get_active_grow
+
     active_grow = get_active_grow()
     if active_grow:
         return int(active_grow["id"])
     return _NO_GROW
-
-
-def get_active_grow() -> Optional[Dict]:
-    """
-    Get the currently active grow.
-
-    Returns:
-    - Dictionary with grow information or None
-    """
-    try:
-        ensure_schema()
-        conn = _open(row_factory=True)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT * FROM grows
-            WHERE is_active = 1
-            ORDER BY id DESC
-            LIMIT 1
-        """
-        )
-
-        row = cursor.fetchone()
-        conn.close()
-
-        if not row:
-            return None
-
-        grow = dict(row)
-        grow.update(_grow_day_counters(grow))
-        return grow
-    except Exception as e:
-        print(f"Error getting active grow: {e}")
-        return None
 
 
 def _grow_day_counters(grow: Dict, now: Optional[int] = None) -> Dict:
@@ -213,29 +181,6 @@ def end_grow(grow_id: int) -> bool:
         return True
     except Exception as e:
         print(f"Error ending grow: {e}")
-        return False
-
-
-def set_active_grow(grow_id: int) -> bool:
-    """
-    Set a grow as active (and deactivate all others).
-    """
-    try:
-        ensure_schema()
-        conn = _open()
-        cursor = conn.cursor()
-
-        # Deactivate all grows
-        cursor.execute("UPDATE grows SET is_active = 0")
-
-        # Activate selected grow
-        cursor.execute("UPDATE grows SET is_active = 1 WHERE id = ?", (grow_id,))
-
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error setting active grow: {e}")
         return False
 
 
