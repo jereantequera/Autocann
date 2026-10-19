@@ -4,6 +4,7 @@
  */
 
 import { apiPost } from './api.js';
+import { errorMessage } from './errors.js';
 import {
     changedCalibrations, fetchCalibration, readRow, sensorLabel, sensorRows,
 } from './system-calibration.js';
@@ -37,7 +38,7 @@ async function saveChanged(rows, message) {
         };
         const result = await apiPost('/api/calibration', body);
         if (!result.ok) {
-            message.textContent = `${sensorLabel(row.sensorId)}: ${result.error}`;
+            message.textContent = `${sensorLabel(row.sensorId)}: ${errorMessage(result)}`;
             message.className = 'sys-note-inline is-error';
             return;
         }

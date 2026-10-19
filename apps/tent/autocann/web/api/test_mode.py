@@ -29,6 +29,7 @@ from autocann.hardware.outputs import (
 )
 from autocann.time import ARGENTINA_TZ
 from autocann.web.deps import get_redis
+from autocann.web.errors import error_response
 
 bp = Blueprint("test_mode", __name__)
 
@@ -176,26 +177,28 @@ def set_test_mode():
     if mode is None:
         enabled = data.get("enabled")
         if not isinstance(enabled, bool):
-            return jsonify({
-                "error": "Missing or invalid 'mode' "
-                         f"(one of: {', '.join(CONTROL_MODES)})"
-            }), 400
+            return error_response(
+                "Missing or invalid 'mode' "
+                f"(one of: {', '.join(CONTROL_MODES)})",
+                "invalid_mode", 400,
+            )
         mode = MODE_PAUSED if enabled else MODE_ACTIVE
     if mode not in CONTROL_MODES:
-        return jsonify({
-            "error": f"Unknown mode '{mode}'. Valid modes: {', '.join(CONTROL_MODES)}"
-        }), 400
+        return error_response(
+            f"Unknown mode '{mode}'. Valid modes: {', '.join(CONTROL_MODES)}",
+            "invalid_mode", 400,
+        )
 
     if mode == MODE_ACTIVE:
         if not set_setting(TEST_MODE_SETTING, {"active": False, "mode": MODE_ACTIVE}):
-            return jsonify({"error": "No se pudo devolver el control al lazo"}), 500
+            return error_response("No se pudo devolver el control al lazo", "save_failed", 500)
         try:
             get_redis().delete(TEST_MODE_KEY)
             # Cleared together: a later pause must not begin by energising
             # whatever was left switched on in this one.
             get_redis().delete(TEST_MODE_OUTPUTS_KEY)
         except Exception as e:
-            return jsonify({"error": f"Failed to leave test mode: {e}"}), 500
+            return error_response(f"Failed to leave test mode: {e}", "save_failed", 500)
         return jsonify({"success": True, **test_mode_payload()})
 
     # Switching between the two stopped states keeps the original instant:
@@ -207,7 +210,7 @@ def set_test_mode():
 
     if not set_setting(TEST_MODE_SETTING,
                        {"active": True, "since": since, "mode": mode}):
-        return jsonify({"error": "No se pudo registrar el estado"}), 500
+        return error_response("No se pudo registrar el estado", "save_failed", 500)
     try:
         get_redis().set(TEST_MODE_KEY, json.dumps({"mode": mode, "since": since}))
         if mode == MODE_PAUSED:
@@ -222,7 +225,7 @@ def set_test_mode():
             # earlier pause must not survive into it.
             get_redis().delete(TEST_MODE_OUTPUTS_KEY)
     except Exception as e:
-        return jsonify({"error": f"Failed to enter test mode: {e}"}), 500
+        return error_response(f"Failed to enter test mode: {e}", "save_failed", 500)
 
     return jsonify({"success": True, **test_mode_payload()})
 
@@ -244,21 +247,22 @@ def set_test_mode_output():
     state = data.get("state")
 
     if not name or not isinstance(name, str):
-        return jsonify({"error": "Missing or invalid 'name'"}), 400
+        return error_response("Missing or invalid 'name'", "missing_field", 400)
     if not isinstance(state, bool):
-        return jsonify({"error": "Missing or invalid 'state' (must be boolean)"}), 400
+        return error_response("Missing or invalid 'state' (must be boolean)", "invalid_state", 400)
     if not find_output(name):
         valid = ", ".join(output_names())
-        return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
+        return error_response(f"Unknown output name '{name}'. Valid names: {valid}", "unknown_output", 404)
 
     # Only the pause. Monitoring switching a relay by hand would be the one
     # thing that makes its history worthless: the whole value of those rows
     # is that they record a room with nothing running in it.
     if control_mode()[0] != MODE_PAUSED:
-        return jsonify({
-            "error": "Los relés sólo se mueven a mano con el sistema en pausa. "
-                     "En monitoreo nada se enciende, a propósito."
-        }), 409
+        return error_response(
+            "Los relés sólo se mueven a mano con el sistema en pausa. "
+            "En monitoreo nada se enciende, a propósito.",
+            "not_paused", 409,
+        )
 
     try:
         raw = get_redis().get(TEST_MODE_OUTPUTS_KEY)
@@ -270,6 +274,6 @@ def set_test_mode_output():
         # someone rather than by a clock. Leaving the pause deletes them.
         get_redis().set(TEST_MODE_OUTPUTS_KEY, json.dumps(requested))
     except Exception as e:
-        return jsonify({"error": f"Failed to publish the request: {e}"}), 500
+        return error_response(f"Failed to publish the request: {e}", "save_failed", 500)
 
     return jsonify({"success": True, **test_mode_payload()})

@@ -9,6 +9,7 @@
  */
 
 import { apiGet } from './api.js';
+import { errorMessage } from './errors.js';
 import { alertDialog, confirmDialog, toast } from './modals.js';
 import { announce, el, feedState } from './feeding-state.js';
 import { readForm, refreshTotals, renderForm, renderToday } from './feeding-form.js';
@@ -75,7 +76,7 @@ async function saveIrrigation() {
             }),
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Error al registrar');
+        if (!response.ok) throw new Error(errorMessage(result));
 
         el('feed-ph').value = '';
         el('feed-ec').value = '';

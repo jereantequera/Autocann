@@ -54,6 +54,25 @@ def test_manual_override_validates_its_input(client, payload, status):
     assert client.post("/api/output-control", json=payload).status_code == status
 
 
+@pytest.mark.parametrize(
+    "payload, status, code",
+    [
+        ({}, 400, "missing_field"),
+        ({"name": "humidity_up", "state": "on"}, 400, "invalid_state"),
+        ({"name": "nope", "state": True}, 404, "unknown_output"),
+        ({"name": "humidity_up", "state": True, "duration_seconds": 0}, 400, "invalid_duration"),
+        ({"name": "humidity_up", "state": True, "duration_seconds": 99999}, 400, "invalid_duration"),
+        ({"name": "humidity_up", "state": True, "duration_seconds": "abc"}, 400, "invalid_duration"),
+    ],
+)
+def test_manual_override_refusals_carry_a_code(client, payload, status, code):
+    response = client.post("/api/output-control", json=payload)
+    assert response.status_code == status
+    body = response.get_json()
+    assert body["code"] == code
+    assert isinstance(body["error"], str) and body["error"]
+
+
 def test_output_status_reports_state_and_any_override(client):
     client.redis.set("humidity_control_up", "true")
     client.post("/api/output-control", json={"name": "humidity_down", "state": False})
@@ -694,6 +713,73 @@ def test_an_unknown_output_is_refused_by_name(client):
     client.post("/api/test-mode", json={"enabled": True})
     response = client.post("/api/test-mode/outputs", json={"name": "luz", "state": True})
     assert response.status_code == 404
+
+
+def test_a_test_mode_request_without_a_valid_mode_carries_a_code(client):
+    for body in ({}, {"enabled": "si"}, {"mode": "turbo"}):
+        response = client.post("/api/test-mode", json=body)
+        assert response.status_code == 400
+        payload = response.get_json()
+        assert payload["code"] == "invalid_mode"
+        assert payload["error"].startswith(("Missing or invalid 'mode'", "Unknown mode 'turbo'"))
+
+
+def test_an_output_request_outside_the_pause_carries_a_code(client):
+    response = client.post("/api/test-mode/outputs", json={"name": "ventilation", "state": True})
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["code"] == "not_paused"
+    assert body["error"].startswith("Los relés sólo se mueven a mano")
+
+
+@pytest.mark.parametrize(
+    "payload, status, code",
+    [
+        ({"name": "", "state": True}, 400, "missing_field"),
+        ({"name": "ventilation", "state": "on"}, 400, "invalid_state"),
+        ({"name": "luz", "state": True}, 404, "unknown_output"),
+    ],
+)
+def test_a_test_mode_output_refusal_carries_a_code(client, payload, status, code):
+    client.post("/api/test-mode", json={"enabled": True})
+    response = client.post("/api/test-mode/outputs", json=payload)
+    assert response.status_code == status
+    assert response.get_json()["code"] == code
+
+
+def test_a_pause_that_cannot_be_saved_says_so_with_a_code(client, monkeypatch):
+    monkeypatch.setattr("autocann.web.api.test_mode.set_setting", lambda *args, **kwargs: False)
+    response = client.post("/api/test-mode", json={"enabled": True})
+    assert response.status_code == 500
+    assert response.get_json() == {"error": "No se pudo registrar el estado", "code": "save_failed"}
+
+
+# ---------------------------------------------------------------------------
+# Calibration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload, status, code",
+    [
+        ({}, 400, "missing_field"),
+        ({"sensor_id": "indoor_1", "temperature_offset": "caliente"}, 400, "invalid_offset"),
+        ({"sensor_id": "indoor_1", "humidity_offset": [1]}, 400, "invalid_offset"),
+        ({"sensor_id": "indoor_1", "temperature_offset": 25}, 400, "offset_out_of_range"),
+        ({"sensor_id": "indoor_1", "humidity_offset": -60}, 400, "offset_out_of_range"),
+    ],
+)
+def test_calibration_refusals_carry_a_code(client, payload, status, code):
+    response = client.post("/api/calibration", json=payload)
+    assert response.status_code == status
+    assert response.get_json()["code"] == code
+
+
+def test_a_calibration_that_cannot_be_saved_says_so_with_a_code(client, monkeypatch):
+    monkeypatch.setattr("autocann.web.api.sensors.set_calibration", lambda *args, **kwargs: False)
+    response = client.post("/api/calibration", json={"sensor_id": "indoor_1", "temperature_offset": 1})
+    assert response.status_code == 500
+    assert response.get_json() == {"error": "Failed to store calibration", "code": "save_failed"}
 
 
 # ---------------------------------------------------------------------------

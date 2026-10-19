@@ -277,6 +277,16 @@ def test_saving_the_plan_rejects_a_body_without_products(client):
     assert client.put("/api/feed-plan", json={"products": "todos"}).status_code == 400
 
 
+def test_a_plan_refusal_carries_a_code(client, monkeypatch):
+    response = client.put("/api/feed-plan", json={})
+    assert response.get_json() == {"error": "Se espera {'products': [...]}", "code": "invalid_body"}
+
+    monkeypatch.setattr("autocann.web.api.feeding.replace_feed_plan", lambda products: False)
+    failed = client.put("/api/feed-plan", json={"products": []})
+    assert failed.status_code == 500
+    assert failed.get_json() == {"error": "No se pudo guardar el plan", "code": "save_failed"}
+
+
 def test_saving_the_plan_returns_what_was_stored(client):
     response = client.put("/api/feed-plan", json={
         "products": [{"name": "Único", "unit": "g/L", "doses": {"flowering": {1: 3}}}],
@@ -352,7 +362,28 @@ def test_a_malformed_watering_is_refused(client, body):
     assert client.post("/api/irrigations", json=body).status_code == 400
 
 
+@pytest.mark.parametrize("body, code", [
+    ({}, "invalid_litres"),
+    ({"litres": 0}, "invalid_litres"),
+    ({"litres": "un balde"}, "invalid_litres"),
+    ({"litres": 10, "items": "todos"}, "invalid_items"),
+])
+def test_a_malformed_watering_carries_a_code(client, body, code):
+    response = client.post("/api/irrigations", json=body)
+    assert response.status_code == 400
+    assert response.get_json()["code"] == code
+
+
+def test_a_watering_that_cannot_be_saved_says_so_with_a_code(client, monkeypatch):
+    monkeypatch.setattr("autocann.web.api.feeding.record_irrigation", lambda **kwargs: None)
+    response = client.post("/api/irrigations", json={"litres": 10, "items": []})
+    assert response.status_code == 500
+    assert response.get_json() == {"error": "No se pudo registrar el riego", "code": "save_failed"}
+
+
 def test_a_watering_can_be_deleted_through_the_api(client):
     created = client.post("/api/irrigations", json={"litres": 10, "items": []}).get_json()
     assert client.delete(f"/api/irrigations/{created['irrigation_id']}").status_code == 200
-    assert client.delete(f"/api/irrigations/{created['irrigation_id']}").status_code == 404
+    missing = client.delete(f"/api/irrigations/{created['irrigation_id']}")
+    assert missing.status_code == 404
+    assert missing.get_json() == {"error": "No existe ese riego", "code": "irrigation_not_found"}

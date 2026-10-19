@@ -29,6 +29,7 @@ from autocann.hardware.outputs import (
 from autocann.time import ARGENTINA_TZ
 from autocann.web.api.test_mode import test_mode_payload
 from autocann.web.deps import get_redis
+from autocann.web.errors import error_response
 
 bp = Blueprint("outputs", __name__)
 
@@ -115,23 +116,25 @@ def set_output_control():
     duration = data.get("duration_seconds", MANUAL_OVERRIDE_DEFAULT_SECONDS)
 
     if not name or not isinstance(name, str):
-        return jsonify({"error": "Missing or invalid 'name'"}), 400
+        return error_response("Missing or invalid 'name'", "missing_field", 400)
     if state is not None and not isinstance(state, bool):
-        return jsonify({"error": "Invalid 'state' (must be boolean, or null to clear)"}), 400
+        return error_response(
+            "Invalid 'state' (must be boolean, or null to clear)", "invalid_state", 400)
 
     output = find_output(name)
     if not output:
         valid = ", ".join(o["name"] for o in get_outputs())
-        return jsonify({"error": f"Unknown output name '{name}'. Valid names: {valid}"}), 404
+        return error_response(f"Unknown output name '{name}'. Valid names: {valid}", "unknown_output", 404)
 
     try:
         duration = int(duration)
     except (TypeError, ValueError):
-        return jsonify({"error": "'duration_seconds' must be an integer"}), 400
+        return error_response("'duration_seconds' must be an integer", "invalid_duration", 400)
     if duration < 1 or duration > MANUAL_OVERRIDE_MAX_SECONDS:
-        return jsonify(
-            {"error": f"'duration_seconds' must be between 1 and {MANUAL_OVERRIDE_MAX_SECONDS}"}
-        ), 400
+        return error_response(
+            f"'duration_seconds' must be between 1 and {MANUAL_OVERRIDE_MAX_SECONDS}",
+            "invalid_duration", 400,
+        )
 
     key = manual_override_key(name)
     try:
@@ -140,7 +143,7 @@ def set_output_control():
         else:
             get_redis().set(key, "true" if state else "false", ex=duration)
     except Exception as e:
-        return jsonify({"error": f"Failed to publish the override: {e}"}), 500
+        return error_response(f"Failed to publish the override: {e}", "save_failed", 500)
 
     return jsonify(
         {

@@ -61,11 +61,11 @@ def save_feed_plan():
     try:
         data = request.get_json(silent=True)
         if not data or not isinstance(data.get("products"), list):
-            return jsonify({"error": "Se espera {'products': [...]}"}), 400
+            return error_response("Se espera {'products': [...]}", "invalid_body", 400)
 
         if replace_feed_plan(data["products"]):
             return jsonify({"success": True, "products": get_feed_plan()})
-        return jsonify({"error": "No se pudo guardar el plan"}), 500
+        return error_response("No se pudo guardar el plan", "save_failed", 500)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -138,13 +138,13 @@ def create_irrigation():
         try:
             litres = float(data.get("litres"))
         except (TypeError, ValueError):
-            return jsonify({"error": "litres es obligatorio y numérico"}), 400
+            return error_response("litres es obligatorio y numérico", "invalid_litres", 400)
         if litres <= 0:
-            return jsonify({"error": "litres debe ser mayor que cero"}), 400
+            return error_response("litres debe ser mayor que cero", "invalid_litres", 400)
 
         items = data.get("items")
         if items is not None and not isinstance(items, list):
-            return jsonify({"error": "items debe ser una lista"}), 400
+            return error_response("items debe ser una lista", "invalid_items", 400)
 
         grow = get_active_grow()
         if not grow:
@@ -167,7 +167,7 @@ def create_irrigation():
         )
         if irrigation_id:
             return jsonify({"success": True, "irrigation_id": irrigation_id}), 201
-        return jsonify({"error": "No se pudo registrar el riego"}), 500
+        return error_response("No se pudo registrar el riego", "save_failed", 500)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -176,6 +176,6 @@ def remove_irrigation(irrigation_id: int):
     try:
         if delete_irrigation(irrigation_id):
             return jsonify({"success": True})
-        return jsonify({"error": "No existe ese riego"}), 404
+        return error_response("No existe ese riego", "irrigation_not_found", 404)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

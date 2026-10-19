@@ -18,6 +18,17 @@ const MESSAGES = {
     invalid_stages: 'Revisá las etapas del perfil.',
     read_only_profile: 'Ese perfil no se puede cambiar.',
     profile_in_use: 'Ese perfil está en uso por un cultivo.',
+    invalid_mode: 'Ese modo no existe.',
+    unknown_output: 'Esa salida no existe.',
+    invalid_state: 'Elegí encendido o apagado.',
+    invalid_duration: 'La duración no es válida.',
+    not_paused: 'Los relés sólo se mueven a mano con el sistema en pausa.',
+    invalid_litres: 'Los litros tienen que ser un número mayor a 0.',
+    invalid_items: 'Los productos del riego no tienen un formato válido.',
+    irrigation_not_found: 'Ese riego ya no existe.',
+    invalid_offset: 'El ajuste tiene que ser un número.',
+    offset_out_of_range: 'Ese ajuste está fuera de rango.',
+    save_failed: 'No se pudo guardar. Probá de nuevo.',
 };
 
 export const FALLBACK_MESSAGE = 'No se pudo guardar. Probá de nuevo.';
