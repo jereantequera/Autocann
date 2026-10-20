@@ -216,7 +216,7 @@ def update_grow_stage(grow_id: int, stage: str, notes: Optional[str] = None) -> 
 
 def get_all_grows() -> List[Dict]:
     """
-    Get all grows.
+    Get all grows, each with its profile's name (None when the profile is gone).
     """
     try:
         ensure_schema()
@@ -226,10 +226,12 @@ def get_all_grows() -> List[Dict]:
         cursor.execute(
             """
             SELECT g.*,
+                   p.name as profile_name,
                    COUNT(s.id) as sample_count,
                    MIN(s.timestamp) as first_sample,
                    MAX(s.timestamp) as last_sample
             FROM grows g
+            LEFT JOIN crop_profiles p ON p.id = g.profile_id
             LEFT JOIN sensor_data s ON g.id = s.grow_id
             GROUP BY g.id
             ORDER BY g.id DESC

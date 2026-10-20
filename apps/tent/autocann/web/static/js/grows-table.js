@@ -4,7 +4,7 @@
 
 import { config } from './state.js';
 import { escapeHtml } from './util.js';
-import { durationLabel, formatShortDate, growDays } from './grow-model.js';
+import { durationLabel, formatShortDate, growDays, profileLabel } from './grow-model.js';
 
 export async function loadGrowsList() {
     const growListElement = document.getElementById('growList');
@@ -45,7 +45,9 @@ export async function loadGrowsList() {
                             <span class="ac-dot ${grow.is_active ? 'ac-dot--ok' : 'ac-dot--idle'}"></span>
                             ${escapeHtml(grow.name)}
                         </span>
+                        <span class="grow-profile-sub${grow.profile_name ? '' : ' grow-profile-missing'}">${escapeHtml(profileLabel(grow.profile_name))}</span>
                     </td>
+                    <td class="grow-profile-col${grow.profile_name ? '' : ' grow-profile-missing'}">${escapeHtml(profileLabel(grow.profile_name))}</td>
                     <td>${escapeHtml(stageNames[grow.stage] || grow.stage)}</td>
                     <td class="ac-num">${escapeHtml(formatShortDate(grow.start_date))}</td>
                     <td class="ac-num">${escapeHtml(durationLabel(days))}</td>
@@ -67,7 +69,7 @@ export async function loadGrowsList() {
                 <table class="ac-table grow-table">
                     <thead>
                         <tr>
-                            <th>Nombre</th><th>Etapa</th><th>Inicio</th>
+                            <th>Nombre</th><th class="grow-profile-col">Perfil</th><th>Etapa</th><th>Inicio</th>
                             <th>Duración</th><th>Muestras</th><th></th>
                         </tr>
                     </thead>

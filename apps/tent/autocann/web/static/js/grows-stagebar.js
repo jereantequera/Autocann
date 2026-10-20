@@ -7,7 +7,7 @@ import { apiGet } from './api.js';
 import { renderStageMarkers } from './charts.js';
 import { config, state } from './state.js';
 import { escapeHtml } from './util.js';
-import { formatLongDate, growLine, nextStage, stageBarModel } from './grow-model.js';
+import { cultivoKicker, growLine, nextStage, stageBarModel } from './grow-model.js';
 import { growState } from './grows-state.js';
 
 function loadStageConfig() {
@@ -39,7 +39,7 @@ export function renderCultivo() {
 
     const kicker = document.getElementById('grow-since');
     const line = document.getElementById('grow-line');
-    if (kicker) kicker.textContent = `Cultivo activo · desde el ${formatLongDate(grow.start_date)}`;
+    if (kicker) kicker.textContent = cultivoKicker({ startDate: grow.start_date, profileName: grow.profile_name });
     if (line) {
         line.textContent = growLine({
             stageName: config.stageNames[grow.stage] || grow.stage,

@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    durationLabel, formatLongDate, formatShortDate, growDays, growLine, nextStage,
-    stageBarModel, stageWeights, vpdLabel,
+    cultivoKicker, durationLabel, formatLongDate, formatShortDate, growDays, growLine, nextStage,
+    profileLabel, stageBarModel, stageWeights, vpdLabel,
 } from '../../autocann/web/static/js/grow-model.js';
 
 const ORDER = ['seedling', 'early_veg', 'late_veg', 'flowering', 'dry'];
@@ -122,4 +122,24 @@ test('nextStage output is accepted by stageBarModel without surprises', () => {
     });
     assert.equal(bar.find(cell => cell.state === 'now').stage, current);
     assert.equal(nextStage(ORDER, current), 'flowering');
+});
+
+test('cultivoKicker names the profile after the start date', () => {
+    assert.equal(
+        cultivoKicker({ startDate: '2026-10-12 08:00:00', profileName: 'Cannabis fotoperiódico' }),
+        'Cultivo activo · desde el 12 de octubre · Cannabis fotoperiódico',
+    );
+    assert.equal(
+        cultivoKicker({ startDate: '2026-10-12', profileName: 'Mi receta' }),
+        'Cultivo activo · desde el 12 de octubre · Mi receta',
+    );
+});
+
+test('cultivoKicker says Perfil eliminado when the profile is gone', () => {
+    assert.equal(
+        cultivoKicker({ startDate: '2026-10-12', profileName: null }),
+        'Cultivo activo · desde el 12 de octubre · Perfil eliminado',
+    );
+    assert.equal(profileLabel(''), 'Perfil eliminado');
+    assert.equal(profileLabel(undefined), 'Perfil eliminado');
 });

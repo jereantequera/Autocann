@@ -18,13 +18,14 @@ from autocann.store.schema import ensure_schema
 
 def get_active_grow(tent_id: int = 1) -> Optional[Dict]:
     """
-    Get the active grow of a tent, with its day counters.
+    Get the active grow of a tent, with its day counters and its profile's name.
 
     `tent_id` defaults to the rig's only tent, so callers that do not name a
     tent get the same grow as before tents existed.
 
     Returns:
-    - Dictionary with grow information or None
+    - Dictionary with grow information or None. `profile_name` is None when the
+      grow's profile no longer exists.
     """
     try:
         ensure_schema()
@@ -32,9 +33,11 @@ def get_active_grow(tent_id: int = 1) -> Optional[Dict]:
         try:
             row = conn.execute(
                 """
-                SELECT * FROM grows
-                WHERE is_active = 1 AND tent_id = ?
-                ORDER BY id DESC
+                SELECT g.*, p.name AS profile_name
+                FROM grows g
+                LEFT JOIN crop_profiles p ON p.id = g.profile_id
+                WHERE g.is_active = 1 AND g.tent_id = ?
+                ORDER BY g.id DESC
                 LIMIT 1
                 """,
                 (tent_id,),
