@@ -163,6 +163,54 @@ def test_grow_lifecycle_through_the_api(client):
     assert client.post(f"/api/grows/{grow_id}/end").status_code == 200
 
 
+# `profile_name` rides along with `profile_id` on both grow reads: the Cultivo
+# header and the grows table show it, and a deleted profile reads as null.
+
+
+def _grow_from_profile(client, profile_id, name="Cultivo"):
+    response = client.post("/api/grows", json={"name": name, "stage": "early_veg", "profile_id": profile_id})
+    assert response.status_code == 201, response.get_json()
+    return response.get_json()["grow_id"]
+
+
+def _listed(client, grow_id):
+    grows = client.get("/api/grows").get_json()["grows"]
+    return next(grow for grow in grows if grow["id"] == grow_id)
+
+
+def test_grow_reads_name_the_builtin_profile(client):
+    grow_id = _grow_from_profile(client, "cannabis-photoperiod")
+
+    active = client.get("/api/grows/active").get_json()
+    assert active["profile_id"] == "cannabis-photoperiod"
+    assert active["profile_name"] == "Cannabis fotoperiódico"
+    assert _listed(client, grow_id)["profile_name"] == "Cannabis fotoperiódico"
+
+
+def test_grow_reads_name_a_custom_profile(client):
+    copy = client.post("/api/profiles/cannabis-photoperiod/copy", json={"name": "Mi receta"}).get_json()
+    grow_id = _grow_from_profile(client, copy["id"])
+
+    assert client.get("/api/grows/active").get_json()["profile_name"] == "Mi receta"
+    assert _listed(client, grow_id)["profile_name"] == "Mi receta"
+
+
+def test_grow_of_a_deleted_profile_has_a_null_profile_name_and_keeps_its_fields(client, temp_db):
+    copy = client.post("/api/profiles/cannabis-photoperiod/copy", json={"name": "Descartada"}).get_json()
+    grow_id = _grow_from_profile(client, copy["id"], name="Cerrado")
+    assert client.post(f"/api/grows/{grow_id}/end").status_code == 200
+    assert client.delete(f"/api/profiles/{copy['id']}").status_code == 204
+
+    listed = _listed(client, grow_id)
+
+    assert "profile_name" in listed
+    assert listed["profile_name"] is None
+    assert listed["profile_id"] == copy["id"]
+    assert listed["name"] == "Cerrado"
+    assert listed["stage"] == "early_veg"
+    assert "sample_count" in listed
+
+
 @pytest.mark.parametrize(
     "payload, status",
     [({"name": "x", "stage": "bogus"}, 400), ({"stage": "flowering"}, 400)],

@@ -85,6 +85,19 @@ function growLine({ stageName, day, expected, vpd }) {
     return parts.join(' · ');
 }
 
+/** The profile's name as the grow shows it; a profile that is gone reads "Perfil eliminado". */
+function profileLabel(profileName) {
+    return profileName || 'Perfil eliminado';
+}
+
+/**
+ * The Cultivo kicker, above the grow's name:
+ * "Cultivo activo · desde el 12 de octubre · Cannabis fotoperiódico".
+ */
+function cultivoKicker({ startDate, profileName }) {
+    return `Cultivo activo · desde el ${formatLongDate(startDate)} · ${profileLabel(profileName)}`;
+}
+
 /**
  * One column per stage of the cycle, for the stage bar.
  *
@@ -164,5 +177,5 @@ function stageBarModel({ order, current, dayInStage, expected, timeline, names }
 
 export {
     nextStage, formatShortDate, formatLongDate, growDays, durationLabel,
-    vpdLabel, growLine, stageWeights, stageBarModel,
+    vpdLabel, growLine, stageWeights, stageBarModel, profileLabel, cultivoKicker,
 };

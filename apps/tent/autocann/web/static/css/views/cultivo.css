@@ -190,6 +190,17 @@
     margin-right: 8px;
 }
 
+/* The profile sits in its own column on desktop; on phones it moves under the
+   name in small text (see the 600px rule at the end of this file). */
+.view[data-view="cultivo"] .grow-profile-sub {
+    display: none;
+}
+
+.view[data-view="cultivo"] .grow-profile-missing {
+    color: var(--fg-muted);
+    font-style: italic;
+}
+
 /* Ending a grow is the one destructive control in this view. */
 .view[data-view="cultivo"] .grow-end {
     color: var(--state-alert);
@@ -291,5 +302,18 @@
 
     .view[data-view="cultivo"] .grow-all-head .ac-field__hint {
         margin-right: auto;
+    }
+}
+
+/* Phones: the profile goes under the grow's name, and its own column goes. */
+@media (max-width: 600px) {
+    .view[data-view="cultivo"] .grow-profile-col {
+        display: none;
+    }
+
+    .view[data-view="cultivo"] .grow-profile-sub {
+        display: block;
+        margin-top: 2px;
+        font-size: 12px;
     }
 }
