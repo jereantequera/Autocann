@@ -45,7 +45,9 @@ dump.rdb
 config.mk
 
 # Firmware: credenciales de WiFi e IP de la instalación
-firmware/*/secrets.h
+# Sin anclar a la raíz: al pasar a monorepo el firmware quedó en
+# apps/tent/firmware/, donde el patrón viejo ya no llegaba.
+**/firmware/*/secrets.h
 
 # Rust
 target/
