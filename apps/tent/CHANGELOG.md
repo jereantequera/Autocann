@@ -1,5 +1,46 @@
 # Changelog
 
+## El relé habilitaba el humidificador, pero no lo prendía
+
+El humidificador arranca en *standby* cuando recibe energía: espera que le
+aprieten el botón del panel o que le manden el ON por control remoto. O sea que
+cerrar `humidity_up` dejaba la salida encendida, el panel mostrando que estaba
+humidificando, y el equipo quieto. El relé lo habilitaba; nadie lo prendía.
+
+Ahora el nodo lleva un LED infrarrojo en GPIO 19 y manda el código del botón de
+encendido en la transición apagado → encendido de la salida, tres segundos
+después de energizar para darle tiempo a arrancar.
+
+**El pulso nace en el nodo, no en la Raspberry.** `/api/outputs/desired` son
+booleanos de estado deseado, y un estado deseado no puede decir "apretá ON
+ahora": el pulso es un evento, vive en la transición, y la transición sólo la
+conoce el que la aplica. Haciéndolo local, el endpoint, el watchdog y los
+failsafes quedaron exactamente como estaban — este cambio no toca una línea del
+backend.
+
+**El control remoto es un toggle, y eso ordenó el resto.** Tiene un solo botón
+de encendido: manda siempre `0x01FE48B7` y el que alterna es el equipo, así que
+dos pulsos seguidos lo apagan y reintentar "por las dudas" es peor que no hacer
+nada. Lo que lo vuelve manejable es que el relé define el estado — cada cierre
+deja el equipo en standby, que es conocido, y desde ahí un pulso suelto lo
+prende. Por eso se manda sólo en la transición, nunca repetido, y se cancela si
+la salida se apaga antes de que llegue a salir.
+
+Si el pulso se pierde, el ciclo pasa sin niebla. Es el lado seguro de la falla:
+nunca deja encendido algo que debería estar apagado. Para volver a intentarlo
+alcanza con apagar y prender `humidity_up` desde el override manual, que ya
+existía: eso devuelve el equipo a standby y recién ahí el pulso vuelve a tener
+un estado conocido debajo. Mandar un POWER suelto, en cambio, lo apagaría si
+resultara que sí estaba andando.
+
+Lo que esto no cubre es que el equipo se apague solo con el relé ya cerrado —
+tanque vacío, por ejemplo —, porque ahí no hay transición nueva. Eso pide
+realimentación, y como este humidificador no tiene luz indicadora, el camino es
+un sensor de corriente en el cable. Quedó anotado en HARDWARE.md.
+
+Los seis códigos del control, cómo se capturaron y las trampas de medirlos están
+en `firmware/relay_node/CONTROL_REMOTO.md`.
+
 ## Leaf VPD used the wrong vapour pressure
 
 **What was wrong.** Leaf VPD is the saturation pressure at the leaf minus the

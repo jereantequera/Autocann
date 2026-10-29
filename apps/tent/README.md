@@ -7,6 +7,8 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
 - Control automático de VPD según etapa (plántula, vegetativo temprano/tardío, floración, secado)
 - Monitoreo de temperatura y humedad interior y exterior
 - Control de humidificador / deshumidificador con protección contra ciclado corto
+- Encendido por infrarrojo del humidificador, que no arranca solo al recibir
+  energía: el relé lo habilita y el nodo le manda el código del botón
 - Dashboard web con Flask
 - Almacenamiento híbrido:
   - Redis para estado en tiempo real
@@ -20,6 +22,8 @@ Sistema de automatización para cultivo de cannabis con control de VPD (Vapor Pr
   (modo `--local`)
 - Sensor exterior: **DHT22 en GPIO 13**
 - Módulo de relés para humidificador, deshumidificador y ventilación
+- LED infrarrojo en el nodo de relés, si el humidificador no enciende solo al
+  recibir energía (ver [HARDWARE.md](HARDWARE.md))
 - Docker para Redis
 
 > ⚠️ Versiones anteriores de este README describían dos sensores **BME280 por

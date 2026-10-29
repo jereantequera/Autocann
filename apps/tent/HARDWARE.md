@@ -82,7 +82,7 @@ efectivamente montado y verificado de punta a punta.
 │ GPIO 32 → DHT22 "a"  │   │ GPIO 25 → IN1 hum+   │   │ decide · dashboard  │
 │          primario    │   │ GPIO 26 → IN2 hum−   │   │ SQLite · Redis      │
 │ GPIO 33 → DHT22 "b"  │   │ GPIO 27 → IN3 vent   │   │ DHT22 exterior      │
-│          observador  │   │                      │   │                     │
+│          observador  │   │ GPIO 19 → LED IR     │   │                     │
 │ postea cada ~12 s    │   │ consulta cada 2 s    │   │ publica cada ciclo  │
 └──────────────────────┘   └──────────────────────┘   └─────────────────────┘
 ```
@@ -122,6 +122,48 @@ conmutada, ficha IRAM, sello S). Es lo que mantiene la corriente de bobina
 fuera del rail de lógica, que es la parte que sí se puede conseguir en esta
 placa.
 
+### El relé no alcanza: el humidificador hay que prenderlo
+
+Descubierto el 2026-10-29. **Darle energía al humidificador no lo enciende.**
+Cuando `humidity_up` cierra, la unidad arranca en *standby* y espera que le
+aprieten el botón: es el comportamiento típico de los equipos con botón "soft"
+sobre microcontrolador, sin memoria de estado al volver la luz. El relé lo
+**habilita**, no lo prende.
+
+Por eso el nodo lleva un **LED infrarrojo en GPIO 19**, con 100 Ω en serie,
+pegado a la ventanita del receptor del equipo. En la transición apagado →
+encendido de `humidity_up`, y unos segundos después para darle tiempo a
+arrancar, manda el código del botón de encendido.
+
+El pulso nace en el nodo y no en la Raspberry a propósito.
+`/api/outputs/desired` son booleanos de estado deseado, y un estado deseado no
+puede decir "apretá ON ahora": el pulso es un evento, vive en la transición, y
+la transición sólo la conoce el que la aplica. Así el endpoint, el watchdog y
+los failsafes quedan exactamente como estaban.
+
+**El control es un toggle, y eso manda sobre todo lo demás.** Tiene un solo
+botón de encendido: manda siempre `0x01FE48B7` y el que alterna es el equipo.
+Dos pulsos seguidos lo apagan, así que reintentar "por las dudas" es peor que no
+hacer nada. Lo que lo vuelve manejable es que el relé define el estado — cada
+cierre deja el equipo en standby, que es conocido, y desde ahí un pulso suelto
+lo prende. Por eso se manda **sólo en la transición**, nunca repetido.
+
+Si el pulso se pierde, el ciclo pasa sin niebla. Es el lado seguro de la falla:
+nunca deja encendido algo que debería estar apagado, y cortar el relé lo apaga
+igual. Para volver a intentarlo no hay que mandar otro pulso a ciegas sino
+apagar y prender `humidity_up` — el override manual del panel alcanza —, porque
+eso devuelve el equipo a standby y recién ahí el pulso vuelve a tener un estado
+conocido debajo.
+
+Lo que esto **no** cubre: si el equipo se apaga solo con el relé ya cerrado, por
+ejemplo con el tanque vacío, no hay transición nueva y nadie se entera. Eso pide
+realimentación, y como este humidificador **no tiene luz indicadora**, el camino
+es un sensor de corriente en el cable.
+
+Los seis códigos del control están en
+[`firmware/relay_node/CONTROL_REMOTO.md`](firmware/relay_node/CONTROL_REMOTO.md),
+con cómo se capturaron y las trampas que tiene medirlos.
+
 ### Failsafes verificados contra fallas reales
 
 | Falla | Qué la cubre | Probado |
@@ -141,6 +183,11 @@ placa.
    compresor.
 3. **Un tercer DHT22 al lado del primario**, a la sombra y al nivel del canopy,
    que es lo único que devuelve la detección de deriva. Ver abajo.
+4. **Un sensor de corriente en el cable del humidificador** (ACS712 o SCT-013).
+   Es lo único que permite saber si el equipo está realmente humidificando: el
+   relé sólo dice que hay energía, y sin luz indicadora no hay nada más barato
+   que mirar. Con eso, un pulso perdido se detecta y se puede reintentar sin
+   riesgo; sin eso, el ciclo pasa sin niebla y nadie se entera.
 
 ### Lo que ya se hizo y este documento decía mal
 
