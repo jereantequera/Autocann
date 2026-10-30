@@ -29,6 +29,9 @@ const MESSAGES = {
     invalid_offset: 'El ajuste tiene que ser un número.',
     offset_out_of_range: 'Ese ajuste está fuera de rango.',
     save_failed: 'No se pudo guardar. Probá de nuevo.',
+    unknown_button: 'Ese botón no existe en el control.',
+    humidifier_off: 'El humidificador está sin energía: el relé está apagado.',
+    ir_busy: 'Todavía se está mandando el botón anterior.',
 };
 
 export const FALLBACK_MESSAGE = 'No se pudo guardar. Probá de nuevo.';

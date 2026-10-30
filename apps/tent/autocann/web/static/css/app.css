@@ -4809,6 +4809,41 @@ body:not(.is-booting) .view.is-active:not(.is-loading) {
     color: var(--fg-subtle);
 }
 
+/* Control remoto: the humidifier's IR buttons, three to a row. */
+.panel-remote {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--hairline-faint);
+}
+
+.panel-remote__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+.panel-remote__grid .ac-btn {
+    min-width: 0;
+}
+
+/* POWER is a toggle: it gets the weight, so it is not pressed by accident. */
+.panel-remote__grid .ac-btn[data-ir-button="power"] {
+    background: var(--fill-inverse);
+    color: var(--fg-inverse);
+    font-weight: 600;
+}
+
+.panel-remote__status {
+    margin: 0;
+    min-height: 1.4em;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-subtle);
+}
+
 /* Riego de hoy: the watering strip, with the one action on it. */
 .panel-water {
     display: flex;

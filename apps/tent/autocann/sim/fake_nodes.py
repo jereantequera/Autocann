@@ -112,11 +112,20 @@ class FakeRelayNode(threading.Thread):
     def run(self) -> None:
         last_ok = time.monotonic()
         last_failsafe: Optional[bool] = None
+        # The virtual remote's last press, acknowledged on every poll as the
+        # firmware does. No LED here: the press is printed and that is all.
+        last_ir = 0
         while not self._halt.is_set():
             try:
-                payload = http_json("GET", f"{self._base_url}/api/outputs/desired")
+                payload = http_json("GET", f"{self._base_url}/api/outputs/desired?ir_ack={last_ir}")
                 last_ok = time.monotonic()
-                self._world.set_outputs(apply_desired(payload))
+                outputs = apply_desired(payload)
+                self._world.set_outputs(outputs)
+                ir = payload.get("ir") or {}
+                # A rescue goes out with the output off, a press with it on, as in the firmware.
+                if ir.get("id") and ir["id"] != last_ir and bool(ir.get("rescue")) != bool(outputs.get("humidity_up")):
+                    last_ir = ir["id"]
+                    print(f"[relay] IR: sent {ir.get('code')} (press {last_ir})")
                 failsafe = bool(payload.get("failsafe"))
                 if failsafe != last_failsafe:
                     last_failsafe = failsafe
