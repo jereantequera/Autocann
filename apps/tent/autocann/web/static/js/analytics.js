@@ -1,5 +1,7 @@
-import { apiGet } from './api.js';
-import { setAnomalies } from './health.js';
+import { apiGet, apiPost } from './api.js';
+import { setAnomalies, setShowSeen } from './health-alerts.js';
+import { healthState } from './health-state.js';
+import { toast } from './modals.js';
 import { navigate } from './views.js';
 import { fetchTimeInRange } from './dashboard.js';
 import {
@@ -19,63 +21,65 @@ function fetchVpdScore() {
     fetchTimeInRange();
 }
 
-const ANOMALIES_DISMISS_KEY = 'anomalies_dismissed_until';
-
-const ANOMALIES_DISMISS_DURATION = 5 * 60 * 1000; // 5 minutes
-
-/** The last list the server sent, kept so a dismiss can re-decide without refetching. */
+/** The last list the server sent, kept so a toggle can re-draw without refetching. */
 let anomalyItems = [];
-
-function isAnomaliesDismissed() {
-    try {
-        const dismissedUntil = localStorage.getItem(ANOMALIES_DISMISS_KEY);
-        if (!dismissedUntil) return false;
-        const until = parseInt(dismissedUntil, 10);
-        if (Number.isFinite(until) && Date.now() < until) return true;
-        localStorage.removeItem(ANOMALIES_DISMISS_KEY);
-        return false;
-    } catch (e) {
-        // Private browsing or blocked site data: just show the alerts.
-        return false;
-    }
-}
 
 /**
  * The anomalies are drawn by health.js, not here: when the installation is
  * broken they fold into that one alert as a count, and only when it is fine do
- * they get their own box. This module only fetches them and remembers the
- * dismissal.
+ * they get their own box. This module fetches them and sends what the grower
+ * does with each one ("Visto", "Posponer") to the backend, which remembers it
+ * for every device.
  */
 function updateAnomalies(data) {
     if (data.error) return;
-
-    // The severity is the backend's: an item it re-read as a warning stays one.
-    // The key it sits under is only the fallback for an item that carries none.
-    anomalyItems = [
-        ...(data.anomalies || []).map(a => ({...a, severity: a.severity || 'critical'})),
-        ...(data.warnings || []).map(w => ({...w, severity: w.severity || 'warning'})),
-    ];
-    setAnomalies(anomalyItems, { dismissed: isAnomaliesDismissed() });
-}
-
-function dismissAnomalies() {
-    // Save dismiss timestamp in localStorage (persists across page reloads)
-    const dismissUntil = Date.now() + ANOMALIES_DISMISS_DURATION;
-    try {
-        localStorage.setItem(ANOMALIES_DISMISS_KEY, dismissUntil.toString());
-    } catch (e) {
-        // Not persistable here; hiding it for this page view is enough.
-    }
-    setAnomalies(anomalyItems, { dismissed: true });
+    // The severity is the backend's; an item that carries none is a warning.
+    anomalyItems = (data.items || []).map(item => ({ ...item, severity: item.severity || 'warning' }));
+    setAnomalies(anomalyItems);
 }
 
 function fetchAnomalies() {
-    if (isAnomaliesDismissed()) {
-        setAnomalies(anomalyItems, { dismissed: true });
-        return;
-    }
+    apiGet('/api/alerts').then(data => { if (data) updateAnomalies(data); });
+}
 
-    apiGet('/api/anomalies?hours=24').then(data => { if (data) updateAnomalies(data); });
+/**
+ * Hide one alert on the spot, then tell the backend and take its answer.
+ * Hidden first so the button answers the press; a refusal puts it back.
+ */
+async function sendAlertAction(trigger, path, body) {
+    const id = Number(trigger?.dataset?.alertId);
+    if (!Number.isInteger(id)) return;
+    anomalyItems = anomalyItems.map(item => (item.id === id ? { ...item, unread: false } : item));
+    setAnomalies(anomalyItems);
+    const result = await apiPost(`/api/alerts/${id}/${path}`, body);
+    if (!result.ok) toast('No se pudo guardar. Probá de nuevo.', { kind: 'error' });
+    fetchAnomalies();
+}
+
+function ackAlert(trigger) {
+    return sendAlertAction(trigger, 'ack');
+}
+
+/** One hour: long enough to deal with it, short enough not to forget it. */
+const SNOOZE_MINUTES = 60;
+
+function snoozeAlert(trigger) {
+    return sendAlertAction(trigger, 'snooze', { minutes: SNOOZE_MINUTES });
+}
+
+function toggleSeenAlerts() {
+    setShowSeen(!healthState.showSeen);
+}
+
+/**
+ * The bell: opens every alert, the seen ones too, and takes the reader there.
+ * A second press closes the seen ones again.
+ */
+function openAlerts() {
+    setShowSeen(!healthState.showSeen);
+    if (healthState.showSeen) {
+        document.getElementById('anomalies-alert')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 /**
@@ -218,4 +222,6 @@ document.addEventListener('view:enter', event => {
     if (event.detail?.view === 'reportes') fetchWeeklyReport();
 });
 
-export { fetchVpdScore, fetchAnomalies, dismissAnomalies, showWeeklyReport };
+export {
+    ackAlert, fetchAnomalies, fetchVpdScore, openAlerts, showWeeklyReport, snoozeAlert, toggleSeenAlerts,
+};

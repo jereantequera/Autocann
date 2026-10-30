@@ -8,6 +8,7 @@ autocann/web/deps.py and autocann/web/helpers.py.
 
 from __future__ import annotations
 
+from autocann.web.api.alerts import bp as alerts_bp
 from autocann.web.api.analytics import bp as analytics_bp
 from autocann.web.api.feeding import bp as feeding_bp
 from autocann.web.api.grows import bp as grows_bp
@@ -28,6 +29,7 @@ ALL_BLUEPRINTS = (
     test_mode_bp,
     history_bp,
     analytics_bp,
+    alerts_bp,
     logbook_bp,
     feeding_bp,
     profiles_bp,
