@@ -183,6 +183,10 @@ class Relays:
             # every iteration, which added ~29k rows per day.
             store_control_event(name, "on" if on else "off")
 
+    def is_on(self, name: str) -> bool:
+        """What this process last asked of the output — not what the contact did."""
+        return bool(self._state.get(name))
+
     def hold_remaining(self, name: str, tuning: ControlTuning, now: float) -> float:
         """
         Seconds this output must stay as it is before it may switch again.

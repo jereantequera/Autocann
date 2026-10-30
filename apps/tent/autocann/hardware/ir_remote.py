@@ -100,6 +100,26 @@ def enqueue(redis, button: IrButton) -> Optional[Dict[str, Any]]:
     return command
 
 
+def enqueue_rescue(redis) -> Dict[str, Any]:
+    """
+    Park a POWER press for a humidifier whose relay looks stuck closed.
+
+    Marked `rescue`, which makes the node send it with the output OFF — the
+    opposite of a dashboard press — and replaces whatever press is pending: a
+    tent climbing past 90 % outranks a button somebody pressed.
+    See autocann/runtime/stuck_relay.py for when and why.
+    """
+    command = {
+        "id": int(redis.incr(IR_SEQ_KEY)),
+        "button": "power",
+        "code": find_button("power").code,
+        "queued_at": int(time.time()),
+        "rescue": True,
+    }
+    redis.set(IR_PENDING_KEY, json.dumps(command), ex=IR_COMMAND_TTL_SECONDS)
+    return command
+
+
 def acknowledge(redis, raw_ack) -> None:
     """
     The node says it sent command `raw_ack`: clear it and remember it.
@@ -129,4 +149,7 @@ def node_payload(redis) -> Optional[Dict[str, Any]]:
         return None
     # Hex, as in the capture notes, and so the node can parse it with
     # strtoul(…, 16) without caring that it does not fit a signed long.
-    return {"id": command["id"], "code": f"0x{int(command['code']):08X}"}
+    payload = {"id": command["id"], "code": f"0x{int(command['code']):08X}"}
+    if command.get("rescue"):
+        payload["rescue"] = True
+    return payload

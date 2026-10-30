@@ -122,7 +122,8 @@ class FakeRelayNode(threading.Thread):
                 outputs = apply_desired(payload)
                 self._world.set_outputs(outputs)
                 ir = payload.get("ir") or {}
-                if ir.get("id") and ir["id"] != last_ir and outputs.get("humidity_up"):
+                # A rescue goes out with the output off, a press with it on, as in the firmware.
+                if ir.get("id") and ir["id"] != last_ir and bool(ir.get("rescue")) != bool(outputs.get("humidity_up")):
                     last_ir = ir["id"]
                     print(f"[relay] IR: sent {ir.get('code')} (press {last_ir})")
                 failsafe = bool(payload.get("failsafe"))

@@ -1,5 +1,24 @@
 # Changelog
 
+## Parche: el relé del humidificador se pega
+
+El 2026-10-29 `humidity_up` se apagó a las 17:23 y a las 20:45 y la carpa
+llegó igual a 97 % y 94 %: el contacto quedó cerrado y el humidificador siguió
+con energía. Hasta cambiar el cableado, el lazo vigila eso
+(`runtime/stuck_relay.py`): con la salida apagada hace más de 2 minutos, la
+humedad por encima de la banda y subiendo 5 puntos o más en 3 minutos, manda el
+POWER del humidificador por infrarrojo como **rescate**.
+
+Es seguro porque si el relé se soltó de verdad el equipo no tiene energía y el
+pulso no hace nada: sólo actúa en el caso pegado. El único caso malo — relé
+pegado, equipo ya apagado y la humedad subiendo por otra cosa — lo prendería;
+por eso la suba tiene que ser rápida, y se permite un segundo rescate a los 5
+minutos que lo volvería a apagar. Después de dos no insiste. Cada rescate queda
+en la bitácora.
+
+El nodo tiene que tener el firmware que entiende `"rescue": true`: un botón
+común sale con la salida encendida, un rescate sólo con la salida apagada.
+
 ## El control remoto del humidificador, en el panel
 
 El panel tiene ahora los seis botones del control remoto del humidificador
