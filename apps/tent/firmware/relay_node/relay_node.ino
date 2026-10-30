@@ -275,10 +275,11 @@ static int findBool(const String &body, const char *name) {
 }
 
 /*
- * Lee "ir":{"id":N,"code":"0x..."}. Devuelve false si no hay boton ("ir":null)
- * o si no se entiende, y en ese caso no se manda nada.
+ * Lee "ir":{"id":N,"code":"0x...","rescue":true}. Devuelve false si no hay
+ * boton ("ir":null) o si no se entiende, y en ese caso no se manda nada.
+ * "rescue" es opcional: sin el, es un boton comun.
  */
-static bool findIrCommand(const String &body, uint32_t &id, uint32_t &code) {
+static bool findIrCommand(const String &body, uint32_t &id, uint32_t &code, bool &rescue) {
   int at = body.indexOf("\"ir\":{");
   if (at < 0) return false;
   int end = body.indexOf('}', at);
@@ -291,24 +292,38 @@ static bool findIrCommand(const String &body, uint32_t &id, uint32_t &code) {
 
   id = strtoul(ir.c_str() + idAt + 5, nullptr, 10);
   code = strtoul(ir.c_str() + codeAt + 8, nullptr, 16);
+  rescue = ir.indexOf("\"rescue\":true") >= 0;
   return id != 0;
 }
 
 /*
  * Manda el boton del control remoto virtual, si hay uno nuevo.
  *
- * Se espera, sin confirmar, mientras el equipo esta arrancando (hay un pulso de
- * encendido pendiente) o sin energia: el pulso se perderia, y como no se
- * confirma la Pi lo vuelve a ofrecer en la consulta siguiente hasta que vence.
+ * Un boton comun espera, sin confirmar, mientras el equipo esta arrancando (hay
+ * un pulso de encendido pendiente) o sin energia: el pulso se perderia, y como
+ * no se confirma la Pi lo vuelve a ofrecer en la consulta siguiente hasta que
+ * vence.
+ *
+ * El RESCATE es lo contrario: la Pi lo manda cuando humidity_up esta apagado y
+ * la humedad sube igual, o sea cuando el rele quedo pegado y el humidificador
+ * sigue andando. Por eso sale justamente con la salida apagada. Si el rele se
+ * habia soltado de verdad el equipo no tiene energia y el pulso no hace nada;
+ * solo tiene efecto en el caso que se quiere cortar. Con la salida encendida
+ * ya no corresponde (el lazo lo volvio a pedir) y se descarta sin mandarlo.
  */
 static void serviceRemote(const String &body) {
   uint32_t id, code;
-  if (!findIrCommand(body, id, code) || id == lastIrId) return;
-  if (humidifierIndex >= OUTPUT_COUNT || !applied[humidifierIndex] || pulsePending) return;
+  bool rescue = false;
+  if (!findIrCommand(body, id, code, rescue) || id == lastIrId) return;
+  if (humidifierIndex >= OUTPUT_COUNT) return;
+
+  bool powered = applied[humidifierIndex];
+  if (rescue ? powered : (!powered || pulsePending)) return;
 
   irsend.sendNEC(code);
   lastIrId = id;
-  Serial.printf("IR: control remoto, boton 0x%08lX (orden %lu)\n",
+  Serial.printf("IR: %s, boton 0x%08lX (orden %lu)\n",
+                rescue ? "RESCATE rele pegado" : "control remoto",
                 (unsigned long)code, (unsigned long)id);
 }
 
