@@ -120,6 +120,18 @@
     ]
   },
   {
+    "rule": "/api/ir-remote",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/ir-remote/press",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
     "rule": "/api/irrigations",
     "methods": [
       "GET"

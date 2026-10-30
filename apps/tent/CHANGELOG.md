@@ -1,5 +1,25 @@
 # Changelog
 
+## El control remoto del humidificador, en el panel
+
+El panel tiene ahora los seis botones del control remoto del humidificador
+(ON/OFF, Niebla, Constante, Purificar, Timer, Pantalla), debajo de Salidas.
+
+El botón no sale de la Raspberry: queda esperando en el backend y el nodo de
+relés lo levanta en su próxima consulta a `/api/outputs/desired`, lo manda por
+el LED infrarrojo y lo confirma en la consulta siguiente (`?ir_ack=`). El panel
+espera esa confirmación antes de decir "Enviado", y si no llega dice que no
+llegó.
+
+**Una sola orden por vez, y nunca dos veces.** ON/OFF es un toggle: dos pulsos
+lo dejan apagado. Por eso un segundo botón mientras el primero no salió se
+rechaza, la orden vence a los 10 s en vez de salir tarde, y el nodo no repite
+un id que ya mandó. Con el relé del humidificador apagado los botones se
+deshabilitan: el equipo no tiene energía para recibir nada.
+
+Hace falta **reflashear el nodo de relés** por USB: el firmware viejo ignora el
+campo `ir` y los botones vencen sin salir.
+
 ## El relé habilitaba el humidificador, pero no lo prendía
 
 El humidificador arranca en *standby* cuando recibe energía: espera que le

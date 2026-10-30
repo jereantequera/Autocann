@@ -247,4 +247,5 @@ def test_the_fake_relay_sends_no_status_and_no_log(monkeypatch):
     time.sleep(0.3)
     halt.set()
     relay.join(timeout=5)
-    assert calls and all(url.endswith("/api/outputs/desired") for _, url in calls)
+    # The query is the virtual remote's ack, which the firmware sends too.
+    assert calls and all(url.split("?")[0].endswith("/api/outputs/desired") for _, url in calls)

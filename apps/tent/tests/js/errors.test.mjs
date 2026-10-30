@@ -34,6 +34,13 @@ test('the relay, watering, feed plan and calibration codes map to their Spanish 
     assert.equal(errorMessage({ code: 'save_failed' }), 'No se pudo guardar. Probá de nuevo.');
 });
 
+test('the virtual remote codes map to their Spanish lines', () => {
+    assert.equal(errorMessage({ code: 'unknown_button' }), 'Ese botón no existe en el control.');
+    assert.equal(errorMessage({ code: 'humidifier_off' }),
+        'El humidificador está sin energía: el relé está apagado.');
+    assert.equal(errorMessage({ code: 'ir_busy' }), 'Todavía se está mandando el botón anterior.');
+});
+
 test('the English text is never shown, even when the code is unknown', () => {
     const result = { error: 'Invalid stage. Use one of: a, b', code: 'something_new' };
     assert.equal(errorMessage(result), FALLBACK_MESSAGE);

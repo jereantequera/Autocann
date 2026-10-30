@@ -22,6 +22,7 @@ import { closeModal, initModals } from './modals.js';
 import { fetchLogbook } from './logbook.js';
 import { fetchPanelHistory, wirePanel } from './panel.js';
 import { wireQuiet } from './quiet.js';
+import { wireRemote } from './remote.js';
 import { wireSidebar } from './sidebar.js';
 import { applyTheme, readTheme } from './theme.js';
 import { applyConfig, state } from './state.js';
@@ -275,6 +276,7 @@ async function start() {
     wireTentName();
     wireNewGrowForm();
     wireQuiet();
+    wireRemote();
     wireNodes();
     updateSummaryPeriodLabel();
     // The chart has to be in hand before the feeding panel can render a row
