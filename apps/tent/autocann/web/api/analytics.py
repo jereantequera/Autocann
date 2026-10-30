@@ -158,13 +158,17 @@ def anomalies_endpoint():
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
-        anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
-        # El detector mira la base, que es el lugar correcto para buscar un
-        # hueco en el histórico y el equivocado para buscar un sensor
-        # muerto: los dos son la misma cantidad de filas. Con el sistema en
-        # pausa no hay filas a propósito, y eso salía como un "sensor
-        # posiblemente desconectado" en rojo arriba de dos tarjetas verdes.
-        return jsonify(reframe_history_anomalies(
-            anomalies, health_snapshot(get_redis())))
+        return jsonify(current_anomalies(hours=hours, grow_id=grow_id))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def current_anomalies(hours: int = 24, grow_id=None):
+    """The detector's report with what health already says taken out."""
+    anomalies = detect_anomalies(hours=hours, grow_id=grow_id)
+    # El detector mira la base, que es el lugar correcto para buscar un
+    # hueco en el histórico y el equivocado para buscar un sensor
+    # muerto: los dos son la misma cantidad de filas. Con el sistema en
+    # pausa no hay filas a propósito, y eso salía como un "sensor
+    # posiblemente desconectado" en rojo arriba de dos tarjetas verdes.
+    return reframe_history_anomalies(anomalies, health_snapshot(get_redis()))

@@ -6,6 +6,24 @@
     ]
   },
   {
+    "rule": "/api/alerts",
+    "methods": [
+      "GET"
+    ]
+  },
+  {
+    "rule": "/api/alerts/<int:alert_id>/ack",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
+    "rule": "/api/alerts/<int:alert_id>/snooze",
+    "methods": [
+      "POST"
+    ]
+  },
+  {
     "rule": "/api/anomalies",
     "methods": [
       "GET"

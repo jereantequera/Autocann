@@ -3,7 +3,9 @@
  * shows; this module only paints that decision and keeps the anomaly list.
  */
 
-import { alertDecision, anomalyIcon, moreWarningsLabel } from './alerts.js';
+import {
+    alertDecision, anomalyIcon, isUnread, moreWarningsLabel, seenLabel, seenStateLabel, unreadCount,
+} from './alerts.js';
 import { healthState } from './health-state.js';
 import { escapeHtml, icon } from './util.js';
 
@@ -18,8 +20,9 @@ export function renderAlerts() {
     const decision = alertDecision({
         health: healthState.snapshot,
         anomalies: healthState.anomalyItems,
-        dismissed: healthState.anomaliesDismissed,
+        showSeen: healthState.showSeen,
     });
+    renderBell(unreadCount(healthState.anomalyItems));
 
     const broken = document.getElementById('sensor-alert');
     const brokenMessage = document.getElementById('sensor-alert-message');
@@ -59,25 +62,63 @@ export function renderAlerts() {
         if (title) title.textContent = decision.title;
         if (iconEl) iconEl.innerHTML = icon(decision.icon);
         if (list) {
-            list.innerHTML = decision.items.map(issue => `
-                <div class="anomaly-item ${escapeHtml(issue.severity || 'warning')}">
-                    ${icon(anomalyIcon(issue.severity), 'anomaly-icon')}
-                    <span class="anomaly-text">${escapeHtml(issue.message)}</span>
-                    <span class="anomaly-time">${escapeHtml(issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '')}</span>
-                </div>`).join('')
-                + (decision.hidden ? `<div class="anomaly-more">+ ${decision.hidden} más</div>` : '');
+            const seenToggle = seenLabel(decision.seen, decision.showSeen);
+            list.innerHTML = decision.items.map(anomalyRow).join('')
+                + (decision.hidden ? `<div class="anomaly-more">+ ${decision.hidden} más</div>` : '')
+                + (seenToggle
+                    ? `<button type="button" class="anomaly-seen-toggle" data-action="toggle-seen-alerts">${escapeHtml(seenToggle)}</button>`
+                    : '');
         }
     }
 }
 
 /**
- * Lo que analytics.js trae de /api/anomalies, para decidir junto con la salud.
- *
- * `dismissed` llega de analytics.js, que es quien sabe si el usuario lo
- * descartó y hasta cuándo.
+ * One alert: what happened, when, and what to do with it. News gets "Visto"
+ * and "Posponer"; a seen one says so instead, dimmed, so the list opened from
+ * the bell reads as history rather than as a second set of alarms.
  */
-export function setAnomalies(items, { dismissed = false } = {}) {
+function anomalyRow(issue) {
+    const unread = isUnread(issue);
+    const time = issue.timestamp ? String(issue.timestamp).split(' ')[1] || '' : '';
+    const id = Number.isInteger(issue.id) ? issue.id : null;
+    const actions = id === null ? '' : unread
+        ? `<span class="anomaly-actions">
+               <button type="button" class="ac-btn ac-btn--ghost ac-btn--sm" data-action="ack-alert" data-alert-id="${id}">Visto</button>
+               <button type="button" class="ac-btn ac-btn--ghost ac-btn--sm" data-action="snooze-alert" data-alert-id="${id}" title="Ocultarla por una hora">Posponer 1 h</button>
+           </span>`
+        : `<span class="anomaly-state">${escapeHtml(seenStateLabel(issue))}</span>`;
+    return `
+        <div class="anomaly-item ${escapeHtml(issue.severity || 'warning')}${unread ? '' : ' is-seen'}">
+            ${icon(anomalyIcon(issue.severity), 'anomaly-icon')}
+            <span class="anomaly-text">${escapeHtml(issue.message)}</span>
+            <span class="anomaly-time">${escapeHtml(time)}</span>
+            ${actions}
+        </div>`;
+}
+
+/** The bell's badge: the alerts nobody has seen yet, on every view. */
+function renderBell(count) {
+    const bell = document.getElementById('alerts-bell');
+    const badge = document.getElementById('alerts-bell-count');
+    if (!bell || !badge) return;
+    badge.hidden = !count;
+    badge.textContent = count > 9 ? '9+' : String(count);
+    bell.classList.toggle('has-unread', count > 0);
+    bell.setAttribute('aria-label', count
+        ? `Alertas: ${count} sin ver` : 'Alertas: nada sin ver');
+}
+
+/**
+ * Lo que analytics.js trae de /api/alerts, para decidir junto con la salud.
+ * Cada alerta trae si ya se vio: eso lo guarda el backend, no esta página.
+ */
+export function setAnomalies(items) {
     healthState.anomalyItems = Array.isArray(items) ? items : [];
-    healthState.anomaliesDismissed = !!dismissed;
+    renderAlerts();
+}
+
+/** Show or hide the seen alerts too (the bell, or the "N vistas" line). */
+export function setShowSeen(show) {
+    healthState.showSeen = !!show;
     renderAlerts();
 }

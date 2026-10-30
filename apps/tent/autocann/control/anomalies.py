@@ -128,6 +128,10 @@ def _group(kind: str, events: Sequence[Dict], severity: str, message: str, tz,
         "count": len(events),
         "first": _stamp(first, tz),
         "last": _stamp(last, tz),
+        # The same two, as epochs: what `store/alerts.py` tells one occurrence
+        # from the next by. The strings above are for reading.
+        "first_at": first,
+        "last_at": last,
     }
     item.update(extra)
     return item
@@ -247,7 +251,11 @@ def find_anomalies(rows: Iterable[Dict], now: int, hours: int = 24,
     if since_last > MAX_GAP_SECONDS:
         issue = {"type": "stale_data", "severity": "critical",
                  "minutes_ago": since_last // 60,
-                 "timestamp": _stamp(rows[-1]["timestamp"], tz)}
+                 "timestamp": _stamp(rows[-1]["timestamp"], tz),
+                 # The last row: constant while nothing is stored, so the alert
+                 # is the same alert for as long as the outage lasts.
+                 "first_at": rows[-1]["timestamp"],
+                 "last_at": rows[-1]["timestamp"]}
         issue["message"] = history_message(issue)
         items.append(issue)
 

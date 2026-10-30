@@ -6,9 +6,10 @@
 /** El último estado conocido, para que otros módulos no vuelvan a pedirlo. */
 const healthState = {
     snapshot: null,
-    /** Anomalías de la última consulta de analytics.js, y si el usuario las descartó. */
+    /** Las alertas de la última consulta de analytics.js, cada una con si ya se vio. */
     anomalyItems: [],
-    anomaliesDismissed: false,
+    /** Si se muestran también las vistas: la campanita o el "N vistas" lo prenden. */
+    showSeen: false,
 };
 
 const latestHealth = () => healthState.snapshot;
