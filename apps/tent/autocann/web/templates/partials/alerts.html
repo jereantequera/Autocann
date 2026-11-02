@@ -46,12 +46,11 @@
         <div id="anomalies-alert" class="ac-alert alert-box" role="status" aria-live="polite">
             <span class="alert-icon" id="anomalies-icon" aria-hidden="true">{{ icon("triangle-alert") }}</span>
             <div class="ac-alert__body">
-                <!-- The button lives in the title row, not beside the body: there it
-                     floated between the title and the list, and the list stopped
-                     short of it, leaving the card with two right edges. -->
+                <!-- No "Descartar" for the whole box: each alert has its own "Visto"
+                     and "Posponer", stored in the backend (/api/alerts), so seeing
+                     one on the phone hides it on the Mac and a new one still shows. -->
                 <div class="ac-alert__head">
                     <div class="ac-alert__title" id="anomalies-title-text">Advertencias detectadas</div>
-                    <button type="button" class="ac-btn ac-btn--ghost" data-action="dismiss-anomalies">Descartar</button>
                 </div>
                 <div class="anomalies-list" id="anomalies-list">
                     <!-- Anomalies will be inserted here -->

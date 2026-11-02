@@ -114,6 +114,15 @@
                     <span class="header-cta-badge" id="feed-cta-badge" hidden></span>
                 </a>
 
+                <!-- The alerts nobody has seen yet, on every view. Opens the box above
+                     the page with every alert, the seen ones too. -->
+                <button type="button" class="alerts-bell" id="alerts-bell" data-action="open-alerts"
+                        aria-label="Alertas: nada sin ver" title="Alertas">
+                    {{ icon("bell") }}
+                    <span class="alerts-bell__label">Alertas</span>
+                    <span class="alerts-bell__count" id="alerts-bell-count" hidden></span>
+                </button>
+
                 <button type="button" class="system-state" id="system-state"
                         data-action="toggle-pause">
                     <span class="status-dot" id="system-state-dot"></span>

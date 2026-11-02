@@ -28,6 +28,8 @@ const MESSAGES = {
     irrigation_not_found: 'Ese riego ya no existe.',
     invalid_offset: 'El ajuste tiene que ser un número.',
     offset_out_of_range: 'Ese ajuste está fuera de rango.',
+    alert_not_found: 'Esa alerta ya se resolvió.',
+    invalid_snooze: 'Ese tiempo para posponer no es válido.',
     save_failed: 'No se pudo guardar. Probá de nuevo.',
 };
 

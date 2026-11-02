@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-    alertDecision, anomalyIcon, isBroken, noGrowNotice, ownedByBanner, worstSeverity,
+    alertDecision, anomalyIcon, isBroken, isUnread, noGrowNotice, ownedByBanner, seenLabel, seenStateLabel,
+    unreadCount, worstSeverity,
 } from '../../autocann/web/static/js/alerts.js';
 import { healthChecks, verdictFor } from '../../autocann/web/static/js/health.js';
 
@@ -69,13 +70,51 @@ test('when fine, the anomalies get their own quieter box, at most three of them'
     assert.equal(decision.hidden, 1);
 });
 
-test('a dismissed list shows nothing when fine, and only the count when broken', () => {
-    const anomalies = [anomaly('warning', 'a')];
-    assert.equal(alertDecision({ health: healthy, anomalies, dismissed: true }).mode, 'none');
+test('seen alerts leave the box, and only news counts when broken', () => {
+    const seen = { ...anomaly('warning', 'a'), id: 1, unread: false };
+    assert.equal(alertDecision({ health: healthy, anomalies: [seen] }).mode, 'none');
     const broken = { ...healthy, loop: { state: 'down', level: 'error' } };
-    const decision = alertDecision({ health: broken, anomalies, dismissed: true });
+    const decision = alertDecision({ health: broken, anomalies: [seen] });
     assert.equal(decision.mode, 'broken');
     assert.equal(decision.more, 0);
+});
+
+test('a new alert shows even when another one was just seen', () => {
+    const seen = { ...anomaly('critical', 'viejo'), id: 1, unread: false };
+    const fresh = { ...anomaly('warning', 'nuevo'), id: 2, unread: true };
+    const decision = alertDecision({ health: healthy, anomalies: [seen, fresh] });
+    assert.equal(decision.mode, 'warnings');
+    assert.deepEqual(decision.items.map(i => i.message), ['nuevo']);
+    assert.equal(decision.seen, 1);
+    // The tone is the news's: the seen red one does not paint the box red.
+    assert.equal(decision.severity, 'warning');
+});
+
+test('showSeen lists every alert, the seen ones too, without the cap of three', () => {
+    const items = [1, 2, 3, 4].map(id => ({ ...anomaly('warning', `m${id}`), id, unread: id === 4 }));
+    const decision = alertDecision({ health: healthy, anomalies: items, showSeen: true });
+    assert.equal(decision.items.length, 4);
+    assert.equal(decision.hidden, 0);
+    assert.equal(decision.seen, 3);
+});
+
+test('an item without the unread flag is news, and the bell counts news only', () => {
+    assert.equal(isUnread(anomaly('warning', 'a')), true);
+    assert.equal(unreadCount([anomaly('warning', 'a'), { ...anomaly('warning', 'b'), unread: false }]), 1);
+});
+
+test('the seen line and state read in Spanish', () => {
+    assert.equal(seenLabel(0, false), '');
+    assert.equal(seenLabel(1, false), '1 vista');
+    assert.equal(seenLabel(3, false), '3 vistas');
+    assert.equal(seenLabel(3, true), 'Ocultar vistas');
+    assert.equal(seenStateLabel({ acknowledged_at: 1 }), 'vista');
+    const now = Date.UTC(2026, 9, 30, 15, 0);
+    const until = new Date(now + 3600 * 1000);
+    const hhmm = `${String(until.getHours()).padStart(2, '0')}:${String(until.getMinutes()).padStart(2, '0')}`;
+    assert.equal(seenStateLabel({ snoozed_until: (now + 3600 * 1000) / 1000 }, now), `pospuesta hasta las ${hhmm}`);
+    // A snooze that ran out with the item still seen means it was acknowledged.
+    assert.equal(seenStateLabel({ snoozed_until: (now - 1000) / 1000 }, now), 'vista');
 });
 
 test('nothing wrong and nothing found is no alert at all', () => {
@@ -138,8 +177,8 @@ test('the no-grow notice is shown paused and monitoring too, worded for monitori
     assert.match(noGrowNotice(monitoring).text, /el monitoreo no guarda datos/);
 });
 
-test('dismissing the anomalies does not hide the no-grow notice', () => {
-    const decision = alertDecision({ health: noGrow, anomalies: [anomaly('warning', 'a')], dismissed: true });
+test('seeing the anomalies does not hide the no-grow notice', () => {
+    const decision = alertDecision({ health: noGrow, anomalies: [{ ...anomaly('warning', 'a'), unread: false }] });
     assert.equal(decision.mode, 'none');
     assert.equal(decision.notice.kind, 'no_grow');
 });

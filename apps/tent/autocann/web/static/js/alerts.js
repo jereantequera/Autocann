@@ -90,36 +90,82 @@ function noGrowNotice(health) {
  *   y el color del más grave que muestra.
  * - Nada: ningún cartel.
  *
+ * Lo que ya se vio (o se pospuso) no se muestra: queda contado en `seen`, que
+ * es el "N vistas" que lo vuelve a abrir. Con `showSeen` (la campanita, o ese
+ * botón) se muestran todas, las vistas también, y sin el tope de tres.
+ *
  * Aparte, `notice`: el aviso de que no hay cultivo, que no es una alerta y no
- * se descarta. Sale de la salud y no de las anomalías, así que "Descartar" no
- * lo esconde y se va en cuanto hay un cultivo.
+ * se marca como vista. Sale de la salud y no de las anomalías, así que "Visto"
+ * no lo esconde y se va en cuanto hay un cultivo.
  */
-function alertDecision({ health, anomalies = [], dismissed = false }) {
-    const issues = dismissed ? [] : anomalies;
+function alertDecision({ health, anomalies = [], showSeen = false }) {
+    const unread = anomalies.filter(isUnread);
+    const seen = anomalies.length - unread.length;
+    const issues = showSeen ? anomalies : unread;
     const notice = noGrowNotice(health);
     if (isBroken(health)) {
         return {
             mode: 'broken',
             title: health.headline || 'Problema con sensores',
             text: health.detail || '',
-            more: issues.filter(issue => !ownedByBanner(issue)).length,
+            more: unread.filter(issue => !ownedByBanner(issue)).length,
             notice,
         };
     }
     if (issues.length) {
-        const severity = worstSeverity(issues);
+        // The tone is the news's: a red alert already seen does not keep the
+        // box red over a new amber one.
+        const severity = worstSeverity(unread.length ? unread : issues);
+        const limit = showSeen ? issues.length : 3;
         return {
             mode: 'warnings',
             total: issues.length,
             severity,
             critical: severity === 'critical',
             ...ANOMALY_LOOKS[severity],
-            items: issues.slice(0, 3),
-            hidden: Math.max(0, issues.length - 3),
+            items: issues.slice(0, limit),
+            hidden: Math.max(0, issues.length - limit),
+            seen,
+            showSeen,
             notice,
         };
     }
     return { mode: 'none', notice };
+}
+
+/**
+ * Whether an alert is news. The backend says so (`unread`); an item that does
+ * not carry it is news, so nothing is hidden by a missing field.
+ */
+function isUnread(issue) {
+    return issue?.unread !== false;
+}
+
+/** How many alerts are news: the bell's number. */
+function unreadCount(anomalies = []) {
+    return anomalies.filter(isUnread).length;
+}
+
+/** The line that opens and closes the seen alerts: "1 vista", "3 vistas". */
+function seenLabel(n, showSeen) {
+    if (showSeen) return 'Ocultar vistas';
+    if (!n) return '';
+    return n === 1 ? '1 vista' : `${n} vistas`;
+}
+
+/**
+ * What a seen alert says instead of its buttons: when it comes back if it was
+ * snoozed, or just that it was seen.
+ */
+function seenStateLabel(issue, now = Date.now()) {
+    const until = issue?.snoozed_until;
+    if (issue?.acknowledged_at == null && Number.isFinite(until) && until * 1000 > now) {
+        const at = new Date(until * 1000);
+        const hh = String(at.getHours()).padStart(2, '0');
+        const mm = String(at.getMinutes()).padStart(2, '0');
+        return `pospuesta hasta las ${hh}:${mm}`;
+    }
+    return 'vista';
 }
 
 /**
@@ -141,5 +187,6 @@ function moreWarningsLabel(n) {
 }
 
 export {
-    alertDecision, anomalyIcon, isBroken, moreWarningsLabel, noGrowNotice, ownedByBanner, worstSeverity,
+    alertDecision, anomalyIcon, isBroken, isUnread, moreWarningsLabel, noGrowNotice, ownedByBanner,
+    seenLabel, seenStateLabel, unreadCount, worstSeverity,
 };

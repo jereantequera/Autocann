@@ -11,6 +11,7 @@ from autocann.store.connection import _open
 from autocann.store.migrations import (
     _backfill_grow_stages,
     _backfill_stage_events,
+    _create_notifications,
     _migrate_grow_links,
     _migrate_nullable_outdoor_columns,
     _migrate_one_active_grow_per_tent,
@@ -345,6 +346,7 @@ def init_database() -> None:
     _migrate_grow_links(conn, BUILTIN_TENT_ID, BUILTIN_PROFILE_ID)
     _migrate_one_active_grow_per_tent(conn)
     _backfill_grow_stages(conn)
+    _create_notifications(conn)
 
     # Create default grow if none exists
     cursor.execute("SELECT COUNT(*) FROM grows")

@@ -1,5 +1,7 @@
 import { apiGet, whenSettled } from './api.js';
-import { dismissAnomalies, fetchAnomalies, fetchVpdScore, showWeeklyReport } from './analytics.js';
+import {
+    ackAlert, fetchAnomalies, fetchVpdScore, openAlerts, showWeeklyReport, snoozeAlert, toggleSeenAlerts,
+} from './analytics.js';
 import { wireCalendar } from './calendar.js';
 import { initCharts, resizeCharts } from './charts.js';
 import {
@@ -185,7 +187,10 @@ const ACTIONS = {
     'new-grow': openNewGrowForm,
     'create-grow': createGrow,
     'update-stage': updateStage,
-    'dismiss-anomalies': dismissAnomalies,
+    'ack-alert': ackAlert,
+    'snooze-alert': snoozeAlert,
+    'toggle-seen-alerts': toggleSeenAlerts,
+    'open-alerts': openAlerts,
     'toggle-feed-plan': togglePlanEditor,
     'feed-plan-save': savePlan,
     'feed-plan-add': addPlanProduct,

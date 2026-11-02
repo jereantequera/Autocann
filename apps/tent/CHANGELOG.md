@@ -1,5 +1,20 @@
 # Changelog
 
+## "Visto" y "Posponer", por alerta y en el backend
+
+"Descartar" escondía **todas** las alertas cinco minutos y sólo en ese
+navegador: en el celular seguían ahí, a los cinco minutos volvían, y un hueco de
+anoche quedaba arriba del panel un día entero porque el detector mira las
+últimas 24 h. Peor: una alerta nueva que llegaba en esos cinco minutos no se
+veía.
+
+Ahora cada alerta tiene **Visto** y **Posponer 1 h**, guardados en una tabla
+`notifications` (la de la Fase 6, sin el despachador todavía), así que valen en
+todos los dispositivos. La identidad de una alerta es su tipo dentro del cultivo
+más el momento de su último evento: mientras eso no cambie es la misma y el
+"visto" vale; un evento nuevo la vuelve a mostrar. La campanita de la barra
+cuenta las que no viste y abre la caja con todas.
+
 ## El relé habilitaba el humidificador, pero no lo prendía
 
 El humidificador arranca en *standby* cuando recibe energía: espera que le
