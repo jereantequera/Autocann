@@ -553,6 +553,22 @@ línea del panel y el badge de sensores muestran el **estado**, no son alertas.
 Con el cartel rojo arriba, las anomalías que dicen lo mismo (`no_data`,
 `stale_data`) no suman al "+N advertencias"; los huecos y los saltos sí.
 
+#### Visto y Posponer
+
+Cada alerta de la caja tiene **Visto** y **Posponer 1 h**, y lo que elegís se
+guarda en el backend (tabla `notifications`, `/api/alerts`): marcarla en el
+celular la saca también de la compu.
+
+- **Visto** la esconde mientras dure lo que la causó. Si pasa algo nuevo del
+  mismo tipo (un segundo hueco a la noche), vuelve a aparecer; si se resuelve
+  (el hueco sale de las últimas 24 h) y después vuelve a pasar, es una alerta
+  nueva.
+- **Posponer** la esconde una hora, pase lo que pase. Después vuelve sola.
+- Una alerta vista no esconde a otra: una alerta nueva sale aunque recién
+  hayas marcado otra.
+- La **campanita** de la barra cuenta las que no viste. Tocarla abre la caja con
+  todas, también las vistas ("Ocultar vistas" las vuelve a cerrar).
+
 #### Estados del Sistema
 
 - **`ok`**: Sin problemas detectados

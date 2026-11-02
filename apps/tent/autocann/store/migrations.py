@@ -257,3 +257,39 @@ def _migrate_one_active_grow_per_tent(conn: sqlite3.Connection) -> None:
     conn.commit()
     if deactivated:
         logger.warning("grows: deactivated %d duplicate active grow(s), one per tent kept", deactivated)
+
+
+def _create_notifications(conn: sqlite3.Connection) -> None:
+    """
+    What the dashboard has told the grower, and what they did about it.
+
+    One row per alert from the moment it shows until it resolves. In the
+    database, not the browser, so "Visto" on the phone is "Visto" on the Mac.
+    Named and shaped for Fase 6's notifications (ROADMAP.md), which adds
+    delivery on top. `key` is the alert's identity (store/alerts.py);
+    `last_event_at` is the newest occurrence it has seen, so a new one can be
+    told from the old one.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            message TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            last_event_at INTEGER,
+            resolved_at INTEGER,
+            acknowledged_at INTEGER,
+            snoozed_until INTEGER,
+            created_at INTEGER NOT NULL
+        )
+    """
+    )
+    # One open row per alert: two dashboards syncing at once must not open two.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_open "
+        "ON notifications(key) WHERE resolved_at IS NULL"
+    )
+    conn.commit()
