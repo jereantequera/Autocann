@@ -132,7 +132,7 @@ sobre microcontrolador, sin memoria de estado al volver la luz. El relé lo
 
 Por eso el nodo lleva un **LED infrarrojo en GPIO 19**, con 100 Ω en serie,
 pegado a la ventanita del receptor del equipo. En la transición apagado →
-encendido de `humidity_up`, y unos segundos después para darle tiempo a
+encendido de `humidity_up`, y diez segundos después para darle tiempo a
 arrancar, manda el código del botón de encendido.
 
 El pulso nace en el nodo y no en la Raspberry a propósito.
@@ -148,15 +148,32 @@ hacer nada. Lo que lo vuelve manejable es que el relé define el estado — cada
 cierre deja el equipo en standby, que es conocido, y desde ahí un pulso suelto
 lo prende. Por eso se manda **sólo en la transición**, nunca repetido.
 
-Si el pulso se pierde, el ciclo pasa sin niebla. Es el lado seguro de la falla:
+**Cuándo mandarlo se midió el 2026-11-02, y eran pocos.** Los 3 segundos
+originales estaban puestos a ojo. Ese día cinco ciclos entre las 12:22 y las
+14:00 arrancaron bien y los tres siguientes no, con el tanque lleno y el
+infrarrojo sano; un POWER mandado desde el panel con el equipo energizado hacía
+rato entró a la primera y subió la carpa ocho puntos en un minuto. A 3 s el
+pulso cae justo en el borde de cuando el receptor despierta, así que la racha de
+cinco fue suerte. Ahora son **10 s**, contra un techo de 60 (el mínimo de
+encendido del lazo: el pulso tiene que llegar con el relé todavía cerrado).
+
+Si aun así se pierde, el ciclo pasa sin niebla. Es el lado seguro de la falla —
 nunca deja encendido algo que debería estar apagado, y cortar el relé lo apaga
-igual. Para volver a intentarlo no hay que mandar otro pulso a ciegas sino
-apagar y prender `humidity_up` — el override manual del panel alcanza —, porque
-eso devuelve el equipo a standby y recién ahí el pulso vuelve a tener un estado
-conocido debajo.
+igual—, pero **no se arregla solo**: sin niebla la humedad no sube, así que el
+lazo nunca sale de la banda por arriba, nunca abre el relé y nunca vuelve a
+haber una transición de la cual colgar otro pulso. El 2026-11-02 eso costó seis
+horas con la carpa siguiendo a la pieza.
+
+Lo levanta [`autocann/runtime/lost_pulse.py`](autocann/runtime/lost_pulse.py):
+salida prendida, carpa por debajo de su banda, cinco minutos pasados y la aguja
+plana, y encola un POWER común — con el equipo energizado, que es el estado en
+el que un pulso suelto lo prende. Es el espejo de `stuck_relay.py`, que dispara
+por encima de la banda. A mano sigue valiendo lo de siempre: apagar y prender
+`humidity_up` desde el override del panel.
 
 Lo que esto **no** cubre: si el equipo se apaga solo con el relé ya cerrado, por
-ejemplo con el tanque vacío, no hay transición nueva y nadie se entera. Eso pide
+ejemplo con el tanque vacío, `lost_pulse` va a apretar el botón dos veces contra
+un equipo que no puede arrancar y después se calla. Saber la diferencia pide
 realimentación, y como este humidificador **no tiene luz indicadora**, el camino
 es un sensor de corriente en el cable.
 
@@ -172,6 +189,8 @@ con cómo se capturaron y las trampas que tiene medirlos.
 | El nodo no alcanza a la Pi | watchdog local, desenergiza a los 60 s | ✅ matando el backend con un relé encendido |
 | Respuesta incompleta | el nodo la descarta entera | ✅ en tests |
 | Nodo reseteado o sin alimentación | pines en alta impedancia + cargas en NO | ✅ |
+| Relé pegado cerrado | `stuck_relay.py` manda un OFF por infrarrojo | ✅ el 2026-11-01, dos rescates |
+| Pulso de arranque perdido | `lost_pulse.py` aprieta el botón a los 5 min | ⚠️ sólo en tests; falta verlo en la carpa |
 | Todo lo anterior | humidistato mecánico | ❌ **sin instalar** |
 
 ### Lo que falta
