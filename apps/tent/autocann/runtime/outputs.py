@@ -70,7 +70,6 @@ class Relays:
                 print(f"📡 {spec['label']} → {source.get('node') or 'nodo remoto'} "
                       f"GPIO {source.get('number')}")
             self.all_off(log_event=False)
-            self.publish_outputs()
             return
 
         import gpiozero  # imported lazily so this module stays importable off-Pi
@@ -83,7 +82,6 @@ class Relays:
             )
             print(f"🔌 {spec['label']} → BCM {spec['pin_bcm']}")
         self.all_off(log_event=False)
-        self.publish_outputs()
 
     def apply(self, action: str, *, overrides: Optional[Dict[str, bool]] = None,
               log_event: bool = True) -> None:
@@ -118,11 +116,16 @@ class Relays:
         Write every output's state to Redis whether or not it just changed.
 
         `set_output` short-circuits when nothing changed, which is right for the
-        pin and for the event log, but it means an output that has never
-        switched has no key at all. The dashboard reads a missing key as
-        "unknown" and draws a dash over a relay that is known to be off — which
-        is most visible in test mode, where someone is looking straight at the
-        cards waiting for one to move.
+        pin and for the event log, but it leaves the dashboard's copy of an
+        output with nobody to refresh it. These keys carry a TTL, so one that is
+        only written on a transition outlives the relay it describes by exactly
+        that long and then vanishes. The dashboard reads a missing key as
+        "unknown", which is how a relay that is holding its state ends up drawn
+        as "sin estado" — and the virtual remote, which reads the same key,
+        goes on to grey its buttons out and announce that the humidifier has no
+        power.
+
+        Called from `publish_state`, so it happens on every cycle.
         """
         for name, spec in self._specs.items():
             redis_key = spec.get("redis_key")
@@ -131,7 +134,8 @@ class Relays:
 
     def publish_state(self) -> None:
         """
-        Publish the whole desired state, timestamped, on every cycle.
+        Publish the whole state on every cycle, for both readers: the node's
+        copy and the dashboard's.
 
         Deliberately uncached: `set_output` short-circuits when nothing changed,
         which is right for logging and for a local pin, but a remote node needs
@@ -142,7 +146,15 @@ class Relays:
         - if the node ever drops the relays on its own, the loop's cached state
           would still say "on" and it would never re-send the command. Sending
           the full state every time makes that divergence impossible.
+
+        The dashboard's copy goes out in the same call rather than from its own
+        caller, because the two had already drifted: this key was republished
+        every cycle and the per-output ones were not, so on 2026-11-02 the
+        humidifier was energised from 14:15 to the evening while the panel spent
+        all but the first ten minutes of it insisting the relay was open. One
+        publish, one lifetime, nothing left to keep in step by hand.
         """
+        self.publish_outputs()
         payload = {
             "outputs": dict(self._state),
             "ts": int(_now_local().timestamp()),
