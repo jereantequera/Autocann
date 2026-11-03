@@ -68,6 +68,10 @@ def _logbook_entry(entry: dict, grow_name: str, stage_names: dict) -> dict:
             article, noun = RELAY_LABELS[event_type]
             verb = "Se prendió" if value == "on" else "Se apagó"
             kind, text, detail = "salida", f"{verb} {article} {noun}", ""
+        elif event_type == "humidity_up_stuck":
+            kind = "salida"
+            text = "Relé del humidificador trabado: se mandó OFF por infrarrojo"
+            detail = "La humedad subía con el humidificador apagado"
         elif event_type in CONTROL_MODE_TEXT:
             kind, text, detail = "sistema", CONTROL_MODE_TEXT[event_type], ""
         else:

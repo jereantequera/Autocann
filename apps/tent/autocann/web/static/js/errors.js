@@ -31,6 +31,9 @@ const MESSAGES = {
     alert_not_found: 'Esa alerta ya se resolvió.',
     invalid_snooze: 'Ese tiempo para posponer no es válido.',
     save_failed: 'No se pudo guardar. Probá de nuevo.',
+    unknown_button: 'Ese botón no existe en el control.',
+    humidifier_off: 'El humidificador está sin energía: el relé está apagado.',
+    ir_busy: 'Todavía se está mandando el botón anterior.',
 };
 
 export const FALLBACK_MESSAGE = 'No se pudo guardar. Probá de nuevo.';

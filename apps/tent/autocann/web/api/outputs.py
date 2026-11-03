@@ -18,6 +18,7 @@ from autocann.db import (
     get_setting,
     set_setting,
 )
+from autocann.hardware import ir_remote
 from autocann.hardware.outputs import (
     find_output,
     get_outputs,
@@ -178,9 +179,23 @@ def get_desired_outputs():
     """
     off = {name: False for name in output_names()}
 
+    # The virtual remote rides on this poll (autocann.hardware.ir_remote): the
+    # node repeats the id of the last press it sent as `ir_ack`, which clears
+    # it, and is handed the next one as `ir`. A GET that writes, but this is
+    # the node's only channel. Never fatal: the outputs matter more.
+    ir = None
+    try:
+        ir_remote.acknowledge(get_redis(), request.args.get("ir_ack"))
+        ir = ir_remote.node_payload(get_redis())
+    except Exception:
+        ir = None
+
     def failsafe(reason):
+        # No press in failsafe: everything is off, so the humidifier has no
+        # power to receive it. It expires and the dashboard says it did not go.
         return jsonify({
             "outputs": off,
+            "ir": None,
             "failsafe": True,
             "reason": reason,
             "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,
@@ -207,6 +222,7 @@ def get_desired_outputs():
     # omitted: a node must never have to guess what to do with an output.
     return jsonify({
         "outputs": {name: bool(outputs.get(name, False)) for name in off},
+        "ir": ir,
         "failsafe": False,
         "age_seconds": age,
         "max_age_seconds": DESIRED_OUTPUTS_MAX_AGE_SECONDS,

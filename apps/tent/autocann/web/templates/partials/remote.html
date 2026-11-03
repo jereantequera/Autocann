@@ -1,0 +1,17 @@
+        <!-- Control remoto: the humidifier's IR remote, on screen -->
+        <!--
+             The relay only powers the humidifier; its own buttons are behind an
+             IR remote, and the relay node carries the LED. A press is parked on
+             the backend until the node's next poll, so the line under the
+             buttons says whether it actually went out, not just that it was
+             asked for. remote.js renders the buttons from /api/ir-remote.
+        -->
+        <div class="panel-section-head">
+            <span class="ac-readout__label">Control remoto</span>
+            <span class="ac-readout__sub">Humidificador</span>
+        </div>
+
+        <div class="panel-remote" id="ir-remote">
+            <div class="panel-remote__grid" id="ir-remote-buttons"></div>
+            <p class="panel-remote__status" id="ir-remote-status" aria-live="polite"></p>
+        </div>

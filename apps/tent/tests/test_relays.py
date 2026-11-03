@@ -238,6 +238,56 @@ def test_the_published_state_carries_every_output(published):
     assert set(outputs) == set(published._specs)
 
 
+@pytest.fixture
+def every_write(monkeypatch):
+    """A relay set in remote mode, recording every key it writes, not just one."""
+    from autocann.config import RELAY_MODE_REMOTE
+
+    writes = []
+    monkeypatch.setattr("autocann.runtime.outputs.store_control_event", lambda *a, **k: True)
+    monkeypatch.setattr(
+        "autocann.runtime.outputs._set_redis",
+        lambda key, value, **k: writes.append((key, value)),
+    )
+    r = Relays(mode=RELAY_MODE_REMOTE)
+    r.writes = writes
+    return r
+
+
+def dashboard_keys(relays):
+    return {spec["redis_key"] for spec in relays._specs.values() if spec.get("redis_key")}
+
+
+def test_setup_publishes_every_output_before_anything_has_switched(every_write):
+    """
+    The dashboard reads a missing key as "unknown", so a relay that has not
+    moved in this process's lifetime still has to arrive with one.
+    """
+    every_write.setup()
+    assert {key for key, _ in every_write.writes} >= dashboard_keys(every_write)
+
+
+def test_every_cycle_refreshes_the_keys_the_dashboard_reads(every_write):
+    """
+    Those keys expire, and `set_output` only writes one when the relay moves,
+    so a cycle that changes nothing used to let them die. On 2026-11-02 the
+    humidifier was energised from 14:15 to the evening, its key expired ten
+    minutes in, and the panel spent the rest of the afternoon drawing "sin
+    estado" over a closed relay while the virtual remote, reading the same key,
+    greyed its buttons out and announced the humidifier had no power.
+    """
+    every_write.setup()
+    up_key = every_write._specs["humidity_up"]["redis_key"]
+    every_write.apply(HUMIDIFY)
+
+    for _ in range(5):                    # five cycles, nothing changing
+        every_write.writes.clear()
+        every_write.apply(HUMIDIFY)
+        written = dict(every_write.writes)
+        assert set(written) >= dashboard_keys(every_write)
+        assert written[up_key] == "true"
+
+
 # ---------------------------------------------------------------------------
 # Test mode: the relays follow a person, not a decision
 # ---------------------------------------------------------------------------

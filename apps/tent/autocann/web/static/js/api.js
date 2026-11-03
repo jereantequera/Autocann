@@ -128,7 +128,8 @@ async function apiPost(url, body) {
             window.location.reload();
             return { ok: false, error: 'La sesión expiró: hace falta el PIN otra vez' };
         }
-        if (!response.ok) return { ok: false, error: data.error || `HTTP ${response.status}` };
+        // The code too: errorMessage() turns it into the Spanish line.
+        if (!response.ok) return { ok: false, error: data.error || `HTTP ${response.status}`, code: data.code };
         return { ok: true, data };
     } catch (error) {
         console.error(`Error posting ${url}:`, error);

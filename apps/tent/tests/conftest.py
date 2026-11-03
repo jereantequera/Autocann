@@ -35,6 +35,10 @@ class FakeRedis:
         self.store.pop(key, None)
         self.ttls.pop(key, None)
 
+    def incr(self, key):
+        self.store[key] = str(int(self.store.get(key) or 0) + 1)
+        return int(self.store[key])
+
 
 @pytest.fixture
 def client(monkeypatch, temp_db):

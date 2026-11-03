@@ -40,11 +40,7 @@ from autocann.control.humidity import (
 from autocann.control.quiet import blocked_actions, windows_from_dict
 from autocann.control.sampling import QUALITY_DEGRADED, QUALITY_FAILSAFE, QUALITY_OK, SampleAccumulator
 from autocann.control.vpd_math import LEAF_TEMP_OFFSET_C, STAGES
-from autocann.db import (
-    ensure_schema,
-    get_active_grow,
-    get_setting,
-)
+from autocann.db import ensure_schema, get_active_grow, get_setting
 from autocann.hardware.dht import DHT_READ_ATTEMPTS, DHT_RETRY_DELAY_SECONDS
 from autocann.hardware.outdoor import OUTDOOR_MAX_AGE_SECONDS
 from autocann.hardware.sensors import Sensors
@@ -64,6 +60,7 @@ from autocann.runtime.outputs import Relays, read_manual_overrides
 from autocann.runtime.redis import _set_redis
 from autocann.runtime.setpoint import resolve_setpoint
 from autocann.runtime.stage_band import StageBand
+from autocann.runtime.stuck_relay import humidifier_rescue_guard
 from autocann.time import ARGENTINA_TZ
 
 # Names the tests and `autocann.cli.simulate` import from this module. Re-exported on purpose.
@@ -131,6 +128,7 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
     stage: Optional[str] = None
     grow_id: Optional[int] = None
     stage_band = StageBand()
+    stuck_guard = humidifier_rescue_guard()
     last_stage_check = -STAGE_CHECK_INTERVAL_SECONDS
     # Start the clock now rather than in the past. Firing on the first iteration
     # would store a row summarising a single reading, so every restart would add
@@ -335,6 +333,8 @@ def main(stage_override: Optional[str] = None, use_esp32_indoor: bool = True) ->
                 else:
                     overrides = read_manual_overrides()
                     relays.apply(decision.action, overrides=overrides)
+                    stuck_guard.observe(humidity=humidity, band_max=setpoint.humidity_band[1],
+                                        humidifier_on=relays.is_on("humidity_up"), now=loop_started)
                 sensors_data["manual_overrides"] = overrides
 
                 _set_redis("sensors", json.dumps(sensors_data))

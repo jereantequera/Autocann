@@ -166,6 +166,22 @@ static bool failsafeActive = true;   // hasta que la Pi diga otra cosa
 static bool watchdogExpired = false;
 
 /*
+ * El control remoto virtual del panel (autocann/hardware/ir_remote.py).
+ *
+ * Un boton apretado en la web viaja en la misma consulta, como
+ * "ir":{"id":N,"code":"0x..."}. El nodo lo manda una sola vez y devuelve el id
+ * en cada consulta siguiente (?ir_ack=N), que es lo que lo borra en la Pi. Si
+ * el id es el mismo que el ultimo mandado, no se repite: POWER es un toggle y
+ * dos pulsos se anulan.
+ *
+ * Se arranca en 0, que la Pi nunca asigna (su contador empieza en 1). Despues
+ * de un reinicio el nodo no se acuerda del ultimo id, pero tampoco importa: los
+ * reles arrancan apagados, asi que el equipo no tiene energia para un pulso
+ * repetido, y la orden vence sola a los pocos segundos.
+ */
+static uint32_t lastIrId = 0;
+
+/*
  * Cual de las salidas alimenta el humidificador.
  *
  * Se resuelve por nombre en setup() en vez de escribir el indice a mano: el
@@ -258,6 +274,59 @@ static int findBool(const String &body, const char *name) {
   return -1;
 }
 
+/*
+ * Lee "ir":{"id":N,"code":"0x...","rescue":true}. Devuelve false si no hay
+ * boton ("ir":null) o si no se entiende, y en ese caso no se manda nada.
+ * "rescue" es opcional: sin el, es un boton comun.
+ */
+static bool findIrCommand(const String &body, uint32_t &id, uint32_t &code, bool &rescue) {
+  int at = body.indexOf("\"ir\":{");
+  if (at < 0) return false;
+  int end = body.indexOf('}', at);
+  if (end < 0) return false;
+  String ir = body.substring(at, end);
+
+  int idAt = ir.indexOf("\"id\":");
+  int codeAt = ir.indexOf("\"code\":\"");
+  if (idAt < 0 || codeAt < 0) return false;
+
+  id = strtoul(ir.c_str() + idAt + 5, nullptr, 10);
+  code = strtoul(ir.c_str() + codeAt + 8, nullptr, 16);
+  rescue = ir.indexOf("\"rescue\":true") >= 0;
+  return id != 0;
+}
+
+/*
+ * Manda el boton del control remoto virtual, si hay uno nuevo.
+ *
+ * Un boton comun espera, sin confirmar, mientras el equipo esta arrancando (hay
+ * un pulso de encendido pendiente) o sin energia: el pulso se perderia, y como
+ * no se confirma la Pi lo vuelve a ofrecer en la consulta siguiente hasta que
+ * vence.
+ *
+ * El RESCATE es lo contrario: la Pi lo manda cuando humidity_up esta apagado y
+ * la humedad sube igual, o sea cuando el rele quedo pegado y el humidificador
+ * sigue andando. Por eso sale justamente con la salida apagada. Si el rele se
+ * habia soltado de verdad el equipo no tiene energia y el pulso no hace nada;
+ * solo tiene efecto en el caso que se quiere cortar. Con la salida encendida
+ * ya no corresponde (el lazo lo volvio a pedir) y se descarta sin mandarlo.
+ */
+static void serviceRemote(const String &body) {
+  uint32_t id, code;
+  bool rescue = false;
+  if (!findIrCommand(body, id, code, rescue) || id == lastIrId) return;
+  if (humidifierIndex >= OUTPUT_COUNT) return;
+
+  bool powered = applied[humidifierIndex];
+  if (rescue ? powered : (!powered || pulsePending)) return;
+
+  irsend.sendNEC(code);
+  lastIrId = id;
+  Serial.printf("IR: %s, boton 0x%08lX (orden %lu)\n",
+                rescue ? "RESCATE rele pegado" : "control remoto",
+                (unsigned long)code, (unsigned long)id);
+}
+
 /* Una consulta. Devuelve true si se aplico un estado valido. */
 static bool poll() {
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -265,7 +334,8 @@ static bool poll() {
   HTTPClient http;
   http.setConnectTimeout(3000);
   http.setTimeout(3000);
-  http.begin(API_URL);
+  String url = String(API_URL) + (strchr(API_URL, '?') ? "&" : "?") + "ir_ack=" + lastIrId;
+  http.begin(url);
   int status = http.GET();
   if (status != 200) {
     Serial.printf("consulta: HTTP %d\n", status);
@@ -305,6 +375,10 @@ static bool poll() {
   }
   failsafeActive = isFailsafe;
   (void)changed;
+
+  // Despues de aplicar las salidas: si esta misma consulta prendio el
+  // humidificador, el pulso de arranque ya quedo armado y el boton espera.
+  if (!isFailsafe) serviceRemote(body);
   return true;
 }
 
