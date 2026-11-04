@@ -142,15 +142,30 @@ static const uint64_t IR_POWER_CODE = 0x01FE48B7;
  * Cuanto esperar entre cerrar el rele y mandar el pulso.
  *
  * El humidificador tiene que terminar de arrancar antes de poder escuchar el
- * infrarrojo. Tres segundos es una estimacion conservadora y esta para ajustar
- * con el equipo en la mano: llegar tarde no cuesta nada, llegar temprano
- * significa que el pulso se pierde y el ciclo pasa sin niebla.
+ * infrarrojo. Llegar tarde no cuesta nada; llegar temprano significa que el
+ * pulso se pierde y el ciclo pasa sin niebla.
+ *
+ * Eran 3000 ms, puestos a ojo. El 2026-11-02 se midieron: cinco ciclos entre
+ * las 12:22 y las 14:00 arrancaron bien, y los tres siguientes (14:15, 20:23 y
+ * 21:27) no, con el tanque lleno y el infrarrojo sano. Ese mismo dia un POWER
+ * mandado desde el panel, con el equipo energizado hacia rato, entro a la
+ * primera y subio la carpa ocho puntos en un minuto. O sea que a 3 s el pulso
+ * cae justo en el borde de cuando el receptor despierta: a veces gana la
+ * carrera y a veces no, y la racha de cinco fue suerte.
+ *
+ * Diez segundos lo sacan de ese borde. El techo es el tiempo minimo de
+ * encendido del lazo, 60 s, porque el pulso tiene que llegar con el rele
+ * todavia cerrado: quedan 50 s de margen.
+ *
+ * Si aun asi se pierde, la Pi lo levanta: autocann/runtime/lost_pulse.py mira
+ * la salida prendida sin que suba la humedad y aprieta el boton a los pocos
+ * minutos. Eso es la red, no el arreglo; el arreglo es este numero.
  *
  * La granularidad real es la del lazo, asi que en la practica sale entre
  * IR_BOOT_DELAY_MS y un POLL_INTERVAL_MS mas tarde. Da igual: lo unico que
  * importa es no adelantarse.
  */
-static const unsigned long IR_BOOT_DELAY_MS = 3000;
+static const unsigned long IR_BOOT_DELAY_MS = 10000;
 
 IRsend irsend(IR_LED_PIN);
 

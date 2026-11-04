@@ -72,6 +72,10 @@ def _logbook_entry(entry: dict, grow_name: str, stage_names: dict) -> dict:
             kind = "salida"
             text = "Relé del humidificador trabado: se mandó OFF por infrarrojo"
             detail = "La humedad subía con el humidificador apagado"
+        elif event_type == "humidity_up_standby":
+            kind = "salida"
+            text = "El humidificador no arrancó: se mandó ON por infrarrojo"
+            detail = "Tenía energía hacía rato y la humedad no se movía"
         elif event_type in CONTROL_MODE_TEXT:
             kind, text, detail = "sistema", CONTROL_MODE_TEXT[event_type], ""
         else:
