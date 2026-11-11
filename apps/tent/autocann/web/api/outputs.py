@@ -12,6 +12,9 @@ from flask import Blueprint, jsonify, request
 from autocann.config import (
     DESIRED_OUTPUTS_KEY,
     DESIRED_OUTPUTS_MAX_AGE_SECONDS,
+    RELAY_NODE_LAST_POLL_KEY,
+    relay_mode_from_env,
+    relay_node_from_env,
 )
 from autocann.control.quiet import ACTION_OUTPUTS, QuietWindow, parse_hhmm, windows_from_dict
 from autocann.db import (
@@ -30,6 +33,7 @@ from autocann.hardware.outputs import (
 from autocann.time import ARGENTINA_TZ
 from autocann.web.api.test_mode import test_mode_payload
 from autocann.web.deps import get_redis
+from autocann.web.diagnostics.nodes import relay_node_verdict
 from autocann.web.errors import error_response
 
 bp = Blueprint("outputs", __name__)
@@ -38,6 +42,67 @@ bp = Blueprint("outputs", __name__)
 #: Default and maximum lifetime of a manual output override.
 MANUAL_OVERRIDE_DEFAULT_SECONDS = 15 * 60
 MANUAL_OVERRIDE_MAX_SECONDS = 2 * 60 * 60
+
+
+def _now() -> int:
+    return int(datetime.now(ARGENTINA_TZ).timestamp())
+
+
+def record_relay_node_poll(redis_client, ip) -> None:
+    """
+    Note that the relay node asked what to do, and from where.
+
+    The only trace that board leaves anywhere: it posts no status, so without
+    this the backend cannot tell a node applying its commands from a node that
+    has been unplugged since yesterday evening — which is exactly what happened
+    on 2026-11-10, with the panel narrating a dehumidifier nobody was switching.
+
+    No TTL. An expired key reads as "never polled", and the useful thing to
+    know about a node that stopped three days ago is that it stopped three days
+    ago. Never fatal: the node's orders matter more than the bookkeeping.
+    """
+    try:
+        redis_client.set(
+            RELAY_NODE_LAST_POLL_KEY,
+            json.dumps({"at": _now(), "ip": ip or None}),
+        )
+    except Exception:
+        pass
+
+
+def read_relay_node_poll(redis_client):
+    """The last recorded poll, or None when there is none to read."""
+    try:
+        raw = redis_client.get(RELAY_NODE_LAST_POLL_KEY)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def relay_node_status(redis_client, now=None):
+    """
+    What the board behind the relays is doing, or None when none is involved.
+
+    Served beside the outputs rather than from its own endpoint because it is
+    the same fact: an output's `state` is a request, and this says whether
+    anything is on the other end of it. Two polls could disagree, and the gap
+    between them is precisely the lie this is here to stop telling.
+    """
+    try:
+        return relay_node_verdict(
+            read_relay_node_poll(redis_client),
+            _now() if now is None else now,
+            mode=relay_mode_from_env(),
+            name=relay_node_from_env().name,
+        )
+    except ValueError:
+        return None
 
 
 @bp.route("/api/output-status", methods=["GET"])
@@ -87,7 +152,13 @@ def get_output_status():
     except Exception:
         test_mode = {"active": False}
 
-    return jsonify({"outputs": outputs, "test_mode": test_mode})
+    return jsonify({
+        "outputs": outputs,
+        "test_mode": test_mode,
+        # None in gpio mode: the loop drives its own header, so there is no
+        # node to be silent and nothing for the panel to qualify.
+        "relay_node": relay_node_status(get_redis()),
+    })
 
 
 @bp.route("/api/output-control", methods=["POST"])
@@ -189,6 +260,12 @@ def get_desired_outputs():
         ir = ir_remote.node_payload(get_redis())
     except Exception:
         ir = None
+
+    # Recorded before any early return: a node that is told "failsafe" is a
+    # node that is listening, and the panel has to be able to tell that apart
+    # from a node that is not there. The two failures want different hands —
+    # one restarts a service, the other walks to the tent.
+    record_relay_node_poll(get_redis(), request.remote_addr)
 
     def failsafe(reason):
         # No press in failsafe: everything is off, so the humidifier has no

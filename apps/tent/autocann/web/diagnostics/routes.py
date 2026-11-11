@@ -12,7 +12,12 @@ from datetime import datetime
 
 from flask import jsonify, request
 
-from autocann.config import is_valid_sensor_id
+from autocann.config import (
+    RELAY_NODE_LAST_POLL_KEY,
+    is_valid_sensor_id,
+    relay_mode_from_env,
+    relay_node_from_env,
+)
 from autocann.time import ARGENTINA_TZ
 
 from .health import _as_int
@@ -24,6 +29,7 @@ from .nodes import (
     append_log_lines,
     clean_log_lines,
     node_report,
+    relay_node_verdict,
 )
 from .snapshot import _json_get, health_snapshot, node_names
 
@@ -156,12 +162,30 @@ def register_diagnostics(app, redis_client) -> None:
 
     @app.route("/api/nodes", methods=["GET"])
     def get_nodes():
-        """Every node that has ever reported, with its current verdict."""
+        """
+        Every node that has ever reported, with its current verdict — and,
+        apart from them, the one that never reports.
+
+        `relay_node` is not in `nodes` because it cannot fill that shape: no
+        firmware string, no uptime, no heap, no boot reason, because it posts
+        no status and all of those come from a report. A card of seven dashes
+        would say less than the three things that are actually known about it,
+        so Sistema draws it as its own, smaller card. Served here rather than
+        left to the health answer so the nodes section has one source.
+        """
         now = int(datetime.now(ARGENTINA_TZ).timestamp())
+        try:
+            relay_node = relay_node_verdict(
+                _json_get(redis_client, RELAY_NODE_LAST_POLL_KEY), now,
+                mode=relay_mode_from_env(), name=relay_node_from_env().name,
+            )
+        except ValueError:
+            relay_node = None
         return jsonify({
             "nodes": [
                 node_report(_json_get(redis_client, f"{NODE_STATUS_PREFIX}:{name}"),
                             now, name=name)
                 for name in node_names(redis_client)
             ],
+            "relay_node": relay_node,
         })

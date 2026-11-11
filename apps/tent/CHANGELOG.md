@@ -1,5 +1,38 @@
 # Changelog
 
+## El nodo de relés tenía que poder faltar
+
+El 2026-11-10 a las 18:14 la placa que conmuta los relés se fue de la red. A la
+mañana siguiente el panel decía **"Un poco húmedo · deshumidificando"**, con
+*"El deshumidificador arrancó hace un momento"*, sobre un relé abierto que se
+veía a simple vista; `/api/health` contestaba *"Todo en orden · 2 sensores
+posteando"*, y así quince horas.
+
+Nada mentía de más: **el estado de una salida es lo que el lazo pidió, nunca lo
+que hizo un contacto.** Mientras el nodo consulta cada dos segundos la
+diferencia no se nota. Lo que faltaba era alguien que notara que el pedido no
+llegaba a ninguna parte — y nadie podía: el nodo de sensores postea su estado,
+éste no postea nada, sólo hace `GET /api/outputs/desired` y aplica la
+respuesta.
+
+Esa consulta es toda la evidencia que existe, así que ahora **se anota**
+(`relay_node_last_poll`), y de su antigüedad sale un veredicto que viaja con las
+salidas, con la salud y con los nodos. Pasados 30 s — quince consultas perdidas
+— la pantalla cambia donde ya estaba mirando, sin carteles nuevos:
+
+- la línea de estado dice **"Nadie conmuta los relés"**, con cuánto hace y hacia
+  dónde se está yendo la humedad igual;
+- la fila del relé pedido deja de decir "prendido" y dice **"pedido · sin
+  conmutar"**, en rojo: ni ámbar (que se lee *está andando*) ni gris (que se lee
+  *el lazo lo dejó quieto*);
+- el renglón que nombra la placa agrega **"· sin contacto hace 15 h 23 min"**;
+- el titular de Sistema deja de poder decir "Todo en orden", y la placa aparece
+  ahí con su propia tarjeta: sin firmware ni uptime ni heap, porque no reporta
+  nada, pero con la IP desde la que consultó y cuándo fue la última vez.
+
+En modo `gpio` no hay veredicto: entre la decisión y el pin no hay nadie que
+pueda faltar.
+
 ## "Visto" y "Posponer", por alerta y en el backend
 
 "Descartar" escondía **todas** las alertas cinco minutos y sólo en ese

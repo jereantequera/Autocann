@@ -192,3 +192,82 @@ test('a relay that just came on says "recién", not "0 min"', () => {
         { state: 'on', text: 'prendido · 1 min' },
     );
 });
+
+// ---------------------------------------------------------------------------
+// La placa que conmuta, cuando deja de pedir órdenes
+// ---------------------------------------------------------------------------
+//
+// El 2026-11-10 a las 18:14 el nodo de relés se fue de la red. A la mañana
+// siguiente esta línea decía «Un poco húmedo · deshumidificando» y «El
+// deshumidificador arrancó hace un momento», sobre un relé abierto que se veía
+// a simple vista. Ninguna de las dos frases era falsa sobre el lazo; las dos
+// eran falsas sobre la carpa, y la línea habla de la carpa.
+
+const SILENT = {
+    node: 'relay_node',
+    name: 'ESP32 relés (192.168.100.77)',
+    state: 'silent',
+    level: 'error',
+    label: 'Sin contacto',
+    detail: 'dejó de pedir órdenes',
+    age_seconds: 15 * 3600 + 23 * 60,
+};
+
+const POLLING = { ...SILENT, state: 'polling', level: 'ok', label: 'Conmutando', age_seconds: 2 };
+
+const quiet = node => ({ ...HEALTHY, relay_node: node });
+
+test('a silent relay node replaces the activity instead of narrating it', () => {
+    const outputs = [{ name: 'humidity_down', state: true, since: NOW / 1000 - 30 }];
+    const status = panelStatus(humid, quiet(SILENT), RUNNING, outputs, STAGES, NOW);
+
+    assert.equal(status.level, 'alert');
+    assert.equal(status.title, 'Nadie conmuta los relés');
+    assert.match(status.text, /no pide órdenes hace 15 h 23 min/);
+    // Y la carpa sigue contándose: hacia dónde se está yendo la humedad no
+    // deja de importar porque nadie la esté corrigiendo.
+    assert.match(status.text, /entre 61 y 74 % para esta etapa/);
+    assert.doesNotMatch(status.text, /deshumidificador/);
+    assert.doesNotMatch(status.title, /deshumidificando/);
+});
+
+test('a silent relay node is said even with the tent in range', () => {
+    const outputs = [{ name: 'humidity_up', state: true }];
+    const status = panelStatus(inRange, quiet(SILENT), RUNNING, outputs, STAGES, NOW);
+    assert.equal(status.title, 'Nadie conmuta los relés');
+    assert.match(status.text, /dentro de lo que pide Vegetativo Temprano/);
+});
+
+test('a node that is polling changes nothing on the status line', () => {
+    const outputs = [{ name: 'humidity_down', state: true }];
+    assert.equal(
+        panelStatus(humid, quiet(POLLING), RUNNING, outputs, STAGES, NOW).title,
+        panelStatus(humid, HEALTHY, RUNNING, outputs, STAGES, NOW).title,
+    );
+});
+
+test('with the relays on the Raspberry nothing is qualified', () => {
+    const outputs = [{ name: 'humidity_down', state: true }];
+    const status = panelStatus(humid, quiet(null), RUNNING, outputs, STAGES, NOW);
+    assert.equal(status.title, 'Un poco húmedo · deshumidificando');
+});
+
+test('a row the loop asked on stops claiming to be on while nobody switches', () => {
+    const asked = { name: 'humidity_down', state: true, since: NOW / 1000 - 600 };
+    assert.deepEqual(outputRowState(asked, NOW, SILENT),
+        { state: 'unknown', text: 'pedido · sin conmutar' });
+    // Con el nodo consultando vuelve a ser lo que era: la distinción no vale
+    // una palabra en pantalla mientras la orden llega dos segundos después.
+    assert.deepEqual(outputRowState(asked, NOW, POLLING),
+        { state: 'on', text: 'prendido · 10 min' });
+});
+
+test('a row asked off needs no warning: off is where an unattended relay ends up', () => {
+    assert.deepEqual(outputRowState({ name: 'humidity_up', state: false }, NOW, SILENT),
+        { state: 'off', text: 'apagado' });
+});
+
+test('a silent node is told apart from a row with no state at all', () => {
+    assert.equal(outputRowState({ name: 'humidity_up', state: null }, NOW, SILENT).text,
+        'sin estado');
+});
