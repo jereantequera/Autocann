@@ -17,11 +17,14 @@ from autocann.config import (
     MODE_MONITOR,
     MODE_PAUSED,
     PRIMARY,
+    RELAY_NODE_LAST_POLL_KEY,
     TEST_MODE_KEY,
     TEST_MODE_SETTING,
     UNCONTROLLED_MODES,
     WITNESS,
     indoor_sensors_from_env,
+    relay_mode_from_env,
+    relay_node_from_env,
 )
 from autocann.db import ALL_GROWS, get_active_grow, get_sensor_data_range, get_setting
 from autocann.time import ARGENTINA_TZ
@@ -35,7 +38,7 @@ from .health import (
     sensor_label,
     sensor_verdict,
 )
-from .nodes import NODE_INDEX_KEY, NODE_STATUS_PREFIX, node_report
+from .nodes import NODE_INDEX_KEY, NODE_STATUS_PREFIX, node_report, relay_node_verdict
 
 # ---------------------------------------------------------------------------
 # Reading it all out of Redis
@@ -236,7 +239,8 @@ def health_snapshot(redis_client) -> Dict:
             "level": "error",
             "headline": "La configuración de sensores está mal",
             "detail": str(e),
-            "sensors": [], "nodes": [], "delta": None, "drift": None,
+            "sensors": [], "nodes": [], "relay_node": None,
+            "delta": None, "drift": None,
             "outdoor": {"ok": None, "error": None},
             "has_witness": False, "max_age_seconds": INDOOR_SENSOR_MAX_AGE_SECONDS,
             "loop": loop_verdict(None, None, None, now),
@@ -280,6 +284,20 @@ def health_snapshot(redis_client) -> Dict:
                          now, name=name)
              for name in node_names(redis_client)]
 
+    # Not one of `nodes`: those are boards that POST a status, and this one
+    # never says anything. All it leaves is the poll recorded by
+    # `GET /api/outputs/desired`, so it is judged from an age and reported on
+    # its own key rather than faked into the shape of a report it never sent.
+    try:
+        relay_node = relay_node_verdict(
+            _json_get(redis_client, RELAY_NODE_LAST_POLL_KEY), now,
+            mode=relay_mode_from_env(), name=relay_node_from_env().name,
+        )
+    except ValueError:
+        # A misconfigured AUTOCANN_RELAY_* is its own fault with its own
+        # message; it must not take the whole health answer down with it.
+        relay_node = None
+
     snapshot = {
         "sensors": entries,
         "delta": indoor_delta(entries),
@@ -294,7 +312,8 @@ def health_snapshot(redis_client) -> Dict:
         "history": history,
         "no_active_grow": not has_grow,
         "nodes": nodes,
+        "relay_node": relay_node,
         "generated_at": now,
     }
-    snapshot.update(overall_verdict(entries, loop, history, nodes))
+    snapshot.update(overall_verdict(entries, loop, history, nodes, relay_node))
     return snapshot

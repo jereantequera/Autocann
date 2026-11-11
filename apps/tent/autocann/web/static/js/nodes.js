@@ -122,17 +122,89 @@ function nodeCardHtml(node) {
         </article>`;
 }
 
+/**
+ * La placa de relés, que no reporta nada.
+ *
+ * Su propia tarjeta y no una más de la grilla, porque no tiene con qué llenar
+ * esa grilla: sin firmware, sin uptime, sin heap, sin motivo de arranque — todo
+ * eso sale de un reporte y esta placa no manda ninguno. Sólo consulta qué hacer
+ * cada dos segundos y aplica la respuesta, así que lo único que se sabe de ella
+ * son estas tres cosas, y son las tres que importan cuando los relés no se
+ * mueven. Una tarjeta igual a las otras con siete renglones en "--" diría menos.
+ */
+/**
+ * La placa que conmuta los relés, que no reporta como los demás nodos.
+ *
+ * No postea estado ni log: cuenta de sí misma en la misma consulta con la que
+ * pide órdenes, así que tiene los mismos datos que una tarjeta normal menos el
+ * heap, y además el único que ninguna otra tarjeta necesita — cuánto hace que
+ * pidió órdenes, que es la prueba de que alguien está moviendo los relés.
+ *
+ * Con el firmware anterior al 2026-11-11 llega sólo eso último, y las demás
+ * filas quedan en "--". Vale decir cuál de las dos cosas es, en vez de dejar
+ * siete guiones que se leen como un nodo roto.
+ */
+function relayNodeCardHtml(relayNode) {
+    if (!relayNode) return '';
+    const level = relayNode.level || 'warn';
+    const reports = relayNode.boot_reason !== null && relayNode.boot_reason !== undefined;
+    // Con el nodo caído, estos números son de su última consulta y no de ahora:
+    // "Encendido hace 2 min" sobre una placa que se fue hace quince horas se
+    // lee como que acaba de arrancar, cuando lo que dice es que se fue a los
+    // dos minutos de arrancar — que es la firma de un brownout y vale la pena
+    // poder leerla.
+    const gone = relayNode.state === 'silent';
+    const rows = [
+        ['Placa', relayNode.name || 'nodo de relés'],
+        ['IP', relayNode.ip || '--'],
+        ['Último pedido', formatAge(relayNode.age_seconds)],
+        [gone ? 'Señal al irse' : 'Señal', reports ? signalLabel(relayNode.rssi) : '--'],
+        [gone ? 'De pie al irse' : 'Encendido hace', relayNode.uptime_seconds
+            ? formatDuration(relayNode.uptime_seconds) : '--'],
+        ['Último arranque', relayNode.boot_reason_label || '--'],
+        ['Reconexiones WiFi', relayNode.wifi_reconnects ?? '--'],
+    ];
+    // Sólo cuando hay más de uno: el primer arranque que se ve siempre cuenta
+    // como uno, así que "1" no dice nada y "4" dice todo.
+    if (relayNode.reboots_recent > 1) {
+        rows.push(['Reinicios recientes', relayNode.reboots_recent]);
+    }
+    const half = Math.ceil(rows.length / 2);
+    const foot = reports
+        ? `Esta placa no postea estado ni log: todo esto viaja en la consulta con
+           la que pide órdenes, cada dos segundos.`
+        : `Esta placa no postea estado ni log, y con el firmware anterior lo único
+           que deja es la consulta con la que pide órdenes. Regrabá
+           <code>firmware/relay_node</code> para ver el resto.`;
+
+    return `
+        <article class="node-card is-${escapeHtml(level)}">
+            <div class="node-card-head">
+                <span class="ac-dot ${level === 'ok' ? 'ac-dot--ok' : 'ac-dot--alert'}" aria-hidden="true"></span>
+                <span class="node-card-name">Relés</span>
+                <span class="node-card-state">${icon(LEVEL_ICONS[relayNode.level] || 'triangle-alert')}${escapeHtml(relayNode.label || '')}</span>
+            </div>
+            <div class="sys-detail">${escapeHtml(relayNode.detail || '')}</div>
+            <div class="node-card-rows">
+                ${factsHtml(rows.slice(0, half))}
+                ${factsHtml(rows.slice(half))}
+            </div>
+            <div class="node-card-foot">${foot}</div>
+        </article>`;
+}
+
 function renderNodes(payload) {
     const grid = document.getElementById('nodes-grid');
     const badge = document.getElementById('nodes-badge');
     if (!grid) return;
 
     const nodes = payload?.nodes || [];
+    const relayCard = relayNodeCardHtml(payload?.relay_node);
     knownNodes = nodes.map(node => node.node);
     if (!nodes.length) {
         // Un nodo con firmware viejo no reporta nada, y eso se ve igual que un
         // nodo muerto. Vale la pena decir cuál de las dos cosas es.
-        grid.innerHTML = `
+        grid.innerHTML = relayCard + `
             <div class="sys-note">
                 Ningún nodo reportó su estado todavía. El firmware anterior no lo
                 hacía: regrabá <code>firmware/sensor_node</code> para ver acá su
@@ -142,16 +214,22 @@ function renderNodes(payload) {
         return;
     }
 
-    grid.innerHTML = nodes.map(nodeCardHtml).join('');
+    grid.innerHTML = nodes.map(nodeCardHtml).join('') + relayCard;
 
     if (badge) {
         // Estar en línea y estar sano no son lo mismo: un nodo que reporta con
         // un DHT22 que no lee sigue estando en línea, y contarlo como caído
         // manda a revisar la red en vez del cable.
         const online = nodes.filter(node => node.state === 'online' || node.state === 'degraded');
-        const healthy = online.length === nodes.length && online.every(node => node.level === 'ok');
-        badge.className = `sensor-badge ${healthy ? 'ok' : online.length ? 'stale' : 'error'}`;
-        badge.textContent = `${online.length} de ${nodes.length} en línea`;
+        // La placa de relés cuenta como un nodo más acá aunque no reporte: la
+        // pregunta que contesta el badge es cuántas placas están vivas, y la
+        // que conmuta los relés es la que más caro sale dar por viva de más.
+        const relay = payload?.relay_node || null;
+        const total = nodes.length + (relay ? 1 : 0);
+        const up = online.length + (relay && relay.level === 'ok' ? 1 : 0);
+        const healthy = up === total && online.every(node => node.level === 'ok');
+        badge.className = `sensor-badge ${healthy ? 'ok' : up ? 'stale' : 'error'}`;
+        badge.textContent = `${up} de ${total} en línea`;
     }
 }
 

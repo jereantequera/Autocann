@@ -187,8 +187,13 @@ con cómo se capturaron y las trampas que tiene medirlos.
 |---|---|---|
 | El lazo deja de publicar | el endpoint responde todo apagado pasados 30 s | ✅ |
 | El nodo no alcanza a la Pi | watchdog local, desenergiza a los 60 s | ✅ matando el backend con un relé encendido |
+| El nodo no vuelve solo | `ESP.restart()` a los 5 min sin ningún contacto | ⚠️ sólo compilado; falta verlo en la carpa |
+| El nodo se cuelga | watchdog de tarea del chip a los 90 s | ⚠️ sólo compilado |
+| El nodo deja de consultar y nadie se entera | la Pi anota cada consulta y el panel lo dice | ✅ en tests; es lo que faltó el 2026-11-10 |
+| El nodo se reinicia en bucle | la Pi cuenta sus arranques y avisa | ✅ en tests |
 | Respuesta incompleta | el nodo la descarta entera | ✅ en tests |
 | Nodo reseteado o sin alimentación | pines en alta impedancia + cargas en NO | ✅ |
+| Se cae la alimentación del nodo | **nada** — ningún firmware lo levanta | ❌ pide fuente separada de la JD-VCC |
 | Relé pegado cerrado | `stuck_relay.py` manda un OFF por infrarrojo | ✅ el 2026-11-01, dos rescates |
 | Pulso de arranque perdido | `lost_pulse.py` aprieta el botón a los 5 min | ⚠️ sólo en tests; falta verlo en la carpa |
 | Todo lo anterior | humidistato mecánico | ❌ **sin instalar** |
@@ -196,13 +201,19 @@ con cómo se capturaron y las trampas que tiene medirlos.
 ### Lo que falta
 
 1. **El humidistato mecánico**, que es el único que sobrevive a todo lo demás.
-   Es la única fila con ❌ en la tabla de arriba.
-2. **Snubber RC más MOV en cada carga inductiva**, montados en la carga. El
+2. **Separar la alimentación del ESP32 de la de la placa de relés.** La otra
+   fila con ❌. El 2026-11-10 el nodo se fue de la red quince horas y no hay
+   forma de saber si fue brownout, porque hasta ese día no contaba nada de sí
+   mismo; ahora manda el motivo del arranque en cada consulta, así que la
+   próxima vez la respuesta va a estar en Sistema. Si dice `brownout`, el
+   arreglo es éste y no el firmware: un ESP32 en transmisión pide picos de
+   ~250 mA y comparte la fuente con las bobinas.
+3. **Snubber RC más MOV en cada carga inductiva**, montados en la carga. El
    ventilador de extracción sigue siendo carga inductiva aunque no sea un
    compresor.
-3. **Un tercer DHT22 al lado del primario**, a la sombra y al nivel del canopy,
+4. **Un tercer DHT22 al lado del primario**, a la sombra y al nivel del canopy,
    que es lo único que devuelve la detección de deriva. Ver abajo.
-4. **Un sensor de corriente en el cable del humidificador** (ACS712 o SCT-013).
+5. **Un sensor de corriente en el cable del humidificador** (ACS712 o SCT-013).
    Es lo único que permite saber si el equipo está realmente humidificando: el
    relé sólo dice que hay energía, y sin luz indicadora no hay nada más barato
    que mirar. Con eso, un pulso perdido se detecta y se puede reintentar sin

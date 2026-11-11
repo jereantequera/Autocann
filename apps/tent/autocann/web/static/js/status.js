@@ -7,7 +7,7 @@
  */
 
 import { MODE_MONITOR } from './state.js';
-import { fmtComma } from './util.js';
+import { fmtComma, formatDuration } from './util.js';
 
 /** The short names the relay rows use. Unknown outputs fall back to their label. */
 const OUTPUT_NAMES = {
@@ -37,11 +37,37 @@ function fmtBand(value) {
 }
 
 /**
+ * Whether the board that carries out the decisions has gone quiet.
+ *
+ * `relay_node` rides along with both the outputs and the health answer, from
+ * the same computation on the backend, and is null when the Raspberry switches
+ * its own pins — then there is nothing between a decision and a relay.
+ *
+ * Everything the panel knows about a relay is what the loop *asked for*. While
+ * the node is polling, two seconds later that is also what the relay is doing,
+ * and the distinction is not worth a word on screen. While it is silent the
+ * two have nothing to do with each other, and every sentence below that names
+ * a relay has to say so instead of narrating equipment nobody is switching.
+ */
+function relayNodeSilent(relayNode) {
+    return !!relayNode && relayNode.level !== 'ok';
+}
+
+/** "hace 15 h 23 min", or "" when the node never polled at all. */
+function silentFor(relayNode) {
+    const age = relayNode?.age_seconds;
+    return typeof age === 'number' && age > 0 ? ` hace ${formatDuration(age)}` : '';
+}
+
+/**
  * What an in-range tent with an output on is doing, for the subtitle. The
  * humidity relays come first: they are the ones that move the reading, the
- * extractor only runs alongside them. Null when nothing is on.
+ * extractor only runs alongside them. Null when nothing is on — and null,
+ * too, when nothing is switching, which is a different thing that must not
+ * read on screen as activity.
  */
-function rangeActivity(outputs, target) {
+function rangeActivity(outputs, target, relayNode) {
+    if (relayNodeSilent(relayNode)) return null;
     const on = name => outputNamed(outputs, name)?.state === true;
     const aim = Number.isFinite(target) ? ` hacia ${fmtBand(target)} %` : '';
     if (on('humidity_up')) return `humidificando${aim}`;
@@ -78,9 +104,19 @@ function outputShortName(output) {
  * epoch seconds, when the panel saw the relay come on; without it the row
  * says "prendido" and nothing about how long.
  *
+ * `relayNode` is the board that applies all of this. While it is silent a row
+ * the loop asked ON is the one that lies loudest — it is the row somebody
+ * reads as "the dehumidifier is running" while standing in front of an open
+ * relay — so it stops claiming to be on and says what it really is: a request
+ * with nobody on the other end. A row asked OFF needs no such warning: off is
+ * both what was asked and where an unattended relay ends up.
+ *
  * @returns {{state: 'on'|'off'|'unknown', text: string}}
  */
-function outputRowState(output, now = Date.now()) {
+function outputRowState(output, now = Date.now(), relayNode = null) {
+    if (output?.state === true && relayNodeSilent(relayNode)) {
+        return { state: 'unknown', text: 'pedido · sin conmutar' };
+    }
     if (output?.state === true) {
         const minutes = minutesSince(output.since, now);
         return {
@@ -105,6 +141,28 @@ function outputRowState(output, now = Date.now()) {
 }
 
 /**
+ * The tent itself in one sentence, for a status line whose title is about
+ * something else. Says exactly what the out-of-range branch below says, from
+ * the same inputs, so the panel never grows a second way of describing one
+ * reading.
+ */
+function environmentSentence(current, stage) {
+    if (current.vpd_in_range === true) {
+        return `Temperatura y humedad están dentro de lo que pide ${stage}.`;
+    }
+    if (current.vpd_in_range !== false) {
+        return 'El lazo todavía no dice si esto está en rango.';
+    }
+    const band = current.humidity_band;
+    if (!Array.isArray(band) || band.length !== 2) {
+        return `Temperatura y humedad fuera de lo que pide ${stage}.`;
+    }
+    const [low, high] = band;
+    return `A ${fmtComma(current.temperature, 1)} °C la humedad tiene que estar `
+        + `entre ${fmtBand(low)} y ${fmtBand(high)} % para esta etapa.`;
+}
+
+/**
  * The status line: { level, title, text }.
  *
  * `level` is one of ok, warn, alert, idle. `idle` is not an error: it says the
@@ -117,6 +175,10 @@ function outputRowState(output, now = Date.now()) {
  * @param {Array}  outputs    outputs from /api/output-status
  * @param {object} stageNames stage key -> label, from /api/config
  * @param {number} now        epoch ms, injectable for the tests
+ *
+ * The relay node is read off `health.relay_node` rather than passed in: the
+ * headline in Sistema is computed from the same field on the backend, so the
+ * two cannot end up disagreeing about whether anything is switching.
  */
 function panelStatus(current, health, mode, outputs = [], stageNames = {}, now = Date.now()) {
     const idle = (title, text) => ({ level: 'idle', title, text });
@@ -145,8 +207,28 @@ function panelStatus(current, health, mode, outputs = [], stageNames = {}, now =
 
     const stage = stageNames[current.stage] || current.stage || 'esta etapa';
 
+    const relayNode = health?.relay_node;
+
+    // Checked before the reading is judged, and it outranks it. "Un poco
+    // húmedo · deshumidificando" was true of the loop's intentions and false
+    // of the tent: on 2026-11-10 the relay node went off the air at 18:14 and
+    // the panel spent the night narrating a dehumidifier that had no power,
+    // over a relay anybody could see was open. Which way the humidity is
+    // drifting still matters, so it stays in the text — but the headline is
+    // that nothing is acting on it.
+    if (relayNodeSilent(relayNode)) {
+        return {
+            level: 'alert',
+            title: 'Nadie conmuta los relés',
+            text: `${relayNode.name || 'El nodo de relés'} no pide órdenes`
+                + `${silentFor(relayNode)}, así que las salidas de abajo son lo que `
+                + `el lazo pide y no lo que está pasando. `
+                + environmentSentence(current, stage),
+        };
+    }
+
     if (current.vpd_in_range === true) {
-        const activity = rangeActivity(outputs, current.target_humidity);
+        const activity = rangeActivity(outputs, current.target_humidity, relayNode);
         return {
             level: 'ok',
             title: 'En rango',
@@ -197,12 +279,11 @@ function panelStatus(current, health, mode, outputs = [], stageNames = {}, now =
     return {
         level: 'warn',
         title: `${dry ? 'Un poco seco' : 'Un poco húmedo'}${relayOn ? ` · ${verb}` : ''}`,
-        text: `${relaySentence}A ${fmtComma(current.temperature, 1)} °C la humedad tiene que `
-            + `estar entre ${fmtBand(low)} y ${fmtBand(high)} % para esta etapa.`,
+        text: relaySentence + environmentSentence(current, stage),
     };
 }
 
 export {
     AUTOMATIC_OUTPUTS, OUTPUT_NAMES, outputRowState, outputShortName, isAutomaticOutput,
-    panelStatus,
+    panelStatus, relayNodeSilent, silentFor,
 };

@@ -30,6 +30,12 @@ from autocann.hardware.outputs import (
 from autocann.time import ARGENTINA_TZ
 from autocann.web.api.test_mode import test_mode_payload
 from autocann.web.deps import get_redis
+from autocann.web.diagnostics.relay_node import (
+    record_poll_from_request,
+)
+from autocann.web.diagnostics.relay_node import (
+    status as relay_node_status,
+)
 from autocann.web.errors import error_response
 
 bp = Blueprint("outputs", __name__)
@@ -87,7 +93,13 @@ def get_output_status():
     except Exception:
         test_mode = {"active": False}
 
-    return jsonify({"outputs": outputs, "test_mode": test_mode})
+    return jsonify({
+        "outputs": outputs,
+        "test_mode": test_mode,
+        # None in gpio mode: the loop drives its own header, so there is no
+        # node to be silent and nothing for the panel to qualify.
+        "relay_node": relay_node_status(get_redis()),
+    })
 
 
 @bp.route("/api/output-control", methods=["POST"])
@@ -189,6 +201,12 @@ def get_desired_outputs():
         ir = ir_remote.node_payload(get_redis())
     except Exception:
         ir = None
+
+    # Recorded before any early return: a node that is told "failsafe" is a
+    # node that is listening, and the panel has to be able to tell that apart
+    # from a node that is not there. The two failures want different hands —
+    # one restarts a service, the other walks to the tent.
+    record_poll_from_request(get_redis(), request.args, request.remote_addr)
 
     def failsafe(reason):
         # No press in failsafe: everything is off, so the humidifier has no

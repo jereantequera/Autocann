@@ -103,6 +103,24 @@ DESIRED_OUTPUTS_KEY = "desired_outputs"
 #: a different age, would pass while the node sat in failsafe.
 DESIRED_OUTPUTS_MAX_AGE_SECONDS = 30
 
+#: Redis key holding when the relay node last polled, and from where. The poll
+#: is the only moment the Pi hears from that node — it has no report of its own
+#: — so this is the entire evidence that anything is carrying out the commands.
+RELAY_NODE_LAST_POLL_KEY = "relay_node_last_poll"
+
+#: Polls older than this mean nobody is switching the relays. The node polls
+#: every 2 s, so this is fifteen missed polls: far past a slow answer or a WiFi
+#: hiccup, and still well inside the minute somebody would take to notice by
+#: walking to the tent.
+#:
+#: Here beside DESIRED_OUTPUTS_MAX_AGE_SECONDS because it is the same contract
+#: read from the other end. That one is the node protecting itself from a dead
+#: loop; this one is the loop noticing a dead node. On 2026-11-10 at 18:14 the
+#: node stopped polling and nothing said so: the panel went on reporting the
+#: dehumidifier it had asked for as the dehumidifier that was running, and
+#: `/api/health` answered "Todo en orden" for fifteen hours.
+RELAY_NODE_MAX_AGE_SECONDS = 30
+
 
 def relay_mode_from_env() -> str:
     mode = (os.getenv("AUTOCANN_RELAY_MODE") or RELAY_MODE_GPIO).strip().lower()

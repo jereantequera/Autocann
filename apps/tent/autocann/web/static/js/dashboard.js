@@ -3,9 +3,9 @@ import { renderStageMarkers, updateHistoricalCharts } from './charts.js';
 import { errorMessage } from './errors.js';
 import { alertDialog, closeModal, showModal, toast } from './modals.js';
 import { config, MODE_ACTIVE, MODE_MONITOR, MODE_PAUSED, state } from './state.js';
-import { outputRowState, outputShortName } from './status.js';
+import { renderOutputsCard } from './outputs-card.js';
 import { timeInRange } from './stats-math.js';
-import { escapeHtml, fmtComma, formatDuration, icon, relaySourceLabel, stampLastUpdate, withGrow } from './util.js';
+import { escapeHtml, fmtComma, formatDuration, stampLastUpdate, withGrow } from './util.js';
 
 /** Live readings, period summary, the pause state and the relay rows. */
 
@@ -368,95 +368,14 @@ document.addEventListener('connection:changed', event => {
     renderSystemState();
 });
 
-// Remembered per relay: when this page first saw it on. The backend does not
-// say when a relay switched, so after a reload the minutes count from the
-// reload rather than from the switch - the row says so by showing less, not
-// by being wrong about it.
-const onSince = {};
-
-/** The outputs with `since` filled in for any relay that is on. */
-function outputsWithSince(outputs) {
-    const nowSeconds = Date.now() / 1000;
-    return outputs.map(output => {
-        if (output.state !== true) {
-            delete onSince[output.name];
-            return output;
-        }
-        if (!(output.name in onSince)) onSince[output.name] = nowSeconds;
-        return { ...output, since: onSince[output.name] };
-    });
-}
-
-function outputRowsHtml(outputs) {
-    return outputs.map(output => {
-        const row = outputRowState(output);
-        return `
-            <div class="ac-output${row.state === 'on' ? ' is-on' : ''}">
-                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
-                <span class="ac-output__state">${escapeHtml(row.text)}</span>
-            </div>`;
-    }).join('');
-}
-
-/**
- * The manual relay controls, under the rows, and only while the loop is not in
- * charge: the buttons are how a person drives a relay, and they mean nothing
- * while the loop is deciding.
- */
-function manualControlsHtml(outputs, mode) {
-    return outputs.filter(output => output.name).map(output => {
-        const requested = mode.requested_outputs?.[output.name];
-        // A relay that does not move must say why, or the button looks broken.
-        // The minimum on/off times hold even for a person.
-        const held = (typeof output.held_seconds === 'number' && output.held_seconds > 0)
-            ? `<span class="panel-manual__held">${icon('hourglass')}esperando ${formatDuration(output.held_seconds)} (mínimo de seguridad)</span>`
-            : '';
-        const name = escapeHtml(output.name);
-        return `
-            <div class="panel-manual__row">
-                <span class="ac-output__name">${escapeHtml(outputShortName(output))}</span>
-                <span class="panel-manual__buttons">
-                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === true}"
-                            data-action="test-output" data-name="${name}" data-state="true">Prender</button>
-                    <button type="button" class="ac-btn ac-btn--secondary" aria-pressed="${requested === false}"
-                            data-action="test-output" data-name="${name}" data-state="false">Apagar</button>
-                </span>
-                ${held}
-            </div>`;
-    }).join('');
-}
-
 function updateOutputsStatus(payload) {
-    const outputs = outputsWithSince(payload?.outputs || []);
-
     testMode = payload?.test_mode || { active: false };
     renderSystemState();
 
-    // Qué placa conmuta, dicho una vez: las salidas cuelgan de la misma.
-    const source = document.getElementById('outputs-source');
-    if (source) {
-        const label = relaySourceLabel(outputs[0]?.pin);
-        source.textContent = label.text;
-        source.title = label.title;
-    }
-
-    const list = document.getElementById('outputs-list');
-    if (list) {
-        list.innerHTML = outputs.length
-            ? outputRowsHtml(outputs)
-            : '<div class="ac-output"><span class="ac-output__name">No configuradas</span>'
-                + '<span class="ac-output__state">--</span></div>';
-    }
-
-    const manual = document.getElementById('outputs-manual');
-    if (manual) {
-        const show = testMode.active && outputs.length > 0;
-        manual.innerHTML = show ? manualControlsHtml(outputs, testMode) : '';
-        manual.hidden = !show;
-    }
+    const outputs = renderOutputsCard(payload, testMode);
 
     document.dispatchEvent(new CustomEvent('outputs:updated', {
-        detail: { outputs, test_mode: testMode },
+        detail: { outputs, test_mode: testMode, relay_node: payload?.relay_node || null },
     }));
 }
 

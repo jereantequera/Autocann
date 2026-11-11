@@ -49,6 +49,13 @@ from .nodes import (
     clean_log_lines,
     node_report,
     node_verdict,
+    relay_node_facts,
+    relay_node_verdict,
+)
+from .relay_node import (
+    read_poll,
+    record_poll,
+    record_poll_from_request,
 )
 from .routes import (
     register_diagnostics,
@@ -65,6 +72,11 @@ from .snapshot import (
 __all__ = [
     "LOOP_MAX_AGE_SECONDS",
     "NODE_MAX_AGE_SECONDS",
+    "relay_node_verdict",
+    "relay_node_facts",
+    "read_poll",
+    "record_poll",
+    "record_poll_from_request",
     "HISTORY_MAX_AGE_SECONDS",
     "LOG_MAX_LINES",
     "LOG_MAX_LINES_PER_REPORT",

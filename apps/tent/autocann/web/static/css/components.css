@@ -134,6 +134,9 @@
   line-height: 1.4;
   color: var(--fg-muted);
 }
+.ac-readout__sub.is-alert {
+  color: var(--state-alert);
+}
 .ac-readout--lg .ac-readout__value {
   font-size: 36px;
   line-height: 1.15;
@@ -206,6 +209,13 @@
 }
 .ac-output.is-on .ac-output__state {
   color: var(--state-warn);
+}
+/* Un relé que el lazo pidió y que nadie está conmutando. Ni ámbar (que se lee
+   "está andando") ni gris (que se lee "el lazo lo dejó quieto"): no es ninguna
+   de las dos, y confundirlo con la primera es justo el error que esto corrige. */
+.ac-output.is-unconfirmed .ac-output__name,
+.ac-output.is-unconfirmed .ac-output__state {
+  color: var(--state-alert);
 }
 
 .ac-stagebar {

@@ -285,17 +285,35 @@ def history_verdict(age_seconds: Optional[float], loop_state: str,
 
 
 def overall_verdict(sensors: List[Dict], loop: Dict, history: Dict,
-                    nodes: List[Dict]) -> Dict:
+                    nodes: List[Dict], relay_node: Optional[Dict] = None) -> Dict:
     """
     One headline, chosen by what is worst — and naming it, not counting it.
 
     "3 problemas detectados" sends somebody hunting. The headline says which
     thing is broken, because that is what decides whether they walk to the tent.
+
+    `relay_node` is the board that carries out the decisions, and `None` when
+    the Raspberry switches its own pins. When it is an *error* it is judged
+    second, behind only the loop itself, because it is the one failure with no
+    other voice: sensors post, the loop publishes, the history fills, and every
+    one of those can look perfect while nothing at all is being switched. On
+    2026-11-10 it did look perfect — this function answered "Todo en orden · 2
+    sensores posteando" for the fifteen hours after the relay node went off the
+    air.
+
+    Its *warning* (a node that keeps restarting) is judged much lower, below
+    every sensor and history error. It has to be: the headline is chosen by
+    position, not by level, so anything that pre-empts a broken primary sensor
+    has to be worse than one, and a node that is switching the relays most of
+    the time is not. Hence the two branches, and hence the verdict carrying its
+    own headline rather than this function writing one — the two states do not
+    share a sentence.
     """
     level = worst(
         loop["level"], history["level"],
         *(sensor["level"] for sensor in sensors),
         *(node["level"] for node in nodes),
+        (relay_node or {}).get("level"),
     )
 
     broken = [s for s in sensors if s["state"] in ("missing", "stale")]
@@ -303,6 +321,8 @@ def overall_verdict(sensors: List[Dict], loop: Dict, history: Dict,
 
     if loop["state"] == "down":
         headline, detail = "El lazo de control no está corriendo", loop["detail"]
+    elif relay_node and relay_node["level"] == "error":
+        headline, detail = relay_node["headline"], relay_node["detail"]
     elif primary_broken:
         sensor = primary_broken[0]
         headline = f"{sensor['label']} (el que controla) no está posteando"
@@ -312,6 +332,8 @@ def overall_verdict(sensors: List[Dict], loop: Dict, history: Dict,
     elif broken:
         headline = f"{broken[0]['label']} no está posteando"
         detail = f"{broken[0]['state_detail']} {broken[0].get('action') or ''}".strip()
+    elif relay_node and relay_node["level"] != "ok":
+        headline, detail = relay_node["headline"], relay_node["detail"]
     elif any(s["state"] == "suspect" for s in sensors):
         suspect = next(s for s in sensors if s["state"] == "suspect")
         headline = f"{suspect['label']} mide algo raro"

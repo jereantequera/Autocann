@@ -15,6 +15,32 @@
  * backend muerto y cable desenchufado. Sin temporizadores separados que puedan
  * desincronizarse entre si.
  *
+ * COMO SE RECUPERA SOLO, Y HASTA DONDE
+ *
+ * El 2026-11-10 a las 18:14 este nodo dejo de consultar y se quedo asi quince
+ * horas, con la carpa sin control y nadie enterado. No se habia caido sin
+ * poder levantarse: no estaba programado para levantarse. Toda su respuesta a
+ * perder contacto era abrir los reles y seguir consultando, para siempre.
+ *
+ * Ahora hay tres escalones, de lo barato a lo caro:
+ *
+ *   60 s sin consulta buena  ->  se abren los reles (WATCHDOG_MS). La carpa
+ *                                queda en un estado conocido y seguro.
+ *   5 min sin NINGUN contacto -> ESP.restart() (REBOOT_AFTER_MS). Lo unico
+ *                                que destraba la radio o la pila de red.
+ *   90 s sin alimentar el loop -> lo reinicia el chip (TWDT_TIMEOUT_MS), que
+ *                                es el unico que puede con un cuelgue real.
+ *
+ * El segundo escalon mira el ultimo contacto HTTP y no la ultima consulta
+ * buena: si la Pi contesta cualquier cosa, el problema no es este nodo y
+ * reiniciarse no arregla nada. Ver lastContact.
+ *
+ * Y hay un cuarto caso que ningun escalon arregla: si se cae la alimentacion,
+ * no hay firmware que lo levante. Por eso el nodo ademas CUENTA de si mismo en
+ * la consulta — por que arranco, cuanto hace, la senal y los reintentos de
+ * WiFi — que es lo que deja distinguir un brownout de un cuelgue de un
+ * problema de antena en vez de mirar las tres como "el nodo no esta".
+ *
  * CABLEADO (placa de 4 canales opto, activo-bajo)
  *
  *     GND  -> GND del ESP32, y negativo de la fuente de 5 V (cable corto y grueso)
@@ -81,6 +107,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <IRsend.h>
+#include <esp_task_wdt.h>
+#include <esp_system.h>
 
 #include "secrets.h"
 
@@ -114,6 +142,36 @@ static const unsigned long POLL_INTERVAL_MS = 2000;
  * plazo en el que una salida pegada haga dano. Treinta consultas perdidas.
  */
 static const unsigned long WATCHDOG_MS = 60000;
+
+/*
+ * Sin NINGUN contacto con la Pi durante este tiempo, el nodo se reinicia.
+ *
+ * Es lo que le faltaba al 2026-11-10: a las 18:14 dejo de consultar y se
+ * quedo asi quince horas. No se cayo y no se levanto — nunca estuvo
+ * programado para levantarse. WATCHDOG_MS de arriba no reinicia nada,
+ * desenergiza los reles y sigue consultando para siempre; sirve para la carpa
+ * y no para el nodo.
+ *
+ * Cinco minutos. A esta altura los reles ya estan abiertos desde hace cuatro
+ * por WATCHDOG_MS, asi que el reinicio no interrumpe nada que no este perdido
+ * y sobran ~150 consultas falladas para descartar un hipo de WiFi.
+ *
+ * Cuenta desde el ultimo contacto HTTP, no desde la ultima consulta buena:
+ * ver lastContact.
+ */
+static const unsigned long REBOOT_AFTER_MS = 300000;
+
+/*
+ * El watchdog de tarea del chip: el unico que puede sacar al nodo de un
+ * cuelgue de verdad, uno en el que ni siquiera llega a contar los cinco
+ * minutos de arriba. Un socket que no vuelve, la pila de WiFi trabada.
+ *
+ * Largo a proposito. Una vuelta lenta legitima puede tardar casi treinta
+ * segundos (hasta 20 s de reintentos de WiFi, mas dos timeouts de 3 s del
+ * HTTP, mas el delay del ciclo), asi que con 30 s el nodo se reiniciaria solo
+ * por tener la red lenta. Noventa no se alcanzan nunca sin estar colgado.
+ */
+static const uint32_t TWDT_TIMEOUT_MS = 90000;
 
 static const unsigned long HEARTBEAT_MS = 30000;
 static const int WIFI_MAX_RETRIES = 40;   // ~20 s
@@ -173,8 +231,22 @@ IRsend irsend(IR_LED_PIN);
 
 static bool applied[OUTPUT_COUNT];
 static unsigned long lastGoodPoll = 0;
+/*
+ * Ultima vez que ALGO contesto del otro lado, aunque haya contestado mal.
+ *
+ * Distinto de lastGoodPoll a proposito, y la diferencia es la que decide si
+ * reiniciarse sirve de algo. Si la Pi devuelve un 500, un 404, o el backend
+ * esta arrancando, el camino de red esta sano y el roto no es este nodo:
+ * reiniciarse no arregla nada y solo agrega churn. El reinicio es para cuando
+ * no llega NADA, que es la unica falla que un reinicio puede tocar.
+ */
+static unsigned long lastContact = 0;
 static unsigned long lastHeartbeat = 0;
 static bool failsafeActive = true;   // hasta que la Pi diga otra cosa
+static bool watchdogArmed = false;
+static uint32_t wifiReconnects = 0;
+static bool wifiWasConnected = false;
+static const char *bootSlug = "unknown";
 //: Se loguea el vencimiento del watchdog una sola vez. Sin esto, cuando
 //: vence sin nada encendido no deja rastro, que es justo el caso en que
 //: mas querrias saber cuando perdio contacto.
@@ -257,19 +329,127 @@ static void allOff(const char *reason) {
   failsafeActive = true;
 }
 
+/*
+ * Por que arranco, en una palabra sin espacios.
+ *
+ * Viaja en la consulta (ver poll), que es el unico canal que este nodo tiene
+ * hacia la Pi. Es un slug y no la frase en castellano que usa el nodo de
+ * sensores porque va en un query string: la Pi lo traduce, y asi las dos
+ * placas terminan diciendo lo mismo en pantalla sin codificar nada aca.
+ *
+ * Es el dato que falto el 2026-11-10. Brownout, panic y watchdog mandan a
+ * lugares distintos — la fuente, el codigo, un cuelgue — y sin esto las tres
+ * se ven iguales: un nodo que no esta.
+ */
+static const char *resetReasonSlug() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "poweron";
+    case ESP_RST_EXT:      return "ext";
+    case ESP_RST_SW:       return "sw";
+    case ESP_RST_PANIC:    return "panic";
+    case ESP_RST_INT_WDT:  return "int_wdt";
+    case ESP_RST_TASK_WDT: return "task_wdt";
+    case ESP_RST_WDT:      return "wdt";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO:     return "sdio";
+    default:               return "unknown";
+  }
+}
+
+static void feedWatchdog() {
+  if (watchdogArmed) esp_task_wdt_reset();
+}
+
+/*
+ * Suscribe este loop al watchdog de tarea del chip.
+ *
+ * idle_core_mask en 0: no nos interesa vigilar las tareas idle, que es para lo
+ * que el core de Arduino inicializa el TWDT — y lo hace con un timeout de
+ * pocos segundos que a nosotros nos reiniciaria en cada espera de WiFi. Lo que
+ * tiene que estar vigilado es este loop. Si el loop acapara el CPU tampoco va
+ * a alimentarlo, asi que ese caso queda cubierto igual.
+ *
+ * Si el core ya lo inicializo, init devuelve ESP_ERR_INVALID_STATE y hay que
+ * reconfigurarlo en vez de insistir.
+ */
+static void armWatchdog() {
+  esp_task_wdt_config_t config = {
+    .timeout_ms = TWDT_TIMEOUT_MS,
+    .idle_core_mask = 0,
+    .trigger_panic = true,
+  };
+  esp_err_t err = esp_task_wdt_init(&config);
+  if (err == ESP_ERR_INVALID_STATE) err = esp_task_wdt_reconfigure(&config);
+  if (err == ESP_OK) err = esp_task_wdt_add(NULL);
+  watchdogArmed = (err == ESP_OK);
+  Serial.printf("watchdog de tarea: %s (%lu ms)\n",
+                watchdogArmed ? "armado" : "NO SE PUDO ARMAR",
+                (unsigned long)TWDT_TIMEOUT_MS);
+}
+
+/*
+ * Conectado Y con IP.
+ *
+ * WL_CONNECTED solo no alcanza: la station puede quedar asociada con la IP en
+ * 0.0.0.0 — DHCP que no termino, asociacion a medias — y en la version
+ * anterior eso salia por la primera linea de connectWifi y no se reintentaba
+ * nunca mas. Un nodo "conectado" para siempre, sin red.
+ */
+static bool wifiUp() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}
+
+/*
+ * Mantiene el WiFi, y cuando no vuelve baja la radio y la vuelve a levantar.
+ *
+ * Reintentar WiFi.begin() sobre una station trabada no la destraba: hay que
+ * apagar el modo y volver a prenderlo. persistent(false) para no escribir la
+ * NVS en cada reintento.
+ *
+ * Los reintentos se cuentan, porque un enlace que se cae cada dos minutos y
+ * vuelve se ve igual que uno sano si solo se mira el estado de ahora; el
+ * contador viaja en la consulta y queda en el panel.
+ *
+ * Lo que NO se toca es el power save del WiFi. setSleep(false) es el consejo
+ * de siempre para un enlace que pierde beacons, pero son ~40 mA mas sobre una
+ * fuente que es la principal sospechosa de haber tirado este nodo: hasta que
+ * la alimentacion este separada de la placa de reles, agregar consumo es
+ * empujar justo donde duele. Queda anotado como perilla, no aplicado.
+ *
+ * La espera alimenta el watchdog: son hasta 20 s y es el unico lugar donde una
+ * vuelta del loop se estira de verdad.
+ */
 static void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED) return;
+  if (wifiUp()) {
+    wifiWasConnected = true;
+    return;
+  }
+
+  if (wifiWasConnected) {
+    wifiReconnects++;
+    wifiWasConnected = false;
+    Serial.printf("WiFi: se cayo el enlace (%lu veces)\n",
+                  (unsigned long)wifiReconnects);
+  }
 
   Serial.printf("WiFi: conectando a %s", WIFI_SSID);
+  WiFi.persistent(false);
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(200);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  for (int i = 0; i < WIFI_MAX_RETRIES && WiFi.status() != WL_CONNECTED; i++) {
+  for (int i = 0; i < WIFI_MAX_RETRIES && !wifiUp(); i++) {
+    feedWatchdog();
     delay(500);
     Serial.print(".");
   }
-  Serial.println(WiFi.status() == WL_CONNECTED
-                 ? " ok, ip " + WiFi.localIP().toString()
-                 : String(" sin conexion"));
+  if (wifiUp()) {
+    wifiWasConnected = true;
+    Serial.println(" ok, ip " + WiFi.localIP().toString());
+  } else {
+    Serial.println(" sin conexion");
+  }
 }
 
 /*
@@ -344,14 +524,35 @@ static void serviceRemote(const String &body) {
 
 /* Una consulta. Devuelve true si se aplico un estado valido. */
 static bool poll() {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (!wifiUp()) return false;
 
   HTTPClient http;
   http.setConnectTimeout(3000);
   http.setTimeout(3000);
   String url = String(API_URL) + (strchr(API_URL, '?') ? "&" : "?") + "ir_ack=" + lastIrId;
+  /*
+   * El nodo cuenta de si mismo en la consulta, porque no tiene otro canal.
+   *
+   * No postea nada — ni estado ni log — y agregarle un POST propio seria un
+   * segundo temporizador que puede desincronizarse del primero, que es
+   * justamente lo que el diseno de este nodo evita. La consulta ya va cada dos
+   * segundos y ya es el latido: que lleve tambien el por que del ultimo
+   * arranque, cuanto hace que esta de pie, la senal y los reintentos de WiFi.
+   *
+   * Con esos cuatro numeros la Pi distingue lo que el 2026-11-10 fue
+   * indistinguible: un nodo sano, uno con la antena al limite, y uno que se
+   * reinicia en bucle por brownout — que consulta bien entre reinicio y
+   * reinicio, asi que por antiguedad de la consulta se ve igual que sano.
+   */
+  url += "&boot=" + String(bootSlug);
+  url += "&up=" + String(millis() / 1000);
+  url += "&rssi=" + String(WiFi.RSSI());
+  url += "&rc=" + String(wifiReconnects);
   http.begin(url);
   int status = http.GET();
+  // Contesto algo, aunque haya contestado mal: el camino de red esta sano y
+  // reiniciarse no corresponde. Un status negativo es error de conexion.
+  if (status > 0) lastContact = millis();
   if (status != 200) {
     Serial.printf("consulta: HTTP %d\n", status);
     http.end();
@@ -414,8 +615,13 @@ void setup() {
   for (size_t i = 0; i < OUTPUT_COUNT; i++) {
     Serial.printf("  %-15s GPIO %u\n", OUTPUTS[i].name, OUTPUTS[i].pin);
   }
-  Serial.printf("consulta cada %lu ms, watchdog a los %lu ms\n",
-                POLL_INTERVAL_MS, WATCHDOG_MS);
+  Serial.printf("consulta cada %lu ms, reles abiertos a los %lu ms, "
+                "reinicio a los %lu ms\n",
+                POLL_INTERVAL_MS, WATCHDOG_MS, REBOOT_AFTER_MS);
+
+  bootSlug = resetReasonSlug();
+  Serial.printf("arranque: %s\n", bootSlug);
+  armWatchdog();
 
   for (size_t i = 0; i < OUTPUT_COUNT; i++) {
     if (strcmp(OUTPUTS[i].name, "humidity_up") == 0) humidifierIndex = i;
@@ -432,12 +638,15 @@ void setup() {
   }
 
   connectWifi();
-  // Arranca el reloj ahora: si la Pi no contesta nunca, el watchdog tiene que
-  // vencer igual en vez de quedarse esperando una primera consulta buena.
+  // Arrancan los dos relojes ahora: si la Pi no contesta nunca, tanto los
+  // reles como el reinicio tienen que vencer igual en vez de quedarse
+  // esperando una primera consulta buena que no va a llegar.
   lastGoodPoll = millis();
+  lastContact = millis();
 }
 
 void loop() {
+  feedWatchdog();
   connectWifi();
 
   if (poll()) {
@@ -453,6 +662,32 @@ void loop() {
                     (millis() - lastGoodPoll) / 1000);
     }
     allOff("sin respuesta de la Pi");
+  }
+
+  /*
+   * Y si no contesta NADA, reiniciarse.
+   *
+   * Es la unica cosa que puede destrabar la radio o la pila de red de este
+   * nodo, y la que convierte quince horas en cinco minutos. Los reles ya estan
+   * abiertos desde hace cuatro minutos por el bloque de arriba, asi que los
+   * tres segundos de arranque no interrumpen nada que no este perdido — y se
+   * los deja explicitamente abiertos antes de reiniciar, porque el latch tiene
+   * que valer OFF cuando los pines se reinicializen.
+   *
+   * Si vuelve a pasar, la Pi se va a enterar: el proximo arranque viaja en la
+   * primera consulta como boot=sw, y un bucle de reinicios se ve en el panel
+   * aunque las consultas lleguen puntuales entre uno y otro.
+   *
+   * Lo que esto no puede arreglar es la falta de energia. Si la fuente se cae,
+   * no hay firmware que lo levante.
+   */
+  if (millis() - lastContact > REBOOT_AFTER_MS) {
+    Serial.printf("** SIN NINGUN CONTACTO %lu s: me reinicio\n",
+                  (millis() - lastContact) / 1000);
+    allOff("reinicio por falta de contacto");
+    Serial.flush();
+    delay(100);
+    ESP.restart();
   }
 
   // Despues de aplicar el estado, para que un encendido de esta misma vuelta

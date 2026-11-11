@@ -1,5 +1,97 @@
 # Changelog
 
+## El nodo de relés se levanta solo, y cuenta por qué se cayó
+
+Lo de abajo hace visible el apagón; esto es para que no haga falta mirarlo.
+
+El nodo de relés no se cayó sin poder levantarse el 2026-11-10: **nunca estuvo
+programado para levantarse.** Toda su respuesta a perder contacto era abrir los
+relés y seguir consultando, para siempre. Lo que el firmware llamaba
+`WATCHDOG_MS` no reinicia nada — desenergiza y sigue —, no había ningún
+`ESP.restart()` en el sketch, y `connectWifi()` reintentaba `WiFi.begin()` sin
+resetear la radio, que es justo lo que hay que hacer cuando la station queda
+trabada. Peor: salía por la primera línea si `WiFi.status()` decía
+`WL_CONNECTED`, aunque la IP fuera 0.0.0.0. Un nodo "conectado" para siempre,
+sin red.
+
+Ahora hay tres escalones, de lo barato a lo caro:
+
+| Cuándo | Qué pasa |
+|---|---|
+| 60 s sin consulta buena | se abren los relés (como antes) |
+| 5 min sin **ningún** contacto | `ESP.restart()` |
+| 90 s sin alimentar el loop | lo reinicia el watchdog de tarea del chip |
+
+El segundo mira el último contacto HTTP y no la última consulta buena, y la
+diferencia es la que decide si reiniciarse sirve de algo: si la Pi contesta
+cualquier cosa — un 500, el backend arrancando — el camino de red está sano y
+el roto no es el nodo. El reinicio es para cuando no llega nada.
+
+**Y ahora cuenta de sí mismo.** En la misma consulta, porque no tiene otro
+canal: por qué arrancó, cuánto hace que está de pie, la señal y los reintentos
+de WiFi. Un POST propio sería un segundo temporizador que puede
+desincronizarse del primero, y no desincronizarse es por lo que este nodo sólo
+consulta. Con esos cuatro números la Pi distingue lo que el 2026-11-10 fue
+indistinguible: un nodo sano, uno con la antena al límite, y uno que se
+reinicia en bucle por brownout.
+
+Ese último abrió un agujero que el autoreinicio agranda: un nodo que se
+reinicia cada cinco minutos **vuelve a consultar dos segundos después**, así
+que por antigüedad de la consulta se ve impecable mientras la carpa pierde el
+control en cada vuelta. Así que la Pi le cuenta los arranques, y tres en media
+hora son *«El nodo de relés se está reiniciando solo»* — un aviso, no un error,
+y ubicado por debajo de cualquier sensor roto: el titular se elige por posición
+y lo que se adelanta a un primario caído tiene que ser peor que eso.
+
+En su tarjeta de Sistema aparecen las mismas filas que en la de un nodo normal.
+Con el nodo caído se leen en pasado — «De pie al irse: 2 min» —, porque son de
+su última consulta y no de ahora, y "encendido hace 2 min" sobre una placa que
+se fue hace quince horas dice exactamente lo contrario de lo que pasó. Con
+firmware anterior al 2026-11-11 quedan en `--`, y el pie de la tarjeta dice
+cuál de las dos cosas estás mirando.
+
+Lo que ninguno de los tres escalones arregla: **si se cae la alimentación, no
+hay firmware que lo levante.** Por eso HARDWARE.md ahora pide separar la fuente
+del ESP32 de la de la placa de relés, con una fila ❌ propia en la tabla de
+failsafes. Si el próximo arranque dice `brownout`, el arreglo es ése.
+
+El firmware compila para `esp32:esp32:esp32` al 78 % del almacenamiento. **No
+está grabado:** el nodo está en la carpa y las dos placas se distinguen por
+serie antes de tocar nada.
+
+## El nodo de relés tenía que poder faltar
+
+El 2026-11-10 a las 18:14 la placa que conmuta los relés se fue de la red. A la
+mañana siguiente el panel decía **"Un poco húmedo · deshumidificando"**, con
+*"El deshumidificador arrancó hace un momento"*, sobre un relé abierto que se
+veía a simple vista; `/api/health` contestaba *"Todo en orden · 2 sensores
+posteando"*, y así quince horas.
+
+Nada mentía de más: **el estado de una salida es lo que el lazo pidió, nunca lo
+que hizo un contacto.** Mientras el nodo consulta cada dos segundos la
+diferencia no se nota. Lo que faltaba era alguien que notara que el pedido no
+llegaba a ninguna parte — y nadie podía: el nodo de sensores postea su estado,
+éste no postea nada, sólo hace `GET /api/outputs/desired` y aplica la
+respuesta.
+
+Esa consulta es toda la evidencia que existe, así que ahora **se anota**
+(`relay_node_last_poll`), y de su antigüedad sale un veredicto que viaja con las
+salidas, con la salud y con los nodos. Pasados 30 s — quince consultas perdidas
+— la pantalla cambia donde ya estaba mirando, sin carteles nuevos:
+
+- la línea de estado dice **"Nadie conmuta los relés"**, con cuánto hace y hacia
+  dónde se está yendo la humedad igual;
+- la fila del relé pedido deja de decir "prendido" y dice **"pedido · sin
+  conmutar"**, en rojo: ni ámbar (que se lee *está andando*) ni gris (que se lee
+  *el lazo lo dejó quieto*);
+- el renglón que nombra la placa agrega **"· sin contacto hace 15 h 23 min"**;
+- el titular de Sistema deja de poder decir "Todo en orden", y la placa aparece
+  ahí con su propia tarjeta: sin firmware ni uptime ni heap, porque no reporta
+  nada, pero con la IP desde la que consultó y cuándo fue la última vez.
+
+En modo `gpio` no hay veredicto: entre la decisión y el pin no hay nadie que
+pueda faltar.
+
 ## "Visto" y "Posponer", por alerta y en el backend
 
 "Descartar" escondía **todas** las alertas cinco minutos y sólo en ese
