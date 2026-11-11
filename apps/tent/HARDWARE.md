@@ -187,10 +187,10 @@ con cómo se capturaron y las trampas que tiene medirlos.
 |---|---|---|
 | El lazo deja de publicar | el endpoint responde todo apagado pasados 30 s | ✅ |
 | El nodo no alcanza a la Pi | watchdog local, desenergiza a los 60 s | ✅ matando el backend con un relé encendido |
-| El nodo no vuelve solo | `ESP.restart()` a los 5 min sin ningún contacto | ⚠️ sólo compilado; falta verlo en la carpa |
-| El nodo se cuelga | watchdog de tarea del chip a los 90 s | ⚠️ sólo compilado |
-| El nodo deja de consultar y nadie se entera | la Pi anota cada consulta y el panel lo dice | ✅ en tests; es lo que faltó el 2026-11-10 |
-| El nodo se reinicia en bucle | la Pi cuenta sus arranques y avisa | ✅ en tests |
+| El nodo no vuelve solo | `ESP.restart()` a los 5 min sin ningún contacto | ⚠️ grabado el 2026-11-11; sin estrenar |
+| El nodo se cuelga | watchdog de tarea del chip a los 90 s | ⚠️ grabado y **armado** el 2026-11-11 (lo dice el banner); sin estrenar |
+| El nodo deja de consultar y nadie se entera | la Pi anota cada consulta y el panel lo dice | ✅ en vivo el 2026-11-11; es lo que faltó el 2026-11-10 |
+| El nodo se reinicia en bucle | la Pi cuenta sus arranques y avisa | ✅ disparó de verdad el 2026-11-11, con tres arranques del flasheo |
 | Respuesta incompleta | el nodo la descarta entera | ✅ en tests |
 | Nodo reseteado o sin alimentación | pines en alta impedancia + cargas en NO | ✅ |
 | Se cae la alimentación del nodo | **nada** — ningún firmware lo levanta | ❌ pide fuente separada de la JD-VCC |

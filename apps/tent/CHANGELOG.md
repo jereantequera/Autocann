@@ -55,9 +55,21 @@ hay firmware que lo levante.** Por eso HARDWARE.md ahora pide separar la fuente
 del ESP32 de la de la placa de relés, con una fila ❌ propia en la tabla de
 failsafes. Si el próximo arranque dice `brownout`, el arreglo es ése.
 
-El firmware compila para `esp32:esp32:esp32` al 78 % del almacenamiento. **No
-está grabado:** el nodo está en la carpa y las dos placas se distinguen por
-serie antes de tocar nada.
+**Grabado el 2026-11-11**, al 78 % del almacenamiento, y con el diagnóstico de
+la caída cerrado por el camino: alimentado sólo por USB el nodo arranca limpio,
+asocia en 4 s con RSSI -52 y conmuta. O sea que **estaba colgado, no roto** —
+que es exactamente la falla que los dos escalones nuevos levantan solos, y la
+que el firmware viejo no levantaba nunca. El motivo exacto de esa caída se
+perdió con el corte de energía, porque a esta placa no se le llega al USB sin
+cortarle los 5 V primero; el autorreporte es para que la próxima no se pierda.
+
+Dos cosas que conviene saber antes de leer el serie: el banner imprime
+`E (227) task_wdt: esp_task_wdt_init(517): TWDT already initialized` **y eso es
+lo esperado** — el core de Arduino ya inicializó el watchdog, así que el sketch
+cae en `esp_task_wdt_reconfigure()`, y la línea siguiente dice `armado`. Y el
+contador de arranques dispara al grabar, porque grabar es reiniciar: tres
+reinicios en media hora son tres, los haga una falla o los haga una persona.
+Se apaga solo a la media hora.
 
 ## El nodo de relés tenía que poder faltar
 
