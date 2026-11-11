@@ -166,12 +166,16 @@ def register_diagnostics(app, redis_client) -> None:
         Every node that has ever reported, with its current verdict — and,
         apart from them, the one that never reports.
 
-        `relay_node` is not in `nodes` because it cannot fill that shape: no
-        firmware string, no uptime, no heap, no boot reason, because it posts
-        no status and all of those come from a report. A card of seven dashes
-        would say less than the three things that are actually known about it,
-        so Sistema draws it as its own, smaller card. Served here rather than
-        left to the health answer so the nodes section has one source.
+        `relay_node` is not in `nodes` because it does not fill that shape. It
+        posts no status, so what is known about it comes off the query string
+        of its poll — the boot reason, the uptime, the signal, the WiFi
+        retries, and the one thing no report could carry: how long ago it last
+        asked for orders, which is the whole evidence that anything is
+        switching the relays. No firmware string and no free heap, and with
+        firmware from before 2026-11-11 none of it at all. So Sistema draws it
+        as its own card and says which of those two it is looking at. Served
+        here rather than left to the health answer so the nodes section has one
+        source.
         """
         now = int(datetime.now(ARGENTINA_TZ).timestamp())
         try:

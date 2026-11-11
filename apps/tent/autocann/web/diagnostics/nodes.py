@@ -194,6 +194,67 @@ def node_report(status: Optional[Dict], now: int, *, name: str) -> Dict:
 RELAY_NODE_KEY = "relay_node"
 
 
+#: What the node's one-word boot reason means, in the words the sensor node's
+#: `resetReasonName()` uses for the same cases. The relay node sends a slug
+#: instead of the phrase because its report rides a query string; translating
+#: here keeps the two boards saying the same thing on screen without either of
+#: them encoding anything.
+#:
+#: Also the allowlist. `GET /api/outputs/desired` has no authentication, so
+#: anything off that query string is somebody's input until it matches a key in
+#: here: a slug that is not one of these is read as "unknown" rather than put
+#: on the panel.
+BOOT_REASONS = {
+    "poweron": "encendido",
+    "ext": "reset externo",
+    "sw": "se reinició solo por falta de contacto",
+    "panic": "panic",
+    "int_wdt": "watchdog de interrupción",
+    "task_wdt": "watchdog de tarea",
+    "wdt": "watchdog",
+    "brownout": "brownout (cayó la alimentación)",
+    "sdio": "sdio",
+    "unknown": "desconocido",
+}
+
+
+#: Restarts in this long that mean the node is rebooting rather than that it
+#: rebooted. Three in half an hour.
+#:
+#: This is the failure the poll's age cannot see, and the one the self-reboot
+#: added: a node that restarts every five minutes is polling two seconds after
+#: it comes back, so `polling` below would call it healthy forever while the
+#: tent loses control on every cycle. A brownout looks exactly like this.
+REBOOT_LOOP_COUNT = 3
+
+
+REBOOT_LOOP_WINDOW_SECONDS = 1800
+
+
+def relay_node_facts(last_poll: Optional[Dict], now: int) -> Dict:
+    """
+    What the node said about itself on its last poll, bounded and translated.
+
+    All of it `None` with firmware that does not report — which is every board
+    flashed before 2026-11-11 — so every reader has to treat a missing number
+    as "not known" rather than as zero.
+    """
+    poll = last_poll or {}
+    slug = poll.get("boot_reason")
+    if slug not in BOOT_REASONS:
+        slug = "unknown" if slug else None
+    boots = [b for b in (poll.get("boots") or []) if isinstance(b, int)]
+    return {
+        "boot_reason": slug,
+        "boot_reason_label": None if slug is None else BOOT_REASONS[slug],
+        "uptime_seconds": _as_int(poll.get("uptime_seconds")),
+        "rssi": _as_int(poll.get("rssi")),
+        "wifi_reconnects": _as_int(poll.get("wifi_reconnects")),
+        "reboots_recent": sum(1 for b in boots
+                              if now - b <= REBOOT_LOOP_WINDOW_SECONDS),
+    }
+
+
 def relay_node_verdict(last_poll: Optional[Dict], now: int, *, mode: str,
                        name: str, max_age: int = RELAY_NODE_MAX_AGE_SECONDS) -> Optional[Dict]:
     """
@@ -201,10 +262,11 @@ def relay_node_verdict(last_poll: Optional[Dict], now: int, *, mode: str,
     question does not arise.
 
     The sensor node POSTs its own status, so `node_verdict` above can read what
-    it says about itself. The relay node says nothing at all: it only polls
-    `GET /api/outputs/desired` and applies the answer. That poll is the whole
-    of the evidence, which is why it is now recorded, and why this verdict is
-    about an age rather than about a report.
+    it says about itself. The relay node has no report: it only polls
+    `GET /api/outputs/desired`, applies the answer, and tells us about itself
+    on the way past (`relay_node_facts`). That poll is the whole of the
+    evidence, which is why it is recorded, and why this verdict is about an age
+    rather than about a report.
 
     The distinction this exists to draw: every relay state on screen is what
     the loop *asked for*, never what a contact did. While the node is polling
@@ -212,55 +274,76 @@ def relay_node_verdict(last_poll: Optional[Dict], now: int, *, mode: str,
     matter. While it is silent the two are unrelated, and a panel that keeps
     printing the ask is not describing the tent — it is describing itself.
 
+    Each verdict carries its own `headline`, because they do not share one. A
+    silent node is nobody switching the relays; a rebooting one is switching
+    them most of the time, which is a different sentence and a different trip.
+
     `None` in RELAY_MODE_GPIO, where the loop drives its own header: there is
     no poll to be late and nothing between the decision and the pin.
     """
     if mode != RELAY_MODE_REMOTE:
         return None
 
-    at = _as_int((last_poll or {}).get("at"))
+    poll = last_poll or {}
+    at = _as_int(poll.get("at"))
+    verdict = {
+        "node": RELAY_NODE_KEY,
+        "name": name,
+        "last_poll_at": at,
+        "age_seconds": None if at is None else max(0, now - at),
+        "ip": poll.get("ip") or None,
+        **relay_node_facts(poll, now),
+    }
+
     if at is None:
         return {
-            "node": RELAY_NODE_KEY,
-            "name": name,
+            **verdict,
             "state": "never",
             "level": "error",
             "label": "Nunca pidió órdenes",
+            "headline": "Nadie está conmutando los relés",
             "detail": f"«{name}» todavía no consultó qué hacer, así que los relés "
                       "no los está moviendo nadie. Lo que diga el panel de las "
                       "salidas es lo que el lazo pidió, no lo que está pasando.",
-            "last_poll_at": None,
-            "age_seconds": None,
-            "ip": None,
         }
 
-    age = max(0, now - at)
-    ip = (last_poll or {}).get("ip") or None
-
+    age = verdict["age_seconds"]
     if age > max_age:
         return {
-            "node": RELAY_NODE_KEY,
-            "name": name,
+            **verdict,
             "state": "silent",
             "level": "error",
             "label": "Sin contacto",
+            "headline": "Nadie está conmutando los relés",
             "detail": f"«{name}» dejó de pedir órdenes {describe_age(age)} y nadie "
                       "está conmutando los relés. Lo que muestran las salidas es lo "
                       "que el lazo pide, no lo que hay en la carpa: revisá que la "
                       "placa tenga alimentación y WiFi.",
-            "last_poll_at": at,
-            "age_seconds": age,
-            "ip": ip,
         }
 
+    if verdict["reboots_recent"] >= REBOOT_LOOP_COUNT:
+        reason = verdict["boot_reason_label"]
+        return {
+            **verdict,
+            "state": "rebooting",
+            "level": "warn",
+            "label": "Reiniciándose",
+            "headline": "El nodo de relés se está reiniciando solo",
+            "detail": f"«{name}» arrancó {verdict['reboots_recent']} veces en los "
+                      f"últimos {REBOOT_LOOP_WINDOW_SECONDS // 60} minutos. Entre "
+                      "un reinicio y el siguiente consulta bien, así que por la "
+                      "antigüedad de la consulta se ve sano, pero la carpa se queda "
+                      "sin control un rato cada vez."
+                      + (f" Último arranque: {reason}." if reason else ""),
+        }
+
+    uptime = verdict["uptime_seconds"]
     return {
-        "node": RELAY_NODE_KEY,
-        "name": name,
+        **verdict,
         "state": "polling",
         "level": "ok",
         "label": "Conmutando",
-        "detail": f"«{name}» pidió órdenes {describe_age(age)}.",
-        "last_poll_at": at,
-        "age_seconds": age,
-        "ip": ip,
+        "headline": None,
+        "detail": f"«{name}» pidió órdenes {describe_age(age)}."
+                  + (f" De pie desde {describe_age(uptime)}." if uptime else ""),
     }

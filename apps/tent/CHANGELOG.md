@@ -1,5 +1,64 @@
 # Changelog
 
+## El nodo de relés se levanta solo, y cuenta por qué se cayó
+
+Lo de abajo hace visible el apagón; esto es para que no haga falta mirarlo.
+
+El nodo de relés no se cayó sin poder levantarse el 2026-11-10: **nunca estuvo
+programado para levantarse.** Toda su respuesta a perder contacto era abrir los
+relés y seguir consultando, para siempre. Lo que el firmware llamaba
+`WATCHDOG_MS` no reinicia nada — desenergiza y sigue —, no había ningún
+`ESP.restart()` en el sketch, y `connectWifi()` reintentaba `WiFi.begin()` sin
+resetear la radio, que es justo lo que hay que hacer cuando la station queda
+trabada. Peor: salía por la primera línea si `WiFi.status()` decía
+`WL_CONNECTED`, aunque la IP fuera 0.0.0.0. Un nodo "conectado" para siempre,
+sin red.
+
+Ahora hay tres escalones, de lo barato a lo caro:
+
+| Cuándo | Qué pasa |
+|---|---|
+| 60 s sin consulta buena | se abren los relés (como antes) |
+| 5 min sin **ningún** contacto | `ESP.restart()` |
+| 90 s sin alimentar el loop | lo reinicia el watchdog de tarea del chip |
+
+El segundo mira el último contacto HTTP y no la última consulta buena, y la
+diferencia es la que decide si reiniciarse sirve de algo: si la Pi contesta
+cualquier cosa — un 500, el backend arrancando — el camino de red está sano y
+el roto no es el nodo. El reinicio es para cuando no llega nada.
+
+**Y ahora cuenta de sí mismo.** En la misma consulta, porque no tiene otro
+canal: por qué arrancó, cuánto hace que está de pie, la señal y los reintentos
+de WiFi. Un POST propio sería un segundo temporizador que puede
+desincronizarse del primero, y no desincronizarse es por lo que este nodo sólo
+consulta. Con esos cuatro números la Pi distingue lo que el 2026-11-10 fue
+indistinguible: un nodo sano, uno con la antena al límite, y uno que se
+reinicia en bucle por brownout.
+
+Ese último abrió un agujero que el autoreinicio agranda: un nodo que se
+reinicia cada cinco minutos **vuelve a consultar dos segundos después**, así
+que por antigüedad de la consulta se ve impecable mientras la carpa pierde el
+control en cada vuelta. Así que la Pi le cuenta los arranques, y tres en media
+hora son *«El nodo de relés se está reiniciando solo»* — un aviso, no un error,
+y ubicado por debajo de cualquier sensor roto: el titular se elige por posición
+y lo que se adelanta a un primario caído tiene que ser peor que eso.
+
+En su tarjeta de Sistema aparecen las mismas filas que en la de un nodo normal.
+Con el nodo caído se leen en pasado — «De pie al irse: 2 min» —, porque son de
+su última consulta y no de ahora, y "encendido hace 2 min" sobre una placa que
+se fue hace quince horas dice exactamente lo contrario de lo que pasó. Con
+firmware anterior al 2026-11-11 quedan en `--`, y el pie de la tarjeta dice
+cuál de las dos cosas estás mirando.
+
+Lo que ninguno de los tres escalones arregla: **si se cae la alimentación, no
+hay firmware que lo levante.** Por eso HARDWARE.md ahora pide separar la fuente
+del ESP32 de la de la placa de relés, con una fila ❌ propia en la tabla de
+failsafes. Si el próximo arranque dice `brownout`, el arreglo es ése.
+
+El firmware compila para `esp32:esp32:esp32` al 78 % del almacenamiento. **No
+está grabado:** el nodo está en la carpa y las dos placas se distinguen por
+serie antes de tocar nada.
+
 ## El nodo de relés tenía que poder faltar
 
 El 2026-11-10 a las 18:14 la placa que conmuta los relés se fue de la red. A la
