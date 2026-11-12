@@ -1,6 +1,7 @@
 import { config, state } from './state.js';
 import { formatDate, parseLocalDatetime } from './util.js';
 import { withAlpha } from './stats-math.js';
+import { applyPlan, gapPlan } from './chartgaps.js';
 
 /** A marker further than this from any plotted point is not drawn. */
 const STAGE_MARKER_TOLERANCE_SECONDS = 12 * 3600;
@@ -78,9 +79,11 @@ function baseOptions(p) {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        parsing: false, normalized: true, // points are {x: index, y}
         interaction: { mode: 'index', intersect: false },
         plugins: {
             legend: { display: false },
+            decimation: { enabled: true, algorithm: 'min-max', samples: 200 }, // keeps each bucket's extremes
             tooltip: {
                 backgroundColor: p.overlay,
                 borderColor: p.hairline,
@@ -110,6 +113,7 @@ function line(label, color, yAxisID, extra = {}) {
         borderWidth: 2,
         tension: 0,
         fill: false,
+        spanGaps: false,
         yAxisID,
         pointRadius: 0,
         pointHoverRadius: 4,
@@ -203,8 +207,7 @@ function initCharts() {
         },
     });
 
-    // The palette is read once per theme, not once per chart, and it changes
-    // only when the attribute does.
+    // The palette is read once per theme change, not once per chart.
     new MutationObserver(() => {
         palette = readPalette();
         paintCharts();
@@ -246,9 +249,7 @@ function paintCharts() {
         ds[1].borderColor = p.outside;
         paintAxis(comparisonChart.options.scales.x); paintAxis(comparisonChart.options.scales.y);
     }
-    [tempHumidityChart, vpdChart, comparisonChart]
-        .filter(Boolean)
-        .forEach(chart => chart.update('none'));
+    [tempHumidityChart, vpdChart, comparisonChart].filter(Boolean).forEach(chart => chart.update('none'));
 }
 
 /**
@@ -258,9 +259,7 @@ function paintCharts() {
  * only notices once something tells it to look again.
  */
 function resizeCharts() {
-    [tempHumidityChart, vpdChart, comparisonChart]
-        .filter(Boolean)
-        .forEach(chart => chart.resize());
+    [tempHumidityChart, vpdChart, comparisonChart].filter(Boolean).forEach(chart => chart.resize());
 }
 
 /**
@@ -303,35 +302,33 @@ function updateHistoricalCharts(data) {
     const sortedData = [...data.data].sort(
         (a, b) => parseLocalDatetime(a.datetime) - parseLocalDatetime(b.datetime));
 
-    const labels = sortedData.map(d => formatDate(d.datetime,
-        { hours: state.hours, interval: state.interval }));
-    const temperatures = sortedData.map(d => d.temperature);
-    const humidities = sortedData.map(d => d.humidity);
-    const targetHumidities = sortedData.map(d => d.target_humidity ?? null);
+    // A hole in the samples becomes a null row, so every line breaks there.
+    const stamps = sortedData.map(d => Math.floor(parseLocalDatetime(d.datetime).getTime() / 1000));
+    const plan = gapPlan(stamps);
+    const points = values => applyPlan(plan, values).map((y, x) => ({ x, y }));
+    const labels = applyPlan(plan, sortedData.map(d => formatDate(d.datetime,
+        { hours: state.hours, interval: state.interval })));
+    const temperatures = points(sortedData.map(d => d.temperature));
+    const humidities = points(sortedData.map(d => d.humidity));
     // The band is about the leaf, so the curve is too; the air value stands in
     // only for rows that have no leaf sensor, as the VPD score does.
-    const vpds = sortedData.map(d => d.leaf_vpd ?? d.vpd);
-    const outsideTemps = sortedData.map(d => d.outside_temperature);
+    const vpds = points(sortedData.map(d => d.leaf_vpd ?? d.vpd));
+    const outsideTemps = points(sortedData.map(d => d.outside_temperature));
 
-    lastPlotted = {
-        labels,
-        timestamps: sortedData.map(d => Math.floor(parseLocalDatetime(d.datetime).getTime() / 1000)),
-    };
+    lastPlotted = { labels, timestamps: applyPlan(plan, stamps, NaN) };
 
     // Rows written before the interval summary existed carry no min/max; the
     // band is hidden rather than drawn as a flat line on top of the average.
-    const tempMins = sortedData.map(d => d.temperature_min ?? null);
-    const tempMaxs = sortedData.map(d => d.temperature_max ?? null);
-    const hasBand = tempMins.some(v => v !== null);
-    const hasTarget = targetHumidities.some(v => v !== null);
+    const hasBand = sortedData.some(d => d.temperature_min != null);
+    const hasTarget = sortedData.some(d => d.target_humidity != null);
 
     const top = tempHumidityChart.data;
     top.labels = labels;
     top.datasets[0].data = temperatures;
     top.datasets[1].data = humidities;
-    top.datasets[2].data = hasTarget ? targetHumidities : [];
-    top.datasets[3].data = hasBand ? tempMins : [];
-    top.datasets[4].data = hasBand ? tempMaxs : [];
+    top.datasets[2].data = hasTarget ? points(sortedData.map(d => d.target_humidity)) : [];
+    top.datasets[3].data = hasBand ? points(sortedData.map(d => d.temperature_min)) : [];
+    top.datasets[4].data = hasBand ? points(sortedData.map(d => d.temperature_max)) : [];
     top.datasets[2].hidden = !hasTarget;
     top.datasets[3].hidden = !hasBand;
     top.datasets[4].hidden = !hasBand;
